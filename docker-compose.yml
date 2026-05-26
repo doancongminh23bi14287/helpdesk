@@ -21,7 +21,8 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uhelpdesk", "-phelpdesk_pass"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 12
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
