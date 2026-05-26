@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: helpdesk_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: helpdesk_db
+      MYSQL_USER: helpdesk
+      MYSQL_PASSWORD: helpdesk_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - helpdesk_db_data:/var/lib/mysql
+      - ./SCHEMA.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    networks:
+      - helpdesk-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uhelpdesk", "-phelpdesk_pass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: helpdesk_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    networks:
+      - helpdesk-net
+
+  backend:
+    build: ./backend
+    container_name: helpdesk_backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./backend/.env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - helpdesk-net
+
+volumes:
+  helpdesk_db_data:
+
+networks:
+  helpdesk-net:
+    driver: bridge
