@@ -23,35 +23,25 @@ VALID_TRANSITIONS = {
 }
 
 
-def _get_ticket_in_scope(ticket_id: int, db: Session, user: User) -> Ticket:
-    """Fetch a ticket, applying scope rules.  Returns 404 if not found/not in scope."""
-    ticket = db.query(Ticket).filter(
-        Ticket.id == ticket_id,
-        Ticket.is_deleted == False,  # noqa: E712
-    ).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+def _get_ticket_in_scope(ticket_id: int, user: User, db: Session) -> Ticket:
+    """Return ticket if user can access it. Raises 404 if not found or out of scope."""
+    base = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.is_deleted == False)
 
     if user.role == "admin":
-        return ticket
-
-    if user.role == "staff":
+        ticket = base.first()
+    elif user.role == "staff":
         assigned = (
             select(StaffOrgAssignment.org_id)
             .where(StaffOrgAssignment.user_id == user.id)
             .scalar_subquery()
         )
-        visible = db.query(Ticket).filter(
-            Ticket.id == ticket_id,
-            Ticket.is_deleted == False,  # noqa: E712
-            (Ticket.org_id.in_(assigned)) | (Ticket.assignee_id == user.id),
+        ticket = base.filter(
+            (Ticket.org_id.in_(assigned)) | (Ticket.assignee_id == user.id)
         ).first()
-        if not visible:
-            raise HTTPException(status_code=404, detail="Ticket not found")
-        return visible
+    else:  # customer
+        ticket = base.filter(Ticket.org_id == user.org_id).first()
 
-    # customer
-    if ticket.org_id != user.org_id:
+    if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
 
@@ -148,7 +138,7 @@ def get_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ticket = _get_ticket_in_scope(ticket_id, db, user)
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
 
     # Fetch replies (customers only see non-internal)
     replies_query = db.query(TicketReply).filter(TicketReply.ticket_id == ticket_id)
@@ -196,7 +186,7 @@ def update_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(require_staff_or_admin),
 ):
-    ticket = _get_ticket_in_scope(ticket_id, db, user)
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
 
     changes = payload.model_dump(exclude_none=True)
 
@@ -265,5 +255,11 @@ def delete_ticket(
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     ticket.is_deleted = True
+    activity = TicketActivity(
+        ticket_id=ticket.id,
+        actor_id=user.id,
+        action="deleted",
+    )
+    db.add(activity)
     db.commit()
     return {"message": "Ticket deleted"}

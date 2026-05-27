@@ -14,6 +14,8 @@ class TicketCreate(BaseModel):
 
 
 class TicketUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: Optional[str] = None
     priority: Optional[str] = None
     assignee_id: Optional[int] = None
