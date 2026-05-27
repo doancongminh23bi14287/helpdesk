@@ -12,6 +12,7 @@ from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
 from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload
 from app.services.auto_assign import find_best_assignee, score_breakdown
+from app.services.notify import create_notification
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -98,6 +99,14 @@ def create_ticket(
                 to_value=str(best_id),
             )
             db.add(assign_activity)
+            create_notification(
+                db,
+                user_id=best_id,
+                title=f"Ticket #{ticket.id} auto-assigned to you",
+                content=ticket.subject,
+                type="assignment",
+                ref_ticket_id=ticket.id,
+            )
 
     db.commit()
     db.refresh(ticket)
@@ -326,6 +335,26 @@ def add_reply(
     )
     db.add(reply_activity)
 
+    # Notify the other party
+    if user.role == "customer" and ticket.assignee_id:
+        create_notification(
+            db,
+            user_id=ticket.assignee_id,
+            title=f"New reply on Ticket #{ticket_id}",
+            content=payload.content[:100],
+            type="reply",
+            ref_ticket_id=ticket_id,
+        )
+    elif user.role != "customer" and ticket.raised_by:
+        create_notification(
+            db,
+            user_id=ticket.raised_by,
+            title=f"New reply on Ticket #{ticket_id}",
+            content=payload.content[:100],
+            type="reply",
+            ref_ticket_id=ticket_id,
+        )
+
     db.commit()
     db.refresh(reply)
     return reply
@@ -356,6 +385,14 @@ def assign_ticket(
         to_value=str(payload.assignee_id),
     )
     db.add(activity)
+    create_notification(
+        db,
+        user_id=payload.assignee_id,
+        title=f"Ticket #{ticket.id} assigned to you",
+        content=ticket.subject,
+        type="assignment",
+        ref_ticket_id=ticket.id,
+    )
     db.commit()
     db.refresh(ticket)
     return ticket
