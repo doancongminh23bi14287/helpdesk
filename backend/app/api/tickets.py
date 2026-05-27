@@ -11,6 +11,7 @@ from app.models.team import StaffOrgAssignment
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
 from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload
+from app.services.auto_assign import find_best_assignee, score_breakdown
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -87,7 +88,6 @@ def create_ticket(
 
     # Auto-assign if no explicit assignee
     if ticket.assignee_id is None:
-        from app.services.auto_assign import find_best_assignee
         best_id = find_best_assignee(ticket, db)
         if best_id:
             ticket.assignee_id = best_id
@@ -340,12 +340,12 @@ def assign_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if user.role == "customer":
+        raise HTTPException(status_code=403, detail="Customers cannot assign tickets")
     ticket = _get_ticket_in_scope(ticket_id, user, db)
     # Admin can assign anyone; staff can only self-assign
     if user.role == "staff" and payload.assignee_id != user.id:
         raise HTTPException(status_code=403, detail="Staff can only self-assign")
-    if user.role == "customer":
-        raise HTTPException(status_code=403, detail="Customers cannot assign tickets")
     old = str(ticket.assignee_id) if ticket.assignee_id else None
     ticket.assignee_id = payload.assignee_id
     activity = TicketActivity(
@@ -370,7 +370,6 @@ def get_assignment_score(
     user: User = Depends(require_admin),
 ):
     ticket = _get_ticket_in_scope(ticket_id, user, db)
-    from app.services.auto_assign import score_breakdown
     return score_breakdown(ticket, db)
 
 
