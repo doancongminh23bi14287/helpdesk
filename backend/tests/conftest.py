@@ -146,3 +146,59 @@ def staff_token(client, staff_user):
     r = client.post("/api/auth/login", json={"email": "staff@test.com", "password": "staff123"})
     assert r.status_code == 200, r.text
     return r.json()["access_token"]
+
+
+@pytest.fixture
+def service(db, client_org):
+    """A saas service belonging to client_org."""
+    from app.models.service import Service
+    svc = Service(org_id=client_org.id, name="Test SaaS", type="saas", status="active")
+    db.add(svc)
+    db.commit()
+    db.refresh(svc)
+    return svc
+
+
+@pytest.fixture
+def second_client_org(db):
+    from app.models.organization import Organization
+    org = Organization(name="Client Org B", code="CLT-TEST-B", status="active")
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    return org
+
+
+@pytest.fixture
+def second_customer_user(db, second_client_org):
+    from app.models.user import User
+    from app.core.security import hash_password
+    user = User(
+        org_id=second_client_org.id,
+        email="customer2@test.com",
+        password_hash=hash_password("cust123"),
+        full_name="Customer Two",
+        role="customer",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def second_customer_token(client, second_customer_user):
+    r = client.post("/api/auth/login", json={"email": "customer2@test.com", "password": "cust123"})
+    assert r.status_code == 200, r.text
+    return r.json()["access_token"]
+
+
+@pytest.fixture
+def staff_assignment(db, staff_user, client_org):
+    """Assign staff_user to client_org via StaffOrgAssignment."""
+    from app.models.team import StaffOrgAssignment
+    assignment = StaffOrgAssignment(user_id=staff_user.id, org_id=client_org.id)
+    db.add(assignment)
+    db.commit()
+    return assignment
