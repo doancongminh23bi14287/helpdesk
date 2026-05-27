@@ -1,0 +1,33 @@
+# backend/app/schemas/user.py
+from pydantic import BaseModel, ConfigDict, EmailStr
+from typing import Optional
+from datetime import datetime
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    role: str = "customer"
+    org_id: int
+    phone: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    full_name: str
+    role: str
+    org_id: int
+    phone: Optional[str] = None
+    is_active: bool
+    created_at: datetime
