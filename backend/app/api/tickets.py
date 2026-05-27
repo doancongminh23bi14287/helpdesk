@@ -10,7 +10,7 @@ from app.models.service import Service
 from app.models.team import StaffOrgAssignment
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
-from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut
+from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -84,6 +84,21 @@ def create_ticket(
         action="created",
     )
     db.add(activity)
+
+    # Auto-assign if no explicit assignee
+    if ticket.assignee_id is None:
+        from app.services.auto_assign import find_best_assignee
+        best_id = find_best_assignee(ticket, db)
+        if best_id:
+            ticket.assignee_id = best_id
+            assign_activity = TicketActivity(
+                ticket_id=ticket.id,
+                actor_id=None,  # system
+                action="auto_assigned",
+                to_value=str(best_id),
+            )
+            db.add(assign_activity)
+
     db.commit()
     db.refresh(ticket)
     return ticket
@@ -314,6 +329,49 @@ def add_reply(
     db.commit()
     db.refresh(reply)
     return reply
+
+
+# ── POST /api/tickets/{id}/assign ────────────────────────────────────────────
+
+@router.post("/{ticket_id}/assign", response_model=TicketOut)
+def assign_ticket(
+    ticket_id: int,
+    payload: TicketAssignPayload,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+    # Admin can assign anyone; staff can only self-assign
+    if user.role == "staff" and payload.assignee_id != user.id:
+        raise HTTPException(status_code=403, detail="Staff can only self-assign")
+    if user.role == "customer":
+        raise HTTPException(status_code=403, detail="Customers cannot assign tickets")
+    old = str(ticket.assignee_id) if ticket.assignee_id else None
+    ticket.assignee_id = payload.assignee_id
+    activity = TicketActivity(
+        ticket_id=ticket.id,
+        actor_id=user.id,
+        action="assigned",
+        from_value=old,
+        to_value=str(payload.assignee_id),
+    )
+    db.add(activity)
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
+# ── GET /api/tickets/{id}/assignment-score ────────────────────────────────────
+
+@router.get("/{ticket_id}/assignment-score")
+def get_assignment_score(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+    from app.services.auto_assign import score_breakdown
+    return score_breakdown(ticket, db)
 
 
 # ── GET /api/tickets/{id}/replies ─────────────────────────────────────────────

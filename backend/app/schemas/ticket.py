@@ -72,6 +72,10 @@ class TicketOut(BaseModel):
     updated_at: datetime
 
 
+class TicketAssignPayload(BaseModel):
+    assignee_id: int
+
+
 class TicketDetailOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
