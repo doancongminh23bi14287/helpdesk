@@ -10,7 +10,7 @@ from app.models.service import Service
 from app.models.team import StaffOrgAssignment
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
-from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut
+from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -263,3 +263,70 @@ def delete_ticket(
     db.add(activity)
     db.commit()
     return {"message": "Ticket deleted"}
+
+
+# ── POST /api/tickets/{id}/replies ────────────────────────────────────────────
+
+@router.post("/{ticket_id}/replies", status_code=201, response_model=TicketReplyOut)
+def add_reply(
+    ticket_id: int,
+    payload: TicketReplyCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+
+    # Customers cannot post internal replies
+    is_internal = payload.is_internal and user.role != "customer"
+
+    reply = TicketReply(
+        ticket_id=ticket_id,
+        author_id=user.id,
+        author_email=user.email,
+        content=payload.content,
+        is_internal=is_internal,
+        source="portal",
+    )
+    db.add(reply)
+
+    # AUTO-REOPEN: if customer replies on Waiting or Resolved, reopen to In Progress
+    if user.role == "customer" and ticket.status in ("Waiting", "Resolved"):
+        old_status = ticket.status
+        ticket.status = "In Progress"
+        reopen_activity = TicketActivity(
+            ticket_id=ticket_id,
+            actor_id=user.id,
+            action="status_change",
+            from_value=old_status,
+            to_value="In Progress",
+            detail="auto-reopened by customer reply",
+        )
+        db.add(reopen_activity)
+
+    # Log replied activity
+    reply_activity = TicketActivity(
+        ticket_id=ticket_id,
+        actor_id=user.id,
+        action="replied",
+    )
+    db.add(reply_activity)
+
+    db.commit()
+    db.refresh(reply)
+    return reply
+
+
+# ── GET /api/tickets/{id}/replies ─────────────────────────────────────────────
+
+@router.get("/{ticket_id}/replies", response_model=List[TicketReplyOut])
+def list_replies(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _get_ticket_in_scope(ticket_id, user, db)  # scope check — 404 if not accessible
+
+    query = db.query(TicketReply).filter(TicketReply.ticket_id == ticket_id)
+    if user.role == "customer":
+        query = query.filter(TicketReply.is_internal == False)  # noqa: E712
+    return query.order_by(TicketReply.created_at.asc()).all()
