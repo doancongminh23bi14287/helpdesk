@@ -250,3 +250,96 @@ def test_soft_delete_customer_forbidden(
 
     r = client.delete(f"/api/tickets/{tid}", headers=auth(customer_token))
     assert r.status_code == 403, r.text
+
+
+def test_soft_delete_staff_forbidden(client, db, staff_token, staff_assignment, service):
+    # staff_assignment gives staff_user access to client_org
+    # Create a ticket in client_org first (use admin_token via fixture... but we need admin_user)
+    # Simpler: create ticket directly in DB
+    from app.models.ticket import Ticket
+    ticket = Ticket(org_id=service.org_id, service_id=service.id, subject="Staff del test", status="Open")
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    r = client.delete(f"/api/tickets/{ticket.id}", headers={"Authorization": f"Bearer {staff_token}"})
+    assert r.status_code == 403
+
+
+def test_update_ticket_out_of_scope_returns_404(client, db, staff_token, second_client_org):
+    # Create a ticket in second_client_org (staff is NOT assigned there)
+    from app.models.ticket import Ticket
+    ticket = Ticket(org_id=second_client_org.id, subject="Other org ticket", status="Open")
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    r = client.put(f"/api/tickets/{ticket.id}", json={"status": "In Progress"},
+                   headers={"Authorization": f"Bearer {staff_token}"})
+    assert r.status_code == 404
+
+
+def test_update_priority_logs_activity(client, db, admin_token, admin_user, client_org, service):
+    # Create ticket
+    from app.models.ticket import Ticket
+    ticket = Ticket(org_id=client_org.id, service_id=service.id, subject="Priority test", status="Open", priority="Medium")
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    r = client.put(f"/api/tickets/{ticket.id}", json={"priority": "High"},
+                   headers={"Authorization": f"Bearer {admin_token}"})
+    assert r.status_code == 200
+    # Check activity logged
+    detail = client.get(f"/api/tickets/{ticket.id}", headers={"Authorization": f"Bearer {admin_token}"})
+    activities = detail.json()["activities"]
+    priority_changes = [a for a in activities if a["action"] == "priority_change"]
+    assert len(priority_changes) == 1
+    assert priority_changes[0]["from_value"] == "Medium"
+    assert priority_changes[0]["to_value"] == "High"
+
+
+def test_update_assignee_logs_activity(client, db, admin_token, admin_user, staff_user, client_org, service):
+    from app.models.ticket import Ticket
+    ticket = Ticket(org_id=client_org.id, service_id=service.id, subject="Assign test", status="Open")
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    r = client.put(f"/api/tickets/{ticket.id}", json={"assignee_id": staff_user.id},
+                   headers={"Authorization": f"Bearer {admin_token}"})
+    assert r.status_code == 200
+    detail = client.get(f"/api/tickets/{ticket.id}", headers={"Authorization": f"Bearer {admin_token}"})
+    activities = detail.json()["activities"]
+    assign_logs = [a for a in activities if a["action"] == "assigned"]
+    assert len(assign_logs) == 1
+    assert assign_logs[0]["to_value"] == str(staff_user.id)
+
+
+def test_create_ticket_default_priority_and_type(client, db, customer_token, client_org, service):
+    r = client.post("/api/tickets",
+                    json={"org_id": client_org.id, "service_id": service.id, "subject": "Defaults test"},
+                    headers={"Authorization": f"Bearer {customer_token}"})
+    assert r.status_code == 201
+    assert r.json()["priority"] == "Medium"
+    assert r.json()["ticket_type"] == "Unspecified"
+
+
+def test_customer_cannot_see_internal_replies(client, db, customer_token, admin_token, customer_user, client_org, service):
+    from app.models.ticket import Ticket, TicketReply
+    ticket = Ticket(org_id=client_org.id, service_id=service.id, subject="Internal reply test",
+                    status="Open", raised_by=customer_user.id)
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    # Add internal reply directly
+    internal_reply = TicketReply(ticket_id=ticket.id, content="Internal note", is_internal=True, source="portal")
+    public_reply = TicketReply(ticket_id=ticket.id, content="Public reply", is_internal=False, source="portal")
+    db.add(internal_reply)
+    db.add(public_reply)
+    db.commit()
+    # Customer GET detail — should only see public reply
+    r = client.get(f"/api/tickets/{ticket.id}", headers={"Authorization": f"Bearer {customer_token}"})
+    assert r.status_code == 200
+    replies = r.json()["replies"]
+    assert len(replies) == 1
+    assert replies[0]["content"] == "Public reply"
+    # Admin sees both
+    r2 = client.get(f"/api/tickets/{ticket.id}", headers={"Authorization": f"Bearer {admin_token}"})
+    assert len(r2.json()["replies"]) == 2
