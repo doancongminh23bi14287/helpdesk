@@ -277,7 +277,7 @@ def add_reply(
     ticket = _get_ticket_in_scope(ticket_id, user, db)
 
     # Customers cannot post internal replies
-    is_internal = payload.is_internal and user.role != "customer"
+    is_internal = (payload.is_internal is True) and (user.role != "customer")
 
     reply = TicketReply(
         ticket_id=ticket_id,

@@ -215,3 +215,36 @@ def test_reply_out_of_scope_returns_404(
         headers={"Authorization": f"Bearer {second_customer_token}"},
     )
     assert r.status_code == 404
+
+
+def test_list_replies_out_of_scope_returns_404(client, db, second_customer_token, client_org, service):
+    """GET /api/tickets/{id}/replies returns 404 if ticket is out of scope."""
+    from app.models.ticket import Ticket
+    ticket = Ticket(org_id=client_org.id, service_id=service.id, subject="Scope test", status="Open")
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    # second_customer belongs to second_client_org, not client_org
+    r = client.get(f"/api/tickets/{ticket.id}/replies",
+                   headers={"Authorization": f"Bearer {second_customer_token}"})
+    assert r.status_code == 404
+
+
+def test_reply_activity_is_logged(client, db, customer_token, customer_user, client_org, service):
+    """Every reply must log a 'replied' TicketActivity."""
+    from app.models.ticket import Ticket, TicketActivity
+    ticket = Ticket(org_id=client_org.id, service_id=service.id, subject="Activity test",
+                    status="Open", raised_by=customer_user.id)
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    r = client.post(f"/api/tickets/{ticket.id}/replies",
+                    json={"content": "Test reply"},
+                    headers={"Authorization": f"Bearer {customer_token}"})
+    assert r.status_code == 201
+    activities = db.query(TicketActivity).filter(
+        TicketActivity.ticket_id == ticket.id,
+        TicketActivity.action == "replied",
+    ).all()
+    assert len(activities) == 1
+    assert activities[0].actor_id == customer_user.id
