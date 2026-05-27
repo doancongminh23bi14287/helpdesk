@@ -1,0 +1,148 @@
+# backend/tests/conftest.py
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+TEST_DB_URL = "mysql+pymysql://helpdesk:helpdesk_pass@127.0.0.1:3307/helpdesk_test"
+engine = create_engine(TEST_DB_URL, pool_pre_ping=True)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def create_tables():
+    from app.database import Base
+    import app.models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def db():
+    """Fresh session per test. Truncates all tables on teardown."""
+    session = TestingSessionLocal()
+    yield session
+    session.close()
+    with engine.connect() as conn:
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        for tbl in _get_sorted_tables():
+            conn.execute(text(f"TRUNCATE TABLE `{tbl}`"))
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+        conn.commit()
+
+
+def _get_sorted_tables():
+    from app.database import Base
+    return [t.name for t in reversed(Base.metadata.sorted_tables)]
+
+
+@pytest.fixture
+def client(db):
+    from app.main import app
+    from app.database import get_db
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+# ── shared data fixtures ──────────────────────────────────────────────────────
+
+@pytest.fixture
+def provider_org(db):
+    from app.models.organization import Organization
+    org = Organization(name="OSD Provider", code="PROVIDER-TEST", status="active")
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    return org
+
+
+@pytest.fixture
+def admin_user(db, provider_org):
+    from app.models.user import User
+    from app.core.security import hash_password
+    user = User(
+        org_id=provider_org.id,
+        email="admin@test.com",
+        password_hash=hash_password("admin123"),
+        full_name="Admin User",
+        role="admin",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def admin_token(client, admin_user):
+    r = client.post("/api/auth/login", json={"email": "admin@test.com", "password": "admin123"})
+    assert r.status_code == 200, r.text
+    return r.json()["access_token"]
+
+
+@pytest.fixture
+def client_org(db):
+    from app.models.organization import Organization
+    org = Organization(name="Client Org A", code="CLT-TEST-A", status="active")
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    return org
+
+
+@pytest.fixture
+def customer_user(db, client_org):
+    from app.models.user import User
+    from app.core.security import hash_password
+    user = User(
+        org_id=client_org.id,
+        email="customer@test.com",
+        password_hash=hash_password("cust123"),
+        full_name="Customer One",
+        role="customer",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def customer_token(client, customer_user):
+    r = client.post("/api/auth/login", json={"email": "customer@test.com", "password": "cust123"})
+    assert r.status_code == 200, r.text
+    return r.json()["access_token"]
+
+
+@pytest.fixture
+def staff_user(db, provider_org):
+    from app.models.user import User
+    from app.core.security import hash_password
+    user = User(
+        org_id=provider_org.id,
+        email="staff@test.com",
+        password_hash=hash_password("staff123"),
+        full_name="Staff One",
+        role="staff",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def staff_token(client, staff_user):
+    r = client.post("/api/auth/login", json={"email": "staff@test.com", "password": "staff123"})
+    assert r.status_code == 200, r.text
+    return r.json()["access_token"]
