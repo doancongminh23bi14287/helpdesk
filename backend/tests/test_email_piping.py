@@ -81,6 +81,12 @@ def test_email_dedup_by_message_id(db, customer_user):
     from app.models.ticket import Ticket
     tickets = db.query(Ticket).filter(Ticket.source == "email").all()
     assert len(tickets) == 1
+    from app.models.notification import EmailLog
+    skipped_log = db.query(EmailLog).filter(
+        EmailLog.action == "skipped",
+        EmailLog.detail == "duplicate message_id",
+    ).first()
+    assert skipped_log is not None
 
 
 def test_email_unknown_sender_uses_provider_org(db):
@@ -135,9 +141,9 @@ def test_email_subject_with_ticket_ref_appends_reply(db, client_org, customer_us
     replies = db.query(TicketReply).filter(TicketReply.ticket_id == ticket.id).all()
     assert len(replies) == 1
     assert replies[0].source == "email"
-    # No new ticket created
-    all_tickets = db.query(Ticket).filter(Ticket.source == "email").all()
-    assert len(all_tickets) == 0
+    # No new ticket created — only the pre-existing one exists
+    all_tickets = db.query(Ticket).all()
+    assert len(all_tickets) == 1
 
 
 def test_email_logged_to_email_log(db, customer_user):

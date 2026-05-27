@@ -65,6 +65,9 @@ def process_inbox(db: Session) -> int:
         _, data = mail.search(None, "UNSEEN")
         uid_list = data[0].split() if data[0] else []
         for uid in uid_list:
+            message_id = None
+            from_email = None
+            subject = None
             try:
                 _, msg_data = mail.fetch(uid, "(RFC822)")
                 raw = msg_data[0][1]
@@ -77,6 +80,8 @@ def process_inbox(db: Session) -> int:
 
                 # Dedup by Message-ID
                 if message_id and db.query(EmailLog).filter(EmailLog.message_id == message_id).first():
+                    _log(db, None, from_email, subject, None, "skipped", "duplicate message_id")
+                    db.commit()
                     mail.store(uid, "+FLAGS", "\\Seen")
                     continue
 
@@ -89,7 +94,13 @@ def process_inbox(db: Session) -> int:
                 else:
                     # Unknown sender — use PROVIDER org
                     provider = db.query(Organization).filter(Organization.code == "PROVIDER").first()
-                    org_id = provider.id if provider else None
+                    if not provider:
+                        _log(db, message_id, from_email, subject, None, "error",
+                             "Unknown sender and PROVIDER org not found")
+                        db.commit()
+                        mail.store(uid, "+FLAGS", "\\Seen")
+                        continue
+                    org_id = provider.id
                     raised_by = None
                     raised_by_email = from_email
 
@@ -114,6 +125,12 @@ def process_inbox(db: Session) -> int:
                         mail.store(uid, "+FLAGS", "\\Seen")
                         processed += 1
                         continue
+                    else:
+                        _log(db, message_id, from_email, subject, None, "error",
+                             f"Referenced ticket #{ref_id} not found")
+                        db.commit()
+                        mail.store(uid, "+FLAGS", "\\Seen")
+                        continue
 
                 # Create new ticket
                 ticket = Ticket(
@@ -134,7 +151,7 @@ def process_inbox(db: Session) -> int:
 
             except Exception as exc:
                 db.rollback()
-                _log(db, None, None, None, None, "error", f"Error processing email: {exc}")
+                _log(db, message_id, from_email, subject, None, "error", f"Error processing email: {exc}")
                 db.commit()
     finally:
         try:
