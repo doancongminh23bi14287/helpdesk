@@ -1,7 +1,7 @@
 # backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth
+from app.api import auth, organizations
 
 app = FastAPI(title="Helpdesk API", version="1.0.0")
 
@@ -14,6 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(organizations.router)
 
 
 @app.get("/health", tags=["system"])
