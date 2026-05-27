@@ -1,6 +1,5 @@
 # backend/app/schemas/auth.py
 from pydantic import BaseModel, ConfigDict, EmailStr
-from typing import Optional
 
 
 class LoginRequest(BaseModel):

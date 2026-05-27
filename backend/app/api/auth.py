@@ -27,14 +27,18 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-def refresh(payload: RefreshRequest):
+def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     try:
         claims = decode_token(payload.refresh_token)
         if claims.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
-        return AccessTokenResponse(access_token=create_access_token({"sub": claims["sub"]}))
-    except JWTError:
+        user_id = int(claims["sub"])
+    except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    return AccessTokenResponse(access_token=create_access_token({"sub": str(user.id)}))
 
 
 @router.get("/me", response_model=MeResponse)
