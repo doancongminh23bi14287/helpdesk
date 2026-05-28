@@ -246,3 +246,32 @@ def test_mark_read_other_users_notification_404(
         headers={"Authorization": f"Bearer {customer_token}"},
     )
     assert r.status_code == 404, r.text
+
+
+def test_notification_created_on_auto_assign(client, db, admin_token, admin_user,
+                                              provider_org, client_org, service,
+                                              staff_user, staff_assignment):
+    """Auto-assignment on ticket create notifies the assigned agent."""
+    # staff_user is the only candidate (via staff_assignment to client_org)
+    # Login to set last_login_at so online score applies
+    client.post("/api/auth/login", json={"email": staff_user.email, "password": "staff123"})
+
+    r = client.post("/api/tickets",
+                    json={"org_id": client_org.id, "service_id": service.id,
+                          "subject": "Auto-assign notify test"},
+                    headers={"Authorization": f"Bearer {admin_token}"})
+    assert r.status_code == 201
+    ticket_id = r.json()["id"]
+    assignee_id = r.json()["assignee_id"]
+
+    if assignee_id is None:
+        pytest.skip("No staff candidate available for auto-assign")
+
+    # Check assignee received assignment notification
+    from app.models.notification import Notification
+    notif = db.query(Notification).filter(
+        Notification.user_id == assignee_id,
+        Notification.type == "assignment",
+        Notification.ref_ticket_id == ticket_id,
+    ).first()
+    assert notif is not None

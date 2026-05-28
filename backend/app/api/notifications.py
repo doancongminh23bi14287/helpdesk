@@ -1,5 +1,5 @@
 # backend/app/api/notifications.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
@@ -49,7 +49,6 @@ def mark_read(
         Notification.user_id == user.id,
     ).first()
     if not notif:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Notification not found")
     notif.is_read = True
     db.commit()

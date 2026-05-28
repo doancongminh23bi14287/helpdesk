@@ -375,24 +375,25 @@ def assign_ticket(
     # Admin can assign anyone; staff can only self-assign
     if user.role == "staff" and payload.assignee_id != user.id:
         raise HTTPException(status_code=403, detail="Staff can only self-assign")
-    old = str(ticket.assignee_id) if ticket.assignee_id else None
+    old_assignee_id = ticket.assignee_id
     ticket.assignee_id = payload.assignee_id
     activity = TicketActivity(
         ticket_id=ticket.id,
         actor_id=user.id,
         action="assigned",
-        from_value=old,
+        from_value=str(old_assignee_id) if old_assignee_id else None,
         to_value=str(payload.assignee_id),
     )
     db.add(activity)
-    create_notification(
-        db,
-        user_id=payload.assignee_id,
-        title=f"Ticket #{ticket.id} assigned to you",
-        content=ticket.subject,
-        type="assignment",
-        ref_ticket_id=ticket.id,
-    )
+    if payload.assignee_id != old_assignee_id:
+        create_notification(
+            db,
+            user_id=payload.assignee_id,
+            title=f"Ticket #{ticket.id} assigned to you",
+            content=ticket.subject,
+            type="assignment",
+            ref_ticket_id=ticket.id,
+        )
     db.commit()
     db.refresh(ticket)
     return ticket
