@@ -40,7 +40,7 @@ def check_sla():
                 already_notified = db.query(Notification).filter(
                     Notification.ref_ticket_id == ticket.id,
                     Notification.type == "sla",
-                    Notification.content.like(f"%{new_state}%"),
+                    Notification.content.like(f"[sla:{new_state}]%"),
                     Notification.created_at >= one_hour_ago,
                 ).first()
 
@@ -50,7 +50,7 @@ def check_sla():
                             db,
                             user_id=ticket.assignee_id,
                             title=f"SLA at risk: Ticket #{ticket.id}",
-                            content=f"Ticket #{ticket.id} is in {new_state} state. "
+                            content=f"[sla:red] Ticket #{ticket.id} is in red state. "
                                     f"{status_info.get('hours_remaining', 0):.1f}h remaining.",
                             type="sla",
                             ref_ticket_id=ticket.id,
@@ -66,7 +66,7 @@ def check_sla():
                                 db,
                                 user_id=admin.id,
                                 title=f"SLA BREACHED: Ticket #{ticket.id}",
-                                content=f"breached",
+                                content=f"[sla:breached] SLA breached on ticket #{ticket.id}.",
                                 type="sla",
                                 ref_ticket_id=ticket.id,
                             )

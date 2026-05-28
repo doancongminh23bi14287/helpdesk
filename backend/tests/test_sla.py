@@ -1,7 +1,7 @@
 # backend/tests/test_sla.py
 """Phase 3 — SLA monitoring tests (TDD: tests first)."""
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -65,7 +65,7 @@ def test_sla_timestamps_computed_on_ticket_create(
 def test_sla_state_green_amber_red_breached_thresholds():
     from app.services.sla_monitor import get_sla_status
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Green: 12h window, 10h left → ~83% remaining
     t_green = SimpleNamespace(
@@ -130,14 +130,14 @@ def test_sla_checker_creates_breach_notification(db, admin_user, client_org):
         db.add(policy)
 
     # Create a ticket with breached SLA (resolution_by in the past)
-    breached_time = datetime.utcnow() - timedelta(hours=1)
+    breached_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
     ticket = Ticket(
         org_id=client_org.id,
         subject="Breached SLA ticket",
         status="Open",
         priority="Medium",
         resolution_by=breached_time,
-        created_at=datetime.utcnow() - timedelta(hours=25),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=25),
     )
     db.add(ticket)
     db.commit()
@@ -193,14 +193,14 @@ def test_sla_dedup_no_double_notify(db, admin_user, client_org):
         db.add(policy)
 
     # Create a ticket with breached SLA
-    breached_time = datetime.utcnow() - timedelta(hours=2)
+    breached_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
     ticket = Ticket(
         org_id=client_org.id,
         subject="Dedup SLA ticket",
         status="Open",
         priority="High",
         resolution_by=breached_time,
-        created_at=datetime.utcnow() - timedelta(hours=10),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=10),
     )
     db.add(ticket)
     db.commit()
