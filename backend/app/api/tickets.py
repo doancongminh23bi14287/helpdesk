@@ -13,6 +13,7 @@ from app.core.deps import get_current_user, require_admin, require_staff_or_admi
 from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload
 from app.services.auto_assign import find_best_assignee, score_breakdown
 from app.services.notify import create_notification
+from app.services.sla_monitor import compute_sla_timestamps, get_sla_status
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -79,6 +80,8 @@ def create_ticket(
     )
     db.add(ticket)
     db.flush()  # get ticket.id without committing
+
+    compute_sla_timestamps(ticket, db)
 
     activity = TicketActivity(
         ticket_id=ticket.id,
@@ -409,6 +412,18 @@ def get_assignment_score(
 ):
     ticket = _get_ticket_in_scope(ticket_id, user, db)
     return score_breakdown(ticket, db)
+
+
+# ── GET /api/tickets/{id}/sla ─────────────────────────────────────────────────
+
+@router.get("/{ticket_id}/sla")
+def get_ticket_sla(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+    return get_sla_status(ticket)
 
 
 # ── GET /api/tickets/{id}/replies ─────────────────────────────────────────────
