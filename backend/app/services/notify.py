@@ -22,18 +22,17 @@ def create_notification(
     )
     db.add(notif)
     db.flush()
-    # Fire-and-forget Socket.IO emit
+    # Fire-and-forget Socket.IO emit (only when called from async context)
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(_emit_notification(user_id, {
-                "id": notif.id,
-                "title": title,
-                "type": type,
-                "ref_ticket_id": ref_ticket_id,
-            }))
-    except Exception:
-        pass  # Socket.IO emit failure must never break the DB write
+        loop = asyncio.get_running_loop()
+        loop.create_task(_emit_notification(user_id, {
+            "id": notif.id,
+            "title": title,
+            "type": type,
+            "ref_ticket_id": ref_ticket_id,
+        }))
+    except RuntimeError:
+        pass  # No running loop (sync route context) — emit skipped, DB write still succeeds
     return notif
 
 
