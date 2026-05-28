@@ -24,3 +24,10 @@ app.include_router(notifications.router)
 @app.get("/health", tags=["system"])
 def health():
     return {"status": "ok"}
+
+
+# Combined ASGI application: socket.io at /socket.io/, FastAPI for everything else
+import socketio as _socketio
+from app.socketio_server import sio as _sio
+
+application = _socketio.ASGIApp(_sio, other_asgi_app=app)
