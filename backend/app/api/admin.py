@@ -1,8 +1,9 @@
 # backend/app/api/admin.py
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime as _dt
 from pydantic import BaseModel, ConfigDict
 from app.database import get_db
 from app.models.user import User
@@ -11,6 +12,8 @@ from app.models.ticket import Ticket, TicketActivity
 from app.models.invoice import Invoice
 from app.core.deps import require_admin
 from app.services.email_piping import process_inbox
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -35,6 +38,23 @@ class SlaPolicyOut(BaseModel):
 class SlaPolicyUpdate(BaseModel):
     response_hours: Optional[float] = None
     resolution_hours: Optional[float] = None
+
+
+class ActivityItem(BaseModel):
+    id: int
+    ticket_id: int
+    description: str
+    created_at: _dt
+
+
+class ActivityResponse(BaseModel):
+    activities: list[ActivityItem]
+
+
+class HealthResponse(BaseModel):
+    overdue_invoices: int
+    sla_breached_tickets: int
+    celery_workers: str
 
 
 _PRIORITY_ORDER = {"Urgent": 0, "High": 1, "Medium": 2, "Low": 3}
@@ -66,7 +86,7 @@ def update_sla_policy(
     return policy
 
 
-@router.get("/activity")
+@router.get("/activity", response_model=ActivityResponse)
 def get_recent_activity(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
@@ -78,10 +98,13 @@ def get_recent_activity(
         .all()
     )
 
+    actor_ids = {a.actor_id for a in activities if a.actor_id is not None}
+    users_by_id = {u.id: u for u in db.query(User).filter(User.id.in_(actor_ids)).all()}
+
     result = []
     for activity in activities:
         if activity.actor_id is not None:
-            actor_user = db.query(User).filter(User.id == activity.actor_id).first()
+            actor_user = users_by_id.get(activity.actor_id)
             actor_display = actor_user.email if actor_user else "System"
         else:
             actor_display = "System"
@@ -119,7 +142,7 @@ def get_recent_activity(
     return {"activities": result}
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 def get_health(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
@@ -138,7 +161,8 @@ def get_health(
         from app.tasks.celery_app import celery_app as _celery_app
         result = _celery_app.control.inspect(timeout=1).ping()
         celery_workers = "running" if result else "stopped"
-    except Exception:
+    except Exception as exc:
+        logger.warning("Celery health check failed: %s", exc)
         celery_workers = "unknown"
 
     return {
