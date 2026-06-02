@@ -30,7 +30,7 @@ def list_items(
 ):
     q = db.query(Item)
     # If no pagination/search params requested, return flat list for backwards compat (active only)
-    if not paginated and search is None and type is None and is_active is None and page == 1 and per_page == 20:
+    if not paginated and search is None and type is None and is_active is None:
         return q.filter(Item.is_active.is_(True)).all()
     # Apply is_active filter: explicit param takes precedence; paginated mode with no param returns all
     if is_active is not None:
