@@ -30,6 +30,7 @@ class Ticket(Base):
     first_responded_at = Column(DateTime)
     resolved_at = Column(DateTime)
     closed_at = Column(DateTime)
+    sla_paused_at = Column(DateTime, nullable=True)
     sla_state = Column(Enum("green", "amber", "red", "breached"), default="green")
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())

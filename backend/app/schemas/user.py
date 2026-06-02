@@ -30,4 +30,10 @@ class UserOut(BaseModel):
     org_id: int
     phone: Optional[str] = None
     is_active: bool
+    must_change_password: bool = False
+    last_login_at: Optional[datetime] = None
     created_at: datetime
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str

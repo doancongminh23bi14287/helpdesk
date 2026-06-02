@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 from app.database import get_db
 from app.models.user import User
-from app.core.security import decode_token
+from app.core.security import decode_token, is_user_blacklisted
+from app.core.redis_client import redis_client
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -21,9 +22,16 @@ def get_current_user(
         user_id = int(claims["sub"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Could not validate credentials")
-    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+
+    # Check blacklist first (fast Redis check before DB)
+    if is_user_blacklisted(user_id, redis_client):
+        raise HTTPException(status_code=401, detail="Account deactivated")
+
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
+        raise HTTPException(status_code=401, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="Account deactivated")
     return user
 
 

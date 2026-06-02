@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, String, Text, DateTime, Enum
+from sqlalchemy import BigInteger, Column, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -15,3 +15,4 @@ class Organization(Base):
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    price_list_id = Column(BigInteger, ForeignKey("price_lists.id", use_alter=True, name="fk_organizations_price_list"), nullable=True)

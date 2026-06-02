@@ -1,11 +1,14 @@
 # backend/app/api/tickets.py
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from typing import List, Optional
+from math import ceil
 
 from app.database import get_db
 from app.models.ticket import Ticket, TicketActivity, TicketReply
+from app.models.organization import Organization
 from app.models.service import Service
 from app.models.team import StaffOrgAssignment
 from app.models.user import User
@@ -16,6 +19,25 @@ from app.services.notify import create_notification
 from app.services.sla_monitor import compute_sla_timestamps, get_sla_status
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
+
+VALID_TICKET_SORT_FIELDS = {"created_at", "updated_at", "priority", "status"}
+
+
+def _enrich_tickets(tickets: list, db: Session):
+    """Attach org/service denormalized fields to each ticket object (in-place)."""
+    org_ids = {t.org_id for t in tickets}
+    svc_ids = {t.service_id for t in tickets if t.service_id}
+    orgs = {o.id: o for o in db.query(Organization).filter(Organization.id.in_(org_ids)).all()}
+    svcs = {s.id: s for s in db.query(Service).filter(Service.id.in_(svc_ids)).all()} if svc_ids else {}
+    for t in tickets:
+        org = orgs.get(t.org_id)
+        svc = svcs.get(t.service_id) if t.service_id else None
+        t.org_name = org.name if org else None
+        t.org_code = org.code if org else None
+        t.service_name = svc.name if svc else None
+        t.service_type = svc.type if svc else None
+        t.service_status = svc.status if svc else None
+    return tickets
 
 VALID_TRANSITIONS = {
     "Open": ["In Progress"],
@@ -118,12 +140,17 @@ def create_ticket(
 
 # ── GET /api/tickets ──────────────────────────────────────────────────────────
 
-@router.get("", response_model=List[TicketOut])
+@router.get("")
 def list_tickets(
     status: Optional[str] = None,
     priority: Optional[str] = None,
     org_id: Optional[int] = None,
     service_id: Optional[int] = None,
+    search: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    sort: str = Query("created_at"),
+    order: str = Query("desc"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -154,7 +181,30 @@ def list_tickets(
     if service_id:
         query = query.filter(Ticket.service_id == service_id)
 
-    return query.order_by(Ticket.created_at.desc()).all()
+    # Search filter
+    if search:
+        term = f"%{search}%"
+        query = query.filter(or_(
+            Ticket.subject.ilike(term),
+            Ticket.ticket_number.ilike(term),
+        ))
+
+    # Sort
+    if sort not in VALID_TICKET_SORT_FIELDS:
+        sort = "created_at"
+    sort_col = getattr(Ticket, sort, Ticket.created_at)
+    query = query.order_by(sort_col.desc() if order == "desc" else sort_col.asc())
+
+    total = query.count()
+    tickets = query.offset((page - 1) * per_page).limit(per_page).all()
+    enriched = _enrich_tickets(tickets, db)
+    return {
+        "items": enriched,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": ceil(total / per_page) if total > 0 else 1,
+    }
 
 
 # ── GET /api/tickets/{id} ─────────────────────────────────────────────────────
@@ -181,11 +231,22 @@ def get_ticket(
         .all()
     )
 
-    # Build response manually (TicketDetailOut uses from_attributes)
+    # Lookup org/service names
+    org = db.query(Organization).filter(Organization.id == ticket.org_id).first()
+    svc = db.query(Service).filter(Service.id == ticket.service_id).first() if ticket.service_id else None
+
     ticket_dict = {
         "id": ticket.id,
         "org_id": ticket.org_id,
+        "org_name": org.name if org else None,
+        "org_code": org.code if org else None,
         "service_id": ticket.service_id,
+        "service_name": svc.name if svc else None,
+        "service_type": svc.type if svc else None,
+        "service_status": svc.status if svc else None,
+        "service_expiry_date": svc.expiry_date if svc else None,
+        "service_monthly_cost": float(svc.monthly_cost) if svc and svc.monthly_cost else None,
+        "service_disk_usage": svc.disk_usage if svc else None,
         "subject": ticket.subject,
         "description": ticket.description,
         "status": ticket.status,
@@ -235,6 +296,18 @@ def update_ticket(
         )
         db.add(activity)
         ticket.status = new_status
+
+        # SLA pause/resume
+        now_utc = datetime.utcnow()
+        if new_status == "Waiting" and ticket.sla_paused_at is None:
+            ticket.sla_paused_at = now_utc
+        elif new_status == "In Progress" and ticket.sla_paused_at is not None:
+            pause_duration = now_utc - ticket.sla_paused_at
+            if ticket.resolution_by:
+                ticket.resolution_by = ticket.resolution_by + pause_duration
+            if ticket.response_by:
+                ticket.response_by = ticket.response_by + pause_duration
+            ticket.sla_paused_at = None
 
     if "priority" in changes:
         old_priority = ticket.priority
@@ -319,6 +392,14 @@ def add_reply(
     # AUTO-REOPEN: if customer replies on Waiting or Resolved, reopen to In Progress
     if user.role == "customer" and ticket.status in ("Waiting", "Resolved"):
         old_status = ticket.status
+        # Resume SLA if coming back from Waiting
+        if old_status == "Waiting" and ticket.sla_paused_at is not None:
+            pause_duration = datetime.utcnow() - ticket.sla_paused_at
+            if ticket.resolution_by:
+                ticket.resolution_by = ticket.resolution_by + pause_duration
+            if ticket.response_by:
+                ticket.response_by = ticket.response_by + pause_duration
+            ticket.sla_paused_at = None
         ticket.status = "In Progress"
         reopen_activity = TicketActivity(
             ticket_id=ticket_id,

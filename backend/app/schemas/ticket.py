@@ -1,7 +1,7 @@
 # backend/app/schemas/ticket.py
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 
 
 class TicketCreate(BaseModel):
@@ -57,7 +57,12 @@ class TicketOut(BaseModel):
 
     id: int
     org_id: int
+    org_name: Optional[str] = None
+    org_code: Optional[str] = None
     service_id: Optional[int] = None
+    service_name: Optional[str] = None
+    service_type: Optional[str] = None
+    service_status: Optional[str] = None
     subject: str
     description: Optional[str] = None
     status: str
@@ -81,7 +86,15 @@ class TicketDetailOut(BaseModel):
 
     id: int
     org_id: int
+    org_name: Optional[str] = None
+    org_code: Optional[str] = None
     service_id: Optional[int] = None
+    service_name: Optional[str] = None
+    service_type: Optional[str] = None
+    service_status: Optional[str] = None
+    service_expiry_date: Optional[date] = None
+    service_monthly_cost: Optional[float] = None
+    service_disk_usage: Optional[str] = None
     subject: str
     description: Optional[str] = None
     status: str

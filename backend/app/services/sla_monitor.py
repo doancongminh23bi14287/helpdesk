@@ -61,7 +61,15 @@ def get_sla_status(ticket: Ticket) -> dict:
 
     # For open tickets
     total_seconds = (resolution_by - created_at).total_seconds()
-    remaining_seconds = (resolution_by - now).total_seconds()
+
+    # If currently paused (status == "Waiting" with sla_paused_at set), the
+    # clock is frozen: treat remaining time as of when the pause started.
+    if ticket.status == "Waiting" and getattr(ticket, "sla_paused_at", None):
+        effective_now = ticket.sla_paused_at
+    else:
+        effective_now = now
+
+    remaining_seconds = (resolution_by - effective_now).total_seconds()
 
     if total_seconds <= 0:
         percent_remaining = 0.0
