@@ -19,6 +19,7 @@ VALID_ITEM_SORT_FIELDS = {"code", "name", "type", "unit_price", "created_at"}
 def list_items(
     search: Optional[str] = Query(None),
     type: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     sort: str = Query("created_at"),
@@ -27,10 +28,16 @@ def list_items(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    q = db.query(Item).filter(Item.is_active.is_(True))
-    # If no pagination/search params requested, return flat list for backwards compat
-    if not paginated and search is None and type is None and page == 1 and per_page == 20:
-        return q.all()
+    q = db.query(Item)
+    # If no pagination/search params requested, return flat list for backwards compat (active only)
+    if not paginated and search is None and type is None and is_active is None and page == 1 and per_page == 20:
+        return q.filter(Item.is_active.is_(True)).all()
+    # Apply is_active filter: explicit param takes precedence; paginated mode with no param returns all
+    if is_active is not None:
+        q = q.filter(Item.is_active == is_active)
+    elif not paginated:
+        # Non-paginated but with other filters: still restrict to active
+        q = q.filter(Item.is_active.is_(True))
     # Paginated path
     if type:
         q = q.filter(Item.type == type)
