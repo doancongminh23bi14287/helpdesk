@@ -2,10 +2,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 from app.database import get_db
 from app.models.user import User
 from app.models.sla import SlaPolicy
+from app.models.ticket import Ticket, TicketActivity
+from app.models.invoice import Invoice
 from app.core.deps import require_admin
 from app.services.email_piping import process_inbox
 
@@ -61,3 +64,85 @@ def update_sla_policy(
     db.commit()
     db.refresh(policy)
     return policy
+
+
+@router.get("/activity")
+def get_recent_activity(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    activities = (
+        db.query(TicketActivity)
+        .order_by(TicketActivity.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    result = []
+    for activity in activities:
+        if activity.actor_id is not None:
+            actor_user = db.query(User).filter(User.id == activity.actor_id).first()
+            actor_display = actor_user.email if actor_user else "System"
+        else:
+            actor_display = "System"
+
+        action = activity.action
+        ticket_id = activity.ticket_id
+
+        if action == "created":
+            description = f"{actor_display} created ticket #{ticket_id}"
+        elif action == "status_change":
+            description = (
+                f"{actor_display} changed ticket #{ticket_id} status "
+                f"from {activity.from_value} to {activity.to_value}"
+            )
+        elif action == "priority_change":
+            description = (
+                f"{actor_display} changed ticket #{ticket_id} priority to {activity.to_value}"
+            )
+        elif action in ("assigned", "auto_assigned"):
+            description = f"{actor_display} assigned ticket #{ticket_id}"
+        elif action == "replied":
+            description = f"{actor_display} replied to ticket #{ticket_id}"
+        else:
+            description = f"{actor_display} updated ticket #{ticket_id}"
+
+        result.append(
+            {
+                "id": activity.id,
+                "ticket_id": ticket_id,
+                "description": description,
+                "created_at": activity.created_at,
+            }
+        )
+
+    return {"activities": result}
+
+
+@router.get("/health")
+def get_health(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    overdue_invoices = (
+        db.query(Invoice).filter(Invoice.status == "overdue").count()
+    )
+
+    sla_breached_tickets = (
+        db.query(Ticket)
+        .filter(Ticket.sla_state == "breached", Ticket.is_deleted == False)
+        .count()
+    )
+
+    try:
+        from app.tasks.celery_app import celery_app as _celery_app
+        result = _celery_app.control.inspect(timeout=1).ping()
+        celery_workers = "running" if result else "stopped"
+    except Exception:
+        celery_workers = "unknown"
+
+    return {
+        "overdue_invoices": overdue_invoices,
+        "sla_breached_tickets": sla_breached_tickets,
+        "celery_workers": celery_workers,
+    }
