@@ -23,6 +23,7 @@ def list_users(
     search: Optional[str] = Query(None),
     role: Optional[str] = Query(None),
     org_id: Optional[int] = Query(None),
+    is_active: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     sort: str = Query("created_at"),
@@ -35,6 +36,8 @@ def list_users(
         q = q.filter(User.role == role)
     if org_id is not None:
         q = q.filter(User.org_id == org_id)
+    if is_active is not None:
+        q = q.filter(User.is_active == is_active)
     if search:
         term = f"%{search}%"
         q = q.filter(or_(User.email.ilike(term), User.full_name.ilike(term)))
