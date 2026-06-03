@@ -109,3 +109,17 @@ class TicketDetailOut(BaseModel):
     updated_at: datetime
     replies: List[TicketReplyOut] = []
     activities: List[TicketActivityOut] = []
+
+
+class AttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_id: Optional[int] = None
+    reply_id: Optional[int] = None
+    file_name: str
+    file_path: str
+    file_size: int
+    mime_type: str
+    uploaded_by: int
+    created_at: datetime

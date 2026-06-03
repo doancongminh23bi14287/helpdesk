@@ -1,6 +1,7 @@
 # backend/app/api/tickets.py
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_
 from typing import List, Optional
@@ -8,15 +9,17 @@ from math import ceil
 
 from app.database import get_db
 from app.models.ticket import Ticket, TicketActivity, TicketReply
+from app.models.attachment import TicketAttachment
 from app.models.organization import Organization
 from app.models.service import Service
 from app.models.team import StaffOrgAssignment
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
-from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload
+from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload, AttachmentOut
 from app.services.auto_assign import find_best_assignee, score_breakdown
 from app.services.notify import create_notification
 from app.services.sla_monitor import compute_sla_timestamps, get_sla_status
+from app.services.file_storage import save_attachment, get_attachment_path
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -585,3 +588,54 @@ def list_replies(
     if user.role == "customer":
         query = query.filter(TicketReply.is_internal == False)  # noqa: E712
     return query.order_by(TicketReply.created_at.asc()).all()
+
+
+# ── POST /api/tickets/{id}/attachments ────────────────────────────────────────
+
+@router.post("/{ticket_id}/attachments", status_code=201, response_model=AttachmentOut)
+async def upload_attachment(
+    ticket_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+    org_id = ticket.org_id
+
+    file_data = await file.read()
+    mime_type = file.content_type or "application/octet-stream"
+    original_name = file.filename or "upload"
+
+    rel_path, file_size = save_attachment(file_data, org_id, original_name, mime_type)
+
+    attachment = TicketAttachment(
+        ticket_id=ticket_id,
+        reply_id=None,
+        file_name=original_name[:255],
+        file_path=rel_path,
+        file_size=file_size,
+        mime_type=mime_type[:100],
+        uploaded_by=user.id,
+    )
+    db.add(attachment)
+    db.commit()
+    db.refresh(attachment)
+    return attachment
+
+
+# ── GET /api/tickets/{id}/attachments ─────────────────────────────────────────
+
+@router.get("/{ticket_id}/attachments", response_model=List[AttachmentOut])
+def list_attachments(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _get_ticket_in_scope(ticket_id, user, db)
+    attachments = (
+        db.query(TicketAttachment)
+        .filter(TicketAttachment.ticket_id == ticket_id)
+        .order_by(TicketAttachment.created_at.asc())
+        .all()
+    )
+    return attachments
