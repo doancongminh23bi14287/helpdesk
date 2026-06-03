@@ -51,7 +51,7 @@ def _enrich_org(org: Organization, db: Session) -> OrganizationOut:
 def list_organizations(
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=500),
     sort: str = Query("created_at"),
     order: str = Query("desc"),
     db: Session = Depends(get_db),
