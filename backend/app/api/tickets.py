@@ -595,6 +595,7 @@ def list_replies(
 async def upload_attachment(
     ticket_id: int,
     file: UploadFile = File(...),
+    reply_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -609,7 +610,7 @@ async def upload_attachment(
 
     attachment = TicketAttachment(
         ticket_id=ticket_id,
-        reply_id=None,
+        reply_id=reply_id,
         file_name=original_name[:255],
         file_path=rel_path,
         file_size=file_size,
