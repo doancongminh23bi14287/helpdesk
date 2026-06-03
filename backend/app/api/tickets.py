@@ -98,6 +98,7 @@ def create_ticket(
         description=payload.description,
         priority=payload.priority,
         ticket_type=payload.ticket_type,
+        assignee_id=payload.assignee_id,
         status="Open",
         source="portal",
         raised_by=user.id,

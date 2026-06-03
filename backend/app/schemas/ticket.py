@@ -11,6 +11,7 @@ class TicketCreate(BaseModel):
     description: Optional[str] = None
     priority: str = "Medium"
     ticket_type: str = "Unspecified"
+    assignee_id: Optional[int] = None
 
 
 class TicketUpdate(BaseModel):
