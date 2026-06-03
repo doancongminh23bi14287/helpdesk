@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.tasks.subscription_checker",
         "app.tasks.expiry_notifier",
         "app.tasks.invoice_tasks",
+        "app.tasks.email_sender_task",
     ],
 )
 

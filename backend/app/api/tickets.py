@@ -135,6 +135,28 @@ def create_ticket(
 
     db.commit()
     db.refresh(ticket)
+
+    # Send email notification (fire and forget — don't block API)
+    try:
+        from app.tasks.email_sender_task import send_email_async
+        org = db.query(Organization).filter(Organization.id == ticket.org_id).first()
+        svc = db.query(Service).filter(Service.id == ticket.service_id).first() if ticket.service_id else None
+        from app import config as _cfg
+        subject = f"[#{ticket.id}] {ticket.subject}"
+        ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
+        body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
+<h2>New Support Ticket #{ticket.id}</h2>
+<table><tr><td><b>Subject</b></td><td>{ticket.subject}</td></tr>
+<tr><td><b>Org</b></td><td>{org.name if org else 'N/A'}</td></tr>
+<tr><td><b>Service</b></td><td>{svc.name if svc else 'N/A'}</td></tr>
+<tr><td><b>Priority</b></td><td>{ticket.priority}</td></tr>
+<tr><td><b>Raised by</b></td><td>{ticket.raised_by_email or 'N/A'}</td></tr>
+</table><p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
+        body_text = f"New ticket #{ticket.id}: {ticket.subject}\nPriority: {ticket.priority}\n{ticket_url}"
+        send_email_async.delay(_cfg.ADMIN_NOTIFICATION_EMAIL, subject, body_html, body_text)
+    except Exception:
+        pass  # email failure must never break ticket creation
+
     return ticket
 
 
@@ -337,6 +359,26 @@ def update_ticket(
 
     db.commit()
     db.refresh(ticket)
+
+    # Email for significant status changes
+    try:
+        if "status" in changes and changes["status"] in ("Resolved", "Closed"):
+            from app.tasks.email_sender_task import send_email_async
+            raised_user = db.query(User).filter(User.id == ticket.raised_by).first() if ticket.raised_by else None
+            to_email = ticket.raised_by_email or (raised_user.email if raised_user else None)
+            if to_email:
+                new_status = changes["status"]
+                ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
+                subject = f"[#{ticket.id}] Status changed to {new_status}"
+                body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
+<h2>Ticket #{ticket.id} — {new_status}</h2>
+<p>Your ticket <strong>{ticket.subject}</strong> status: <strong>{new_status}</strong></p>
+<p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
+                body_text = f"Ticket #{ticket.id} '{ticket.subject}' → {new_status}\n{ticket_url}"
+                send_email_async.delay(to_email, subject, body_html, body_text)
+    except Exception:
+        pass
+
     return ticket
 
 
@@ -441,6 +483,28 @@ def add_reply(
 
     db.commit()
     db.refresh(reply)
+
+    # Email notification for reply
+    try:
+        if not is_internal:
+            from app.tasks.email_sender_task import send_email_async
+            ticket_url = f"http://localhost:5173/tickets/{ticket_id}"
+            subject = f"Re: [#{ticket_id}] {ticket.subject}"
+            body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
+<h2>New Reply on Ticket #{ticket_id}</h2>
+<p><b>{ticket.subject}</b></p>
+<div style="background:#f9fafb;padding:12px;border-left:3px solid #1a56db;margin:16px 0">{payload.content[:500]}</div>
+<p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
+            body_text = f"New reply on #{ticket_id}: {ticket.subject}\n\n{payload.content[:200]}\n{ticket_url}"
+            if user.role == "customer" and ticket.assignee_id:
+                assignee = db.query(User).filter(User.id == ticket.assignee_id).first()
+                if assignee and assignee.email:
+                    send_email_async.delay(assignee.email, subject, body_html, body_text)
+            elif user.role != "customer" and ticket.raised_by_email:
+                send_email_async.delay(ticket.raised_by_email, subject, body_html, body_text)
+    except Exception:
+        pass
+
     return reply
 
 

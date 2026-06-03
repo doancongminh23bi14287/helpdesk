@@ -24,6 +24,6 @@ class EmailLog(Base):
     from_email = Column(String(255))
     subject = Column(String(300))
     ticket_id = Column(BigInteger, ForeignKey("tickets.id"))
-    action = Column(Enum("created", "appended", "skipped", "error"), nullable=False)
+    action = Column(Enum("created", "appended", "skipped", "error", "outbound"), nullable=False)
     detail = Column(String(255))
     processed_at = Column(DateTime, nullable=False, server_default=func.now())
