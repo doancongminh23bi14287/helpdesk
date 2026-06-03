@@ -1,12 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.database import get_db
 from app.models.contact import Contact
 from app.models.organization import Organization
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
+
+
+def _contact_to_out(c: Contact) -> ContactOut:
+    u = c.user
+    return ContactOut(
+        id=c.id, org_id=c.org_id, user_id=c.user_id,
+        name=c.name, email=c.email, phone=c.phone,
+        role=c.role, is_active=c.is_active, created_at=c.created_at,
+        user_email=u.email if u else None,
+        user_full_name=u.full_name if u else None,
+        is_portal_user=u is not None,
+    )
+
+
+class LinkUserPayload(BaseModel):
+    user_id: Optional[int] = None
 
 router = APIRouter(prefix="/api/organizations", tags=["contacts"])
 
@@ -39,7 +56,8 @@ def list_contacts(
 ):
     _get_org_or_404(org_id, db)
     _check_access(org_id, user, db)
-    return db.query(Contact).filter(Contact.org_id == org_id).all()
+    contacts = db.query(Contact).filter(Contact.org_id == org_id).all()
+    return [_contact_to_out(c) for c in contacts]
 
 
 @router.post("/{org_id}/contacts", response_model=ContactOut)
@@ -54,7 +72,7 @@ def create_contact(
     db.add(contact)
     db.commit()
     db.refresh(contact)
-    return contact
+    return _contact_to_out(contact)
 
 
 @router.put("/{org_id}/contacts/{contact_id}", response_model=ContactOut)
@@ -74,7 +92,35 @@ def update_contact(
         setattr(contact, k, v)
     db.commit()
     db.refresh(contact)
-    return contact
+    return _contact_to_out(contact)
+
+
+@router.put("/{org_id}/contacts/{contact_id}/link-user", response_model=ContactOut)
+def link_user_to_contact(
+    org_id: int,
+    contact_id: int,
+    payload: LinkUserPayload,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id, Contact.org_id == org_id
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    if payload.user_id is not None:
+        target_user = db.query(User).filter(User.id == payload.user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        # Unlink this user_id from any other contact first
+        db.query(Contact).filter(
+            Contact.user_id == payload.user_id,
+            Contact.id != contact_id,
+        ).update({"user_id": None})
+    contact.user_id = payload.user_id
+    db.commit()
+    db.refresh(contact)
+    return _contact_to_out(contact)
 
 
 @router.delete("/{org_id}/contacts/{contact_id}", status_code=204)

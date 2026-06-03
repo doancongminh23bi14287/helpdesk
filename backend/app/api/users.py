@@ -6,6 +6,7 @@ from typing import List, Optional
 from math import ceil
 from app.database import get_db
 from app.models.user import User
+from app.models.contact import Contact
 from app.models.login_history import LoginHistory
 from app.core.deps import require_admin
 from app.core.security import hash_password, blacklist_user_tokens, remove_user_from_blacklist
@@ -46,9 +47,21 @@ def list_users(
     sort_col = getattr(User, sort, User.created_at)
     q = q.order_by(sort_col.desc() if order == "desc" else sort_col.asc())
     total = q.count()
-    items = q.offset((page - 1) * per_page).limit(per_page).all()
+    users_page = q.offset((page - 1) * per_page).limit(per_page).all()
+    user_ids = [u.id for u in users_page]
+    contact_map = {}
+    if user_ids:
+        linked = db.query(Contact).filter(Contact.user_id.in_(user_ids)).all()
+        contact_map = {c.user_id: c for c in linked}
+    out_items = []
+    for u in users_page:
+        c = contact_map.get(u.id)
+        obj = UserOut.model_validate(u)
+        obj.linked_contact_id = c.id if c else None
+        obj.linked_contact_name = c.name if c else None
+        out_items.append(obj)
     return {
-        "items": [UserOut.model_validate(u) for u in items],
+        "items": out_items,
         "total": total,
         "page": page,
         "per_page": per_page,

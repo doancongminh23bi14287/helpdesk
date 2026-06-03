@@ -33,6 +33,8 @@ class UserOut(BaseModel):
     must_change_password: bool = False
     last_login_at: Optional[datetime] = None
     created_at: datetime
+    linked_contact_id: Optional[int] = None
+    linked_contact_name: Optional[str] = None
 
 
 class ResetPasswordRequest(BaseModel):

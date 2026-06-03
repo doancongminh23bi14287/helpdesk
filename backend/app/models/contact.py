@@ -1,4 +1,5 @@
 from sqlalchemy import BigInteger, Column, String, DateTime, Enum, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -8,6 +9,7 @@ class Contact(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     org_id = Column(BigInteger, ForeignKey("organizations.id"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(200), nullable=False)
     email = Column(String(255))
     phone = Column(String(50))
@@ -15,3 +17,5 @@ class Contact(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", foreign_keys=[user_id], lazy="joined")

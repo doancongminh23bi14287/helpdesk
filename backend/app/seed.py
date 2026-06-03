@@ -239,7 +239,7 @@ def seed() -> None:
         )
 
         # DUC-THANH contact
-        get_or_create_contact(
+        duc_thanh_contact = get_or_create_contact(
             session,
             org_id=duc_thanh_org.id,
             email="lminhdc.23bi14287@usth.edu.vn",
@@ -249,7 +249,7 @@ def seed() -> None:
         )
 
         # DUC-THANH customer user
-        get_or_create_user(
+        duc_thanh_user = get_or_create_user(
             session,
             email="thuan@duc-thanh.vn",
             password="customer123",
@@ -257,9 +257,12 @@ def seed() -> None:
             role="customer",
             org_id=duc_thanh_org.id,
         )
+        if duc_thanh_contact.user_id is None:
+            duc_thanh_contact.user_id = duc_thanh_user.id
+            session.flush()
 
         # ALOHA-VN contact
-        get_or_create_contact(
+        aloha_contact = get_or_create_contact(
             session,
             org_id=aloha_vn_org.id,
             email="acm12112005@gmail.com",
@@ -269,7 +272,7 @@ def seed() -> None:
         )
 
         # ALOHA-VN customer user
-        get_or_create_user(
+        aloha_user = get_or_create_user(
             session,
             email="tan@aloha-vn.vn",
             password="customer123",
@@ -277,6 +280,9 @@ def seed() -> None:
             role="customer",
             org_id=aloha_vn_org.id,
         )
+        if aloha_contact.user_id is None:
+            aloha_contact.user_id = aloha_user.id
+            session.flush()
 
         # ------------------------------------------------------------------
         # Items (service catalog)
