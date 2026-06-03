@@ -107,6 +107,24 @@ def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = No
         send_email(creator_email, creator_subject, creator_html, creator_text, db=db)
 
 
+def bg_notify_new_ticket(ticket_id: int, org_name: str, service_name: str):
+    """Background-task wrapper — creates its own DB session."""
+    from app.database import SessionLocal
+    from app.models.ticket import Ticket
+    db = SessionLocal()
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if ticket:
+            notify_new_ticket(ticket, org_name=org_name, service_name=service_name, db=db)
+    finally:
+        db.close()
+
+
+def bg_send_email(to: str, subject: str, body_html: str, body_text: str = None):
+    """Background-task wrapper for a one-off email."""
+    send_email(to, subject, body_html, body_text)
+
+
 def notify_ticket_reply(ticket, reply_content: str, sender_role: str, to_email: str, db: Session = None):
     """Send reply notification to the other party."""
     if not to_email:

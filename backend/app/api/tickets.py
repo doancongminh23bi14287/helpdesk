@@ -1,6 +1,6 @@
 # backend/app/api/tickets.py
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, File, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_
@@ -79,6 +79,7 @@ def _get_ticket_in_scope(ticket_id: int, user: User, db: Session) -> Ticket:
 @router.post("", status_code=201, response_model=TicketOut)
 def create_ticket(
     payload: TicketCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -140,16 +141,14 @@ def create_ticket(
     db.commit()
     db.refresh(ticket)
 
-    # Send email notifications async (fire and forget — don't block API)
+    # Send email notifications in background (fire and forget — don't block API)
     try:
-        from app.tasks.email_sender_task import notify_new_ticket_async
+        from app.services.email_sender import bg_notify_new_ticket
         org = db.query(Organization).filter(Organization.id == ticket.org_id).first()
         svc = db.query(Service).filter(Service.id == ticket.service_id).first() if ticket.service_id else None
-        notify_new_ticket_async.delay(
+        background_tasks.add_task(
+            bg_notify_new_ticket,
             ticket.id,
-            ticket.subject,
-            ticket.priority,
-            ticket.raised_by_email,
             org.name if org else None,
             svc.name if svc else None,
         )
@@ -295,6 +294,7 @@ def get_ticket(
 def update_ticket(
     ticket_id: int,
     payload: TicketUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_staff_or_admin),
 ):
@@ -365,9 +365,8 @@ def update_ticket(
     # Email for significant status changes
     try:
         if "status" in changes and changes["status"] in ("Resolved", "Closed"):
-            from app.tasks.email_sender_task import send_email_async
-            raised_user = db.query(User).filter(User.id == ticket.raised_by).first() if ticket.raised_by else None
-            to_email = ticket.raised_by_email or (raised_user.email if raised_user else None)
+            from app.services.email_sender import bg_send_email
+            to_email = ticket.raised_by_email
             if to_email:
                 new_status = changes["status"]
                 ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
@@ -377,7 +376,7 @@ def update_ticket(
 <p>Your ticket <strong>{ticket.subject}</strong> status: <strong>{new_status}</strong></p>
 <p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
                 body_text = f"Ticket #{ticket.id} '{ticket.subject}' → {new_status}\n{ticket_url}"
-                send_email_async.delay(to_email, subject, body_html, body_text)
+                background_tasks.add_task(bg_send_email, to_email, subject, body_html, body_text)
     except Exception:
         pass
 
@@ -415,6 +414,7 @@ def delete_ticket(
 def add_reply(
     ticket_id: int,
     payload: TicketReplyCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -489,7 +489,7 @@ def add_reply(
     # Email notification for reply
     try:
         if not is_internal:
-            from app.tasks.email_sender_task import send_email_async
+            from app.services.email_sender import bg_send_email
             ticket_url = f"http://localhost:5173/tickets/{ticket_id}"
             subject = f"Re: [#{ticket_id}] {ticket.subject}"
             body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
@@ -501,9 +501,9 @@ def add_reply(
             if user.role == "customer" and ticket.assignee_id:
                 assignee = db.query(User).filter(User.id == ticket.assignee_id).first()
                 if assignee and assignee.email:
-                    send_email_async.delay(assignee.email, subject, body_html, body_text)
+                    background_tasks.add_task(bg_send_email, assignee.email, subject, body_html, body_text)
             elif user.role != "customer" and ticket.raised_by_email:
-                send_email_async.delay(ticket.raised_by_email, subject, body_html, body_text)
+                background_tasks.add_task(bg_send_email, ticket.raised_by_email, subject, body_html, body_text)
     except Exception:
         pass
 
