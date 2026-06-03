@@ -61,5 +61,5 @@ def download_attachment(
         path=str(abs_path),
         filename=attachment.file_name,
         media_type=attachment.mime_type,
-        headers={"Content-Disposition": f'attachment; filename="{attachment.file_name}"'},
+        content_disposition_type="attachment",
     )
