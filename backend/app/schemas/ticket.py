@@ -73,6 +73,8 @@ class TicketOut(BaseModel):
     raised_by: Optional[int] = None
     raised_by_email: Optional[str] = None
     assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
+    assignee_email: Optional[str] = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -105,6 +107,8 @@ class TicketDetailOut(BaseModel):
     raised_by: Optional[int] = None
     raised_by_email: Optional[str] = None
     assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
+    assignee_email: Optional[str] = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime

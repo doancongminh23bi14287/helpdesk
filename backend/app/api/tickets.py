@@ -255,6 +255,7 @@ def get_ticket(
     # Lookup org/service names
     org = db.query(Organization).filter(Organization.id == ticket.org_id).first()
     svc = db.query(Service).filter(Service.id == ticket.service_id).first() if ticket.service_id else None
+    assignee = db.query(User).filter(User.id == ticket.assignee_id).first() if ticket.assignee_id else None
 
     ticket_dict = {
         "id": ticket.id,
@@ -277,6 +278,8 @@ def get_ticket(
         "raised_by": ticket.raised_by,
         "raised_by_email": ticket.raised_by_email,
         "assignee_id": ticket.assignee_id,
+        "assignee_name": assignee.full_name if assignee else None,
+        "assignee_email": assignee.email if assignee else None,
         "is_deleted": ticket.is_deleted,
         "created_at": ticket.created_at,
         "updated_at": ticket.updated_at,

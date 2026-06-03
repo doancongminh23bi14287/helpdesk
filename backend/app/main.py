@@ -8,6 +8,7 @@ from app.core.limiter import limiter
 from app.api import auth, organizations, users, tickets, admin, notifications, services, contacts, addresses, items, price_lists, subscription_plans, subscriptions
 from app.api import invoices as invoices_module
 from app.api.attachments import router as attachments_router
+from app.api.transfer_requests import router as transfer_requests_router
 
 app = FastAPI(title="Helpdesk API", version="1.0.0")
 
@@ -39,6 +40,7 @@ app.include_router(subscriptions.router)
 app.include_router(invoices_module.router)
 app.include_router(invoices_module.admin_router)
 app.include_router(attachments_router)
+app.include_router(transfer_requests_router)
 
 
 @app.get("/health", tags=["system"])

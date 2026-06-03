@@ -12,6 +12,7 @@ from app.models.address import Address
 from app.models.invoice import Invoice, InvoiceLine, InvoiceNumberSeq
 from app.models.login_history import LoginHistory
 from app.models.attachment import TicketAttachment
+from app.models.transfer_request import TicketTransferRequest
 
 __all__ = [
     "Organization", "User",
@@ -26,4 +27,5 @@ __all__ = [
     "Invoice", "InvoiceLine", "InvoiceNumberSeq",
     "LoginHistory",
     "TicketAttachment",
+    "TicketTransferRequest",
 ]
