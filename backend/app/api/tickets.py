@@ -140,24 +140,19 @@ def create_ticket(
     db.commit()
     db.refresh(ticket)
 
-    # Send email notification (fire and forget — don't block API)
+    # Send email notifications async (fire and forget — don't block API)
     try:
-        from app.tasks.email_sender_task import send_email_async
+        from app.tasks.email_sender_task import notify_new_ticket_async
         org = db.query(Organization).filter(Organization.id == ticket.org_id).first()
         svc = db.query(Service).filter(Service.id == ticket.service_id).first() if ticket.service_id else None
-        from app import config as _cfg
-        subject = f"[#{ticket.id}] {ticket.subject}"
-        ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
-        body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
-<h2>New Support Ticket #{ticket.id}</h2>
-<table><tr><td><b>Subject</b></td><td>{ticket.subject}</td></tr>
-<tr><td><b>Org</b></td><td>{org.name if org else 'N/A'}</td></tr>
-<tr><td><b>Service</b></td><td>{svc.name if svc else 'N/A'}</td></tr>
-<tr><td><b>Priority</b></td><td>{ticket.priority}</td></tr>
-<tr><td><b>Raised by</b></td><td>{ticket.raised_by_email or 'N/A'}</td></tr>
-</table><p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
-        body_text = f"New ticket #{ticket.id}: {ticket.subject}\nPriority: {ticket.priority}\n{ticket_url}"
-        send_email_async.delay(_cfg.ADMIN_NOTIFICATION_EMAIL, subject, body_html, body_text)
+        notify_new_ticket_async.delay(
+            ticket.id,
+            ticket.subject,
+            ticket.priority,
+            ticket.raised_by_email,
+            org.name if org else None,
+            svc.name if svc else None,
+        )
     except Exception:
         pass  # email failure must never break ticket creation
 

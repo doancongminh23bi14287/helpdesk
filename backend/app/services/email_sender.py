@@ -65,26 +65,46 @@ def _log(db: Session, to: str, subject: str, ticket_id, action: str, detail: str
 
 
 def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = None):
-    """Send new ticket notification to admin."""
-    subject = f"[#{ticket.id}] {ticket.subject}"
+    """Send new ticket notification to admin AND confirmation to creator."""
     ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
-    body_html = f"""
-<html><body style="font-family:Arial,sans-serif;color:#333">
+
+    # — Admin notification —
+    admin_subject = f"[Ticket #{ticket.id}] {ticket.subject}"
+    admin_html = f"""
+<html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px">
 <h2 style="color:#1a56db">New Support Ticket #{ticket.id}</h2>
-<table style="border-collapse:collapse;width:100%">
-  <tr><td style="padding:8px;font-weight:bold;width:140px">Subject</td><td style="padding:8px">{ticket.subject}</td></tr>
-  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold">Organization</td><td style="padding:8px">{org_name or 'N/A'}</td></tr>
-  <tr><td style="padding:8px;font-weight:bold">Service</td><td style="padding:8px">{service_name or 'N/A'}</td></tr>
-  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold">Priority</td><td style="padding:8px">{ticket.priority}</td></tr>
+<table style="border-collapse:collapse;width:100%;margin-bottom:16px">
+  <tr><td style="padding:8px;font-weight:bold;width:140px;border-bottom:1px solid #e5e7eb">Subject</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.subject}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Organization</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{org_name or 'N/A'}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Service</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{service_name or 'N/A'}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Priority</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.priority}</td></tr>
   <tr><td style="padding:8px;font-weight:bold">Raised by</td><td style="padding:8px">{ticket.raised_by_email or 'N/A'}</td></tr>
 </table>
-<p style="margin-top:16px">
-  <a href="{ticket_url}" style="background:#1a56db;color:white;padding:8px 16px;text-decoration:none;border-radius:4px">View Ticket</a>
-</p>
+<a href="{ticket_url}" style="background:#1a56db;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block">View &amp; Assign Ticket</a>
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System</p>
 </body></html>"""
-    body_text = f"New ticket #{ticket.id}: {ticket.subject}\nOrg: {org_name}\nPriority: {ticket.priority}\nLink: {ticket_url}"
-    send_email(config.ADMIN_NOTIFICATION_EMAIL, subject, body_html, body_text, db=db)
+    admin_text = f"New ticket #{ticket.id}: {ticket.subject}\nOrg: {org_name}\nService: {service_name}\nPriority: {ticket.priority}\nRaised by: {ticket.raised_by_email}\n\nView: {ticket_url}"
+    send_email(config.ADMIN_NOTIFICATION_EMAIL, admin_subject, admin_html, admin_text, db=db)
+
+    # — Creator confirmation —
+    creator_email = ticket.raised_by_email
+    if creator_email and creator_email != config.ADMIN_NOTIFICATION_EMAIL:
+        creator_subject = f"[Ticket #{ticket.id}] Yêu cầu hỗ trợ đã được tiếp nhận"
+        creator_html = f"""
+<html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px">
+<h2 style="color:#1a56db">Yêu cầu hỗ trợ #{ticket.id} đã được tiếp nhận</h2>
+<p>Cảm ơn bạn đã liên hệ. Đội ngũ hỗ trợ của chúng tôi sẽ phản hồi sớm nhất có thể.</p>
+<table style="border-collapse:collapse;width:100%;margin:16px 0">
+  <tr><td style="padding:8px;font-weight:bold;width:140px;border-bottom:1px solid #e5e7eb">Tiêu đề</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.subject}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Dịch vụ</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{service_name or 'N/A'}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Mức độ</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.priority}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold">Mã ticket</td><td style="padding:8px">#{ticket.id}</td></tr>
+</table>
+<a href="{ticket_url}" style="background:#1a56db;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block">Xem ticket của bạn</a>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System — Nếu bạn không tạo yêu cầu này, vui lòng bỏ qua email.</p>
+</body></html>"""
+        creator_text = f"Yêu cầu hỗ trợ #{ticket.id} đã được tiếp nhận.\nTiêu đề: {ticket.subject}\nMức độ: {ticket.priority}\nXem tại: {ticket_url}"
+        send_email(creator_email, creator_subject, creator_html, creator_text, db=db)
 
 
 def notify_ticket_reply(ticket, reply_content: str, sender_role: str, to_email: str, db: Session = None):
