@@ -55,7 +55,15 @@ jobs:
         run: pytest
       - name: Verify Alembic upgrade
         working-directory: backend
-        run: alembic upgrade head
+        env:
+          DB_URL: mysql+pymysql://helpdesk:helpdesk_pass@127.0.0.1:3307/helpdesk_db
+        run: |
+          # Use a fresh DB separate from helpdesk_test so pytest's Base.metadata.create_all()
+          # never leaves pre-existing tables that break Alembic's CREATE TABLE migrations.
+          mysql -h 127.0.0.1 -P 3307 -u root -proot -e "CREATE DATABASE IF NOT EXISTS helpdesk_db;"
+          mysql -h 127.0.0.1 -P 3307 -u root -proot -e "GRANT ALL PRIVILEGES ON helpdesk_db.* TO 'helpdesk'@'%';"
+          alembic upgrade head
+          alembic current
       - name: Build backend Docker image
         run: docker build -t customerhub-backend-ci ./backend
 
