@@ -1,13 +1,16 @@
 # backend/app/api/users.py
+from typing import List, Optional
+from math import ceil
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from typing import List, Optional
-from math import ceil
+
 from app.database import get_db
 from app.models.user import User
 from app.models.contact import Contact
 from app.models.login_history import LoginHistory
+from app.models.user_session import UserSession
 from app.core.deps import require_admin
 from app.core.security import hash_password, blacklist_user_tokens, remove_user_from_blacklist
 from app.core.redis_client import redis_client
@@ -105,7 +108,13 @@ def update_user(
         was_active = target.is_active
         will_be_active = updates["is_active"]
         if was_active and not will_be_active:
-            # Deactivating: blacklist all tokens immediately
+            # Deactivating: revoke all DB sessions and Redis blacklist
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            db.query(UserSession).filter(
+                UserSession.user_id == user_id,
+                UserSession.is_active.is_(True),
+            ).update({"is_active": False, "revoked_at": now})
             blacklist_user_tokens(user_id, redis_client)
         elif not was_active and will_be_active:
             # Reactivating: clear blacklist
@@ -133,8 +142,14 @@ def reset_password(
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     target.password_hash = hash_password(payload.new_password)
     target.must_change_password = True
+    # Force re-login: revoke all DB sessions and Redis blacklist
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.query(UserSession).filter(
+        UserSession.user_id == user_id,
+        UserSession.is_active.is_(True),
+    ).update({"is_active": False, "revoked_at": now})
     db.commit()
-    # Force re-login by blacklisting existing tokens
     blacklist_user_tokens(user_id, redis_client)
     db.refresh(target)
     return target

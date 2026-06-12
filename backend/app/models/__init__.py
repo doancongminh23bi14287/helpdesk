@@ -1,4 +1,4 @@
-from app.models.item import Item, PriceList, PriceListItem
+from app.models.item import Item
 from app.models.subscription import SubscriptionPlan, Subscription
 from app.models.organization import Organization
 from app.models.user import User
@@ -13,6 +13,11 @@ from app.models.invoice import Invoice, InvoiceLine, InvoiceNumberSeq
 from app.models.login_history import LoginHistory
 from app.models.attachment import TicketAttachment
 from app.models.transfer_request import TicketTransferRequest
+from app.models.email_thread import EmailThread
+from app.models.email_outbox import EmailOutbox
+from app.models.invoice_payment import InvoicePayment
+from app.models.user_session import UserSession
+from app.models.project import Project, ProjectTask, ProjectDocument
 
 __all__ = [
     "Organization", "User",
@@ -22,10 +27,15 @@ __all__ = [
     "Ticket", "TicketReply", "TicketActivity",
     "Notification", "EmailLog",
     "Contact", "Address",
-    "Item", "PriceList", "PriceListItem",
+    "Item",
     "SubscriptionPlan", "Subscription",
     "Invoice", "InvoiceLine", "InvoiceNumberSeq",
     "LoginHistory",
     "TicketAttachment",
     "TicketTransferRequest",
+    "EmailThread",
+    "EmailOutbox",
+    "InvoicePayment",
+    "UserSession",
+    "Project", "ProjectTask", "ProjectDocument",
 ]

@@ -15,7 +15,30 @@ def create_tables():
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    with engine.connect() as conn:
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        for tbl in reversed(Base.metadata.sorted_tables):
+            conn.execute(text(f"DROP TABLE IF EXISTS `{tbl.name}`"))
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+        conn.commit()
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Reset rate-limit counters and Redis blacklist keys before every test."""
+    from app.core.limiter import limiter
+    try:
+        limiter._storage.reset()
+    except Exception:
+        pass
+    # Clear Redis keys that use auto-incremented IDs as part of their name.
+    # These bleed across test sessions because TRUNCATE resets autoincrement,
+    # causing new test records to get the same IDs as previous-session records.
+    from app.core.redis_client import redis_client
+    for pattern in ("blacklist:user:*", "expiry_notif:*", "sla:*"):
+        for key in redis_client.scan_iter(pattern):
+            redis_client.delete(key)
+    yield
 
 
 @pytest.fixture

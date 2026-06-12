@@ -1,7 +1,8 @@
 # backend/app/schemas/notification.py
-from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
 
 
 class NotificationOut(BaseModel):

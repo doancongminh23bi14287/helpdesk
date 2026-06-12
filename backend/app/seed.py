@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from app.database import SessionLocal
 from app.models import Organization, User, ServiceCategory, Service
-from app.models.item import Item, PriceList, PriceListItem
+from app.models.item import Item
 from app.models.contact import Contact
 from app.models.address import Address
 from app.models.subscription import SubscriptionPlan, Subscription
@@ -97,27 +97,6 @@ def get_or_create_item(session, code: str, name: str, item_type: str, unit_price
         session.add(item)
         session.flush()
     return item
-
-
-def get_or_create_price_list(session, name: str) -> PriceList:
-    pl = session.query(PriceList).filter_by(name=name).first()
-    if pl is None:
-        pl = PriceList(name=name, currency="VND", is_active=True)
-        session.add(pl)
-        session.flush()
-    return pl
-
-
-def get_or_create_price_list_item(session, price_list_id: int, item_id: int, unit_price) -> PriceListItem:
-    pli = session.query(PriceListItem).filter_by(price_list_id=price_list_id, item_id=item_id).first()
-    if pli is None:
-        pli = PriceListItem(price_list_id=price_list_id, item_id=item_id, unit_price=unit_price)
-        session.add(pli)
-        session.flush()
-    else:
-        pli.unit_price = unit_price  # update price if re-running
-        session.flush()
-    return pli
 
 
 def get_or_create_contact(session, org_id: int, email: str, name: str, role: str, phone: str) -> Contact:
@@ -319,45 +298,6 @@ def seed() -> None:
         for code, name, item_type, unit_price, unit, description in items_data:
             item = get_or_create_item(session, code=code, name=name, item_type=item_type, unit_price=unit_price, unit=unit, description=description)
             items.append(item)
-
-        # ------------------------------------------------------------------
-        # Price Lists
-        # ------------------------------------------------------------------
-        pl_standard   = get_or_create_price_list(session, "Standard")
-        pl_premium    = get_or_create_price_list(session, "Premium")
-        pl_enterprise = get_or_create_price_list(session, "Enterprise")
-
-        # PriceListItems for each price list
-        for item in items:
-            base = item.unit_price
-            # Standard: base price (1.0x)
-            get_or_create_price_list_item(
-                session,
-                price_list_id=pl_standard.id,
-                item_id=item.id,
-                unit_price=base,
-            )
-            # Premium: 10% off (0.9x)
-            get_or_create_price_list_item(
-                session,
-                price_list_id=pl_premium.id,
-                item_id=item.id,
-                unit_price=Decimal(int(base * Decimal("0.9"))),
-            )
-            # Enterprise: 20% off (0.8x)
-            get_or_create_price_list_item(
-                session,
-                price_list_id=pl_enterprise.id,
-                item_id=item.id,
-                unit_price=Decimal(int(base * Decimal("0.8"))),
-            )
-
-        # ------------------------------------------------------------------
-        # Assign price lists to new orgs
-        # ------------------------------------------------------------------
-        duc_thanh_org.price_list_id = pl_standard.id
-        aloha_vn_org.price_list_id = pl_standard.id
-        session.flush()
 
         # ------------------------------------------------------------------
         # Subscription Plans
@@ -572,8 +512,6 @@ def seed() -> None:
         user_count = session.query(User).count()
         service_count = session.query(Service).count()
         item_count = session.query(Item).count()
-        pl_count = session.query(PriceList).count()
-        pli_count = session.query(PriceListItem).count()
         contact_count = session.query(Contact).count()
         address_count = session.query(Address).count()
         sp_count = session.query(SubscriptionPlan).count()
@@ -586,8 +524,6 @@ def seed() -> None:
         print(f"  Users: {user_count}")
         print(f"  Services: {service_count}")
         print(f"  Items: {item_count}")
-        print(f"  PriceLists: {pl_count}")
-        print(f"  PriceListItems: {pli_count}")
         print(f"  Contacts: {contact_count}")
         print(f"  Addresses: {address_count}")
         print(f"  SubscriptionPlans: {sp_count}")

@@ -1,17 +1,22 @@
 # backend/app/api/admin.py
 import logging
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime as _dt
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
+
 from app.database import get_db
 from app.models.user import User
 from app.models.sla import SlaPolicy
 from app.models.ticket import Ticket, TicketActivity
 from app.models.invoice import Invoice
+from app.models.email_outbox import EmailOutbox
 from app.core.deps import require_admin
+from app.core.limiter import limiter
 from app.services.email_piping import process_inbox
+from app import config
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +24,74 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 @router.post("/email/poll")
+@limiter.limit(config.RATE_LIMIT_ADMIN_EMAIL_POLL)
 def manual_email_poll(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
     count = process_inbox(db)
     return {"processed": count}
+
+
+class EmailOutboxItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email_type: str
+    recipient_email: str
+    recipient_name: Optional[str] = None
+    subject: str
+    status: str
+    retry_count: int
+    max_retries: int
+    last_error: Optional[str] = None
+    related_type: Optional[str] = None
+    related_id: Optional[int] = None
+    created_at: _dt
+    scheduled_at: _dt
+    sent_at: Optional[_dt] = None
+    failed_at: Optional[_dt] = None
+
+
+@router.get("/email-outbox", response_model=dict)
+def list_email_outbox(
+    status: Optional[str] = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    limit = max(1, min(limit, 200))
+    q = db.query(EmailOutbox)
+    if status and status != "all":
+        q = q.filter(EmailOutbox.status == status)
+    total = q.count()
+    rows = q.order_by(EmailOutbox.created_at.desc()).limit(limit).all()
+    return {
+        "items": [EmailOutboxItem.model_validate(row) for row in rows],
+        "total": total,
+        "limit": limit,
+    }
+
+
+@router.post("/email-outbox/{outbox_id}/retry", response_model=EmailOutboxItem)
+def retry_email_outbox(
+    outbox_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    outbox = db.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+    if not outbox:
+        raise HTTPException(status_code=404, detail="Outbox record not found")
+    if outbox.status == "sent":
+        raise HTTPException(status_code=400, detail="Sent email cannot be retried")
+    outbox.status = "pending"
+    outbox.scheduled_at = _dt.utcnow()
+    outbox.failed_at = None
+    outbox.last_error = None
+    db.commit()
+    db.refresh(outbox)
+    return outbox
 
 
 class SlaPolicyOut(BaseModel):
@@ -163,7 +230,7 @@ def get_health(
         celery_workers = "running" if result else "stopped"
     except Exception as exc:
         logger.warning("Celery health check failed: %s", exc)
-        celery_workers = "unknown"
+        celery_workers = "stopped"
 
     return {
         "overdue_invoices": overdue_invoices,

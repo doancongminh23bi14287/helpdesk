@@ -1,6 +1,8 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+
 from app.database import get_db
 from app.models.address import Address
 from app.models.organization import Organization
@@ -20,7 +22,7 @@ def _get_org_or_404(org_id: int, db: Session) -> Organization:
 
 def _check_access(org_id: int, user: User, db: Session):
     if user.role == "customer" and user.org_id != org_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Organization not found")
     if user.role == "staff":
         from app.models.team import StaffOrgAssignment
         assigned = db.query(StaffOrgAssignment).filter(
@@ -28,7 +30,7 @@ def _check_access(org_id: int, user: User, db: Session):
             StaffOrgAssignment.org_id == org_id,
         ).first()
         if not assigned:
-            raise HTTPException(status_code=403, detail="Access denied")
+            raise HTTPException(status_code=404, detail="Organization not found")
 
 
 @router.get("/{org_id}/addresses", response_model=List[AddressOut])

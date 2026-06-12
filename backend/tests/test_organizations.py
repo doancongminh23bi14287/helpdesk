@@ -5,7 +5,9 @@ from app.models.service import Service
 def test_admin_can_list_all_orgs(client, admin_token, client_org, provider_org):
     r = client.get("/api/organizations", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200
-    ids = [o["id"] for o in r.json()]
+    body = r.json()
+    ids = [o["id"] for o in body["items"]]
+    assert body["total"] >= 2
     assert client_org.id in ids
     assert provider_org.id in ids
 
@@ -13,7 +15,7 @@ def test_admin_can_list_all_orgs(client, admin_token, client_org, provider_org):
 def test_customer_sees_only_own_org(client, customer_token, customer_user, client_org, provider_org):
     r = client.get("/api/organizations", headers={"Authorization": f"Bearer {customer_token}"})
     assert r.status_code == 200
-    ids = [o["id"] for o in r.json()]
+    ids = [o["id"] for o in r.json()["items"]]
     assert ids == [client_org.id]
     assert provider_org.id not in ids
 
@@ -50,7 +52,7 @@ def test_get_org_detail(client, admin_token, client_org):
 def test_customer_cannot_view_other_org(client, customer_token, provider_org):
     r = client.get(f"/api/organizations/{provider_org.id}",
                    headers={"Authorization": f"Bearer {customer_token}"})
-    assert r.status_code == 403
+    assert r.status_code == 404
 
 
 def test_admin_can_update_org(client, admin_token, client_org):

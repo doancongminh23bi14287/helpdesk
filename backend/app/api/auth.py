@@ -1,22 +1,56 @@
 # backend/app/api/auth.py
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from jose import JWTError
 from app.database import get_db
 from app.models.user import User
 from app.models.login_history import LoginHistory
+from app.models.organization import Organization
+from app.models.user_session import UserSession
 from app.core.security import (
     verify_password, create_access_token, create_refresh_token,
-    decode_token, hash_password, is_user_blacklisted,
+    decode_token, hash_password, hash_token,
+    blacklist_user_tokens, is_user_blacklisted, remove_user_from_blacklist,
 )
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, oauth2_scheme
 from app.core.redis_client import redis_client
 from app.core.limiter import limiter
+from app import config
+from app.config import REFRESH_TOKEN_EXPIRE_DAYS
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest, AccessTokenResponse,
-    MeResponse, ChangePasswordRequest,
+    MeResponse, ChangePasswordRequest, LogoutRequest, UpdateMeRequest,
 )
+from app.services.avatar_storage import (
+    AvatarValidationError,
+    safe_delete_avatar,
+    validate_and_save_avatar,
+)
+
+
+# Hex-ish palette used for fallback initials background. Mirrors the
+# DashCode-theme COLOR_OPTIONS exposed by the frontend Profile page.
+# The legacy values ("green", "purple", "gray") were dropped when the
+# global palette tightened around amber + neutral slate.
+_ALLOWED_AVATAR_COLORS = {"amber", "orange", "blue", "sky", "rose", "slate"}
+
+
+def _serialize_me(user: User, db: Session) -> dict:
+    """Build the safe profile response — never exposes avatar_path."""
+    org = db.query(Organization).filter(Organization.id == user.org_id).first() if user.org_id else None
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+        "org_id": user.org_id,
+        "must_change_password": bool(user.must_change_password),
+        "phone": user.phone,
+        "org_name": org.name if org else None,
+        "avatar_url": user.avatar_url,
+        "avatar_color": user.avatar_color,
+    }
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -36,11 +70,19 @@ def _record_login(db: Session, request: Request, email: str, status: str, user_i
         db.add(entry)
         db.flush()
     except Exception:
-        pass  # never fail a login because of history logging
+        pass
+
+
+def _revoke_all_sessions(user_id: int, db: Session) -> None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.query(UserSession).filter(
+        UserSession.user_id == user_id,
+        UserSession.is_active.is_(True),
+    ).update({"is_active": False, "revoked_at": now})
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("10/minute")
+@limiter.limit(config.RATE_LIMIT_LOGIN)
 def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
 
@@ -59,59 +101,347 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
         db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    remove_user_from_blacklist(user.id, redis_client)
     user.last_login_at = datetime.now(timezone.utc)
     _record_login(db, request, payload.email, "success", user_id=user.id)
+
+    access_token, jti = create_access_token(user.id, user.role)
+    refresh_token = create_refresh_token(user.id)
+
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent", "")[:255]
+    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    session = UserSession(
+        user_id=user.id,
+        refresh_token_hash=hash_token(refresh_token),
+        current_jti=jti,
+        ip_address=ip,
+        user_agent=ua,
+        expires_at=expires_at,
+        is_active=True,
+    )
+    db.add(session)
     db.commit()
 
-    data = {"sub": str(user.id)}
-    return TokenResponse(
-        access_token=create_access_token(data),
-        refresh_token=create_refresh_token(data),
-    )
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
-    try:
-        claims = decode_token(payload.refresh_token)
-        if claims.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user_id = int(claims["sub"])
-    except (JWTError, KeyError, ValueError):
+@limiter.limit(config.RATE_LIMIT_REFRESH)
+def refresh(request: Request, payload: RefreshRequest, db: Session = Depends(get_db)):
+    token_hash = hash_token(payload.refresh_token)
+    session = db.query(UserSession).filter(
+        UserSession.refresh_token_hash == token_hash,
+    ).first()
+
+    if not session:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    # Blacklist check on refresh too
-    if is_user_blacklisted(user_id, redis_client):
+    # Reuse detection: if session is already revoked, an attacker has the old token
+    if not session.is_active:
+        # Revoke all sessions for this user — token theft assumed
+        _revoke_all_sessions(session.user_id, db)
+        db.commit()
+        raise HTTPException(status_code=401, detail="Refresh token already used")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if session.expires_at < now:
+        session.is_active = False
+        session.revoked_at = now
+        db.commit()
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    # Blacklist check (covers admin-forced deactivation)
+    if is_user_blacklisted(session.user_id, redis_client):
+        session.is_active = False
+        session.revoked_at = now
+        db.commit()
         raise HTTPException(status_code=401, detail="Account deactivated")
 
-    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+    user = db.query(User).filter(User.id == session.user_id, User.is_active.is_(True)).first()
     if not user:
+        session.is_active = False
+        session.revoked_at = now
+        db.commit()
         raise HTTPException(status_code=401, detail="User not found or inactive")
-    return AccessTokenResponse(access_token=create_access_token({"sub": str(user.id)}))
+
+    # Rotate: revoke old session, create new session with fresh tokens
+    session.is_active = False
+    session.revoked_at = now
+
+    new_access_token, new_jti = create_access_token(user.id, user.role)
+    new_refresh_token = create_refresh_token(user.id)
+    new_expires_at = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent", "")[:255]
+
+    new_session = UserSession(
+        user_id=user.id,
+        refresh_token_hash=hash_token(new_refresh_token),
+        current_jti=new_jti,
+        ip_address=ip,
+        user_agent=ua,
+        expires_at=new_expires_at,
+        is_active=True,
+    )
+    db.add(new_session)
+    db.commit()
+
+    return AccessTokenResponse(access_token=new_access_token, refresh_token=new_refresh_token)
 
 
 @router.get("/me", response_model=MeResponse)
-def me(user: User = Depends(get_current_user)):
-    return user
+def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return _serialize_me(user, db)
+
+
+@router.patch("/me", response_model=MeResponse)
+def update_me(
+    payload: UpdateMeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Self-service profile updates.
+
+    Forbidden fields (email, role, org_id, is_active, password_hash) are
+    blocked by the schema's ``extra='forbid'`` — they will trigger 422
+    rather than silently ignored.
+    """
+    changes = payload.model_dump(exclude_unset=True)
+
+    if "full_name" in changes:
+        name = (changes["full_name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="full_name cannot be empty")
+        user.full_name = name[:200]
+
+    if "phone" in changes:
+        phone = changes["phone"]
+        user.phone = phone.strip()[:50] if phone else None
+
+    if "avatar_color" in changes:
+        color = changes["avatar_color"]
+        if color is not None and color not in _ALLOWED_AVATAR_COLORS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"avatar_color must be one of {sorted(_ALLOWED_AVATAR_COLORS)}",
+            )
+        user.avatar_color = color
+
+    db.commit()
+    db.refresh(user)
+    return _serialize_me(user, db)
+
+
+@router.post("/me/avatar", response_model=MeResponse)
+def upload_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Upload a new avatar for the current user."""
+    file_data = file.file.read()
+    try:
+        result = validate_and_save_avatar(
+            file_data=file_data,
+            declared_mime=file.content_type,
+            user_id=user.id,
+        )
+    except AvatarValidationError as err:
+        raise HTTPException(status_code=err.status_code, detail=err.message)
+
+    old_path = user.avatar_path
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    user.avatar_path = result["stored_path"]
+    user.avatar_mime_type = result["mime_type"]
+    user.avatar_size_bytes = result["file_size"]
+    user.avatar_updated_at = now
+    # Public-by-UUID URL so <img src> works without an Authorization header.
+    # The UUID-named filename is unguessable; resolve_path on the server side
+    # blocks path traversal, and a DB lookup ties the URL back to the owning
+    # user before any bytes are served.
+    user.avatar_url = _public_avatar_url(user.id, result["stored_path"], now)
+
+    db.commit()
+
+    if old_path and old_path != result["stored_path"]:
+        safe_delete_avatar(old_path)
+
+    db.refresh(user)
+    return _serialize_me(user, db)
+
+
+@router.delete("/me/avatar", response_model=MeResponse)
+def delete_avatar(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Remove the current user's avatar. ``avatar_color`` is preserved."""
+    old_path = user.avatar_path
+
+    user.avatar_url = None
+    user.avatar_path = None
+    user.avatar_mime_type = None
+    user.avatar_size_bytes = None
+    user.avatar_updated_at = None
+    db.commit()
+
+    if old_path:
+        safe_delete_avatar(old_path)
+
+    db.refresh(user)
+    return _serialize_me(user, db)
+
+
+@router.get("/avatars/{user_id}/{filename}")
+def serve_public_avatar(
+    user_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+):
+    """Stream an avatar by its UUID filename.
+
+    Auth-free so ``<img src>`` works in the browser. Privacy depends on the
+    unguessable UUID filename; the DB row must agree the file belongs to the
+    requested user, and ``resolve_path`` rejects any path-traversal attempt.
+    """
+    from app.services.storage import get_storage_backend
+
+    rel_path = f"avatars/{user_id}/{filename}"
+    user = (
+        db.query(User)
+        .filter(User.id == user_id, User.avatar_path == rel_path)
+        .first()
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+
+    path = get_storage_backend().resolve_path(rel_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Avatar file missing")
+
+    return FileResponse(
+        path,
+        media_type=user.avatar_mime_type or "application/octet-stream",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+def _public_avatar_url(user_id: int, stored_path: str, when) -> str:
+    # stored_path looks like ``avatars/{user_id}/{uuid}.{ext}`` — strip the
+    # ``avatars/{user_id}/`` prefix so the URL only exposes the UUID filename.
+    prefix = f"avatars/{user_id}/"
+    filename = stored_path[len(prefix):] if stored_path.startswith(prefix) else stored_path
+    cache_buster = int(when.timestamp()) if when else 0
+    return f"/api/auth/avatars/{user_id}/{filename}?v={cache_buster}"
 
 
 @router.post("/logout")
-def logout(user: User = Depends(get_current_user)):
+def logout(
+    payload: LogoutRequest | None = Body(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if payload and payload.refresh_token:
+        token_hash = hash_token(payload.refresh_token)
+        session = db.query(UserSession).filter(
+            UserSession.refresh_token_hash == token_hash,
+            UserSession.user_id == user.id,
+            UserSession.is_active.is_(True),
+        ).first()
+        if session:
+            session.is_active = False
+            session.revoked_at = now
+            db.commit()
+    else:
+        db.query(UserSession).filter(
+            UserSession.user_id == user.id,
+            UserSession.is_active.is_(True),
+        ).update({"is_active": False, "revoked_at": now})
+        db.commit()
     return {"message": "Logged out"}
 
 
+@router.get("/sessions")
+def list_sessions(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List the current user's tracked sessions without exposing refresh tokens."""
+    claims = decode_token(token)
+    current_jti = claims.get("jti")
+    sessions = (
+        db.query(UserSession)
+        .filter(UserSession.user_id == user.id)
+        .order_by(UserSession.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": s.id,
+            "ip_address": s.ip_address,
+            "user_agent": s.user_agent,
+            "created_at": s.created_at,
+            "expires_at": s.expires_at,
+            "revoked_at": s.revoked_at,
+            "is_active": s.is_active,
+            "is_current": bool(current_jti and s.current_jti == current_jti),
+        }
+        for s in sessions
+    ]
+
+
+@router.delete("/sessions/{session_id}")
+def revoke_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    session = db.query(UserSession).filter(
+        UserSession.id == session_id,
+        UserSession.user_id == user.id,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.is_active:
+        session.is_active = False
+        session.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.commit()
+    return {"message": "Session revoked"}
+
+
+@router.post("/logout-all")
+def logout_all(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _revoke_all_sessions(user.id, db)
+    db.commit()
+    blacklist_user_tokens(user.id, redis_client)
+    return {"message": "All sessions revoked"}
+
+
 @router.post("/change-password")
+@limiter.limit(config.RATE_LIMIT_CHANGE_PASSWORD)
 def change_password(
+    request: Request,
     payload: ChangePasswordRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Any logged-in user can change their own password."""
+    """Any logged-in user can change their own password. Revokes all sessions."""
     if not verify_password(payload.current_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(payload.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
     current_user.password_hash = hash_password(payload.new_password)
     current_user.must_change_password = False
+    _revoke_all_sessions(current_user.id, db)
+    blacklist_user_tokens(current_user.id, redis_client)
     db.commit()
     return {"message": "Password changed successfully"}

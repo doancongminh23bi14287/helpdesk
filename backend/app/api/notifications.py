@@ -1,11 +1,14 @@
 # backend/app/api/notifications.py
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+
 from app.database import get_db
 from app.models.notification import Notification
 from app.models.user import User
 from app.core.deps import get_current_user
+from app.core.scoping import scope_notifications
 from app.schemas.notification import NotificationOut
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -17,12 +20,9 @@ def list_notifications(
     user: User = Depends(get_current_user),
 ):
     """Return current user's notifications, unread first then by created_at desc."""
-    return (
-        db.query(Notification)
-        .filter(Notification.user_id == user.id)
-        .order_by(Notification.is_read.asc(), Notification.created_at.desc())
-        .all()
-    )
+    q = db.query(Notification)
+    q = scope_notifications(q, user, db)
+    return q.order_by(Notification.is_read.asc(), Notification.created_at.desc()).all()
 
 
 @router.put("/read-all")

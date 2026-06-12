@@ -1,36 +1,22 @@
 # backend/app/api/analytics.py
+import csv
+from io import StringIO
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, case, select
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.invoice import Invoice
 from app.models.organization import Organization
-from app.models.team import StaffOrgAssignment
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.core.deps import get_current_user, require_admin, require_staff_or_admin
+from app.core.deps import require_admin, require_staff_or_admin
+from app.core.scoping import scope_tickets
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
-
-
-def _staff_org_subq(user_id: int):
-    return (
-        select(StaffOrgAssignment.org_id)
-        .where(StaffOrgAssignment.user_id == user_id)
-        .scalar_subquery()
-    )
-
-
-def _apply_ticket_scope(query, user: User):
-    """Limit query to tickets the user is allowed to see."""
-    if user.role == "admin":
-        return query
-    assigned = _staff_org_subq(user.id)
-    return query.filter(Ticket.org_id.in_(assigned))
 
 
 def _parse_date(value: Optional[str]) -> Optional[datetime]:
@@ -61,7 +47,7 @@ def ticket_analytics(
     user: User = Depends(require_staff_or_admin),
 ):
     q = db.query(Ticket).filter(Ticket.is_deleted == False)
-    q = _apply_ticket_scope(q, user)
+    q = scope_tickets(q, user, db)
 
     if from_date:
         q = q.filter(Ticket.created_at >= _parse_date(from_date))
@@ -109,6 +95,44 @@ def ticket_analytics(
     }
 
 
+@router.get("/tickets.csv")
+def ticket_analytics_csv(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    org_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff_or_admin),
+):
+    q = db.query(Ticket).filter(Ticket.is_deleted == False)
+    q = scope_tickets(q, user, db)
+
+    if from_date:
+        q = q.filter(Ticket.created_at >= _parse_date(from_date))
+    if to_date:
+        q = q.filter(Ticket.created_at <= _parse_to_date(to_date))
+    if org_id is not None:
+        q = q.filter(Ticket.org_id == org_id)
+
+    buf = StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "org_id", "status", "priority", "ticket_type", "created_at", "resolved_at"])
+    for t in q.order_by(Ticket.created_at.asc()).all():
+        writer.writerow([
+            t.id,
+            t.org_id,
+            t.status,
+            t.priority,
+            t.ticket_type,
+            t.created_at.isoformat() if t.created_at else "",
+            t.resolved_at.isoformat() if t.resolved_at else "",
+        ])
+    return Response(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="tickets-analytics.csv"'},
+    )
+
+
 # ── GET /api/analytics/sla ────────────────────────────────────────────────────
 
 @router.get("/sla")
@@ -122,7 +146,7 @@ def sla_analytics(
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     q = db.query(Ticket).filter(Ticket.is_deleted == False)
-    q = _apply_ticket_scope(q, user)
+    q = scope_tickets(q, user, db)
 
     if from_date:
         q = q.filter(Ticket.created_at >= _parse_date(from_date))

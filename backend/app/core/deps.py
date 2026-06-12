@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 from app.database import get_db
 from app.models.user import User
+from app.models.user_session import UserSession
 from app.core.security import decode_token, is_user_blacklisted
 from app.core.redis_client import redis_client
 
@@ -20,12 +21,23 @@ def get_current_user(
         if claims.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
         user_id = int(claims["sub"])
+        jti = claims.get("jti")
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Could not validate credentials")
 
-    # Check blacklist first (fast Redis check before DB)
+    # Check Redis blacklist first (fast path for mass revocation)
     if is_user_blacklisted(user_id, redis_client):
         raise HTTPException(status_code=401, detail="Account deactivated")
+
+    # Validate jti against an active session record
+    if jti:
+        active = db.query(UserSession).filter(
+            UserSession.user_id == user_id,
+            UserSession.current_jti == jti,
+            UserSession.is_active.is_(True),
+        ).first()
+        if not active:
+            raise HTTPException(status_code=401, detail="Session revoked or expired")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

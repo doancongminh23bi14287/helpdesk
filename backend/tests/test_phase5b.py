@@ -16,7 +16,7 @@ from app.services.billing import compute_period_end, compute_next_billing_date
 
 
 def test_period_end_monthly_normal():
-    assert compute_period_end(date(2024, 1, 1), "monthly") == date(2024, 1, 31)
+    assert compute_period_end(date(2024, 1, 1), "monthly") == date(2024, 2, 1)
 
 
 def test_period_end_monthly_month_end():
@@ -35,11 +35,11 @@ def test_period_end_monthly_apr_30():
 
 
 def test_period_end_quarterly():
-    assert compute_period_end(date(2024, 1, 1), "quarterly") == date(2024, 3, 31)
+    assert compute_period_end(date(2024, 1, 1), "quarterly") == date(2024, 4, 1)
 
 
 def test_period_end_yearly():
-    assert compute_period_end(date(2024, 1, 1), "yearly") == date(2024, 12, 31)
+    assert compute_period_end(date(2024, 1, 1), "yearly") == date(2025, 1, 1)
 
 
 def test_period_end_invalid_cycle():
@@ -131,10 +131,9 @@ def test_update_plan_deactivate(client, admin_token):
 
 def test_create_subscription(client, admin_token, db, client_org):
     item = _make_item(client, admin_token, "SVC-SUB01")
-    plan = _make_plan(client, admin_token, item["id"], code="PLAN-SUB01")
     r = client.post(
         "/api/subscriptions",
-        json={"org_id": client_org.id, "plan_id": plan["id"],
+        json={"org_id": client_org.id, "plan_id": item["id"],
               "start_date": "2024-01-01"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -142,39 +141,38 @@ def test_create_subscription(client, admin_token, db, client_org):
     data = r.json()
     assert data["status"] == "active"
     assert data["org_id"] == client_org.id
-    assert data["current_period_end"] == "2024-01-31"
+    assert data["item_id"] == item["id"]
+    assert data["subscription_plan_id"] is None
+    assert data["current_period_end"] == "2024-02-01"
 
 
-def test_trial_subscription_created_when_plan_has_trial_days(client, admin_token, db, client_org):
-    item = _make_item(client, admin_token, "SVC-TRIAL01")
-    # Create plan with trial_days=14
-    r = client.post(
-        "/api/subscription-plans",
-        json={"code": "PLAN-TRIAL", "name": "Trial Plan", "item_id": item["id"],
-              "billing_cycle": "monthly", "trial_days": 14},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200
-    plan = r.json()
+def test_subscription_create_stores_due_days_and_tax_rate(client, admin_token, db, client_org):
+    item = _make_item(client, admin_token, "SVC-DUE-TAX01")
 
     r = client.post(
         "/api/subscriptions",
-        json={"org_id": client_org.id, "plan_id": plan["id"],
-              "start_date": "2024-06-01"},
+        json={
+            "org_id": client_org.id,
+            "plan_id": item["id"],
+            "start_date": "2024-06-01",
+            "due_days": 21,
+            "tax_rate": 7.5,
+        },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 201
     data = r.json()
-    assert data["status"] == "trial"
-    assert data["trial_end_date"] == "2024-06-15"  # 14 days after June 1
+    assert data["status"] == "active"
+    assert data["trial_end_date"] is None
+    assert data["due_days"] == 21
+    assert float(data["tax_rate"]) == 7.5
 
 
 def test_cancel_subscription(client, admin_token, db, client_org):
     item = _make_item(client, admin_token, "SVC-CANCEL01")
-    plan = _make_plan(client, admin_token, item["id"], code="PLAN-CANCEL01")
     sub = client.post(
         "/api/subscriptions",
-        json={"org_id": client_org.id, "plan_id": plan["id"],
+        json={"org_id": client_org.id, "plan_id": item["id"],
               "start_date": "2024-01-01"},
         headers={"Authorization": f"Bearer {admin_token}"},
     ).json()
@@ -190,10 +188,9 @@ def test_cancel_subscription(client, admin_token, db, client_org):
 
 def test_cancel_already_cancelled_fails(client, admin_token, db, client_org):
     item = _make_item(client, admin_token, "SVC-CANCEL02")
-    plan = _make_plan(client, admin_token, item["id"], code="PLAN-CANCEL02")
     sub = client.post(
         "/api/subscriptions",
-        json={"org_id": client_org.id, "plan_id": plan["id"],
+        json={"org_id": client_org.id, "plan_id": item["id"],
               "start_date": "2024-01-01"},
         headers={"Authorization": f"Bearer {admin_token}"},
     ).json()
@@ -250,39 +247,20 @@ def test_non_customer_denied_my_endpoint(client, admin_token):
 # Section 4: Price Resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_subscription_uses_org_price_list(client, admin_token, db, client_org):
-    # Create item
+def test_subscription_uses_item_price_and_cycle_discount(client, admin_token, db, client_org):
     item = _make_item(client, admin_token, "SVC-PRICE01")
-    # Create price list with override
-    r = client.post(
-        "/api/price-lists",
-        json={"name": "Test PL", "currency": "VND"},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-    pl = r.json()
-    client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": 400000},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    # Assign price list to org
-    client.put(
-        f"/api/organizations/{client_org.id}/price-list",
-        json={"price_list_id": pl["id"]},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    # Create plan and subscription
-    plan = _make_plan(client, admin_token, item["id"], "PLAN-PRICE01")
     r = client.post(
         "/api/subscriptions",
-        json={"org_id": client_org.id, "plan_id": plan["id"],
-              "start_date": "2024-01-01"},
+        json={
+            "org_id": client_org.id,
+            "plan_id": item["id"],
+            "start_date": "2024-01-01",
+            "billing_cycle": "quarterly",
+        },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 201
-    # unit_price should be the override price, not base price
-    assert float(r.json()["unit_price"]) == 400000.0
+    assert float(r.json()["unit_price"]) == 1425000.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────

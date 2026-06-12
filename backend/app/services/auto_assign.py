@@ -1,10 +1,15 @@
 # backend/app/services/auto_assign.py
+import logging
+import time
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select
 from app.models.user import User
-from app.models.ticket import Ticket, TicketActivity
+from app.models.ticket import Ticket
 from app.models.team import StaffOrgAssignment
+from app.core.redis_client import redis_client
+
+logger = logging.getLogger(__name__)
 
 
 def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
@@ -49,6 +54,7 @@ def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
             "open_count": open_count,
             "resolved_match": resolved_match,
             "online": online,
+            "last_assigned_at": agent.last_assigned_at,
         })
 
     if not rows:
@@ -66,12 +72,54 @@ def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
     return rows
 
 
-def find_best_assignee(ticket: Ticket, db: Session) -> int | None:
-    """Return user_id of highest-scoring staff candidate, or None."""
+def _do_find_best_assignee(ticket: Ticket, db: Session) -> int | None:
+    """Score all candidates and return the winning user_id with deterministic tie-breaking."""
     scores = _compute_scores(ticket, db)
     if not scores:
         return None
-    return max(scores, key=lambda s: s["total_score"])["user_id"]
+
+    max_score = max(s["total_score"] for s in scores)
+    top_candidates = [s for s in scores if s["total_score"] == max_score]
+
+    if len(top_candidates) == 1:
+        winner = top_candidates[0]
+    else:
+        # Tie-breaker: prefer the agent least recently assigned.
+        # last_assigned_at = None means never assigned — highest priority.
+        winner = min(
+            top_candidates,
+            key=lambda s: s["last_assigned_at"] or datetime.min,
+        )
+
+    logger.info(
+        "Ticket %s assigned to user %s (score=%s)",
+        ticket.id, winner["user_id"], winner["total_score"],
+        extra={"ticket_id": ticket.id, "assignee_id": winner["user_id"]},
+    )
+    return winner["user_id"]
+
+
+def find_best_assignee(ticket: Ticket, db: Session) -> int | None:
+    """Return user_id of highest-scoring staff candidate, or None.
+
+    Uses a short-TTL Redis lock per org to prevent two simultaneous ticket
+    creations from assigning the same agent twice.
+    """
+    lock_key = f"assignment:org:{ticket.org_id}"
+    lock_ttl = 10  # seconds — enough for the scoring query
+
+    acquired = redis_client.set(lock_key, "1", nx=True, ex=lock_ttl)
+    if not acquired:
+        # Another ticket is being assigned for this org right now.
+        # Wait briefly and retry once before proceeding without the lock.
+        time.sleep(0.2)
+        acquired = redis_client.set(lock_key, "1", nx=True, ex=lock_ttl)
+
+    try:
+        return _do_find_best_assignee(ticket, db)
+    finally:
+        if acquired:
+            redis_client.delete(lock_key)
 
 
 def score_breakdown(ticket: Ticket, db: Session) -> list[dict]:

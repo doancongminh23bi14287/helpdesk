@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Literal, Optional, List
+from typing import Literal, Optional
 from datetime import datetime
 from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict
 
 
 class ItemCreate(BaseModel):
@@ -35,49 +36,3 @@ class ItemOut(BaseModel):
     unit: str
     is_active: bool
     created_at: datetime
-
-
-class PriceListCreate(BaseModel):
-    name: str
-    currency: str = "VND"
-    is_active: bool = True
-
-
-class PriceListItemCreate(BaseModel):
-    item_id: int
-    unit_price: Decimal
-
-
-class PriceListItemUpdate(BaseModel):
-    unit_price: Decimal
-
-
-class PriceListItemOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    price_list_id: int
-    item_id: int
-    unit_price: Decimal
-    item: Optional[ItemOut] = None
-
-
-class PriceListOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    name: str
-    currency: str
-    is_active: bool
-    created_at: datetime
-
-
-class PriceListWithItems(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    name: str
-    currency: str
-    is_active: bool
-    created_at: datetime
-    items: List[PriceListItemOut] = []

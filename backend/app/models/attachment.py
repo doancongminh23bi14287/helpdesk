@@ -13,5 +13,7 @@ class TicketAttachment(Base):
     file_path = Column(String(500), nullable=False)
     file_size = Column(BigInteger, nullable=False)
     mime_type = Column(String(100), nullable=False)
+    detected_mime = Column(String(255), nullable=True)
+    sha256 = Column(String(64), nullable=True)
     uploaded_by = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())

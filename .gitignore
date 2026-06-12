@@ -8,3 +8,9 @@ __pycache__/
 .pytest_cache/
 frontend/node_modules/
 dist/
+node_modules/
+venv/
+/files/
+*.log
+.DS_Store
+celerybeat-schedule

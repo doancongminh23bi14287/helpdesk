@@ -1,21 +1,19 @@
 # backend/app/api/organizations.py
+from typing import List, Optional
+from math import ceil
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from typing import List, Optional
-from math import ceil
+
 from app.database import get_db
 from app.models.organization import Organization
 from app.models.service import Service
 from app.models.contact import Contact
 from app.models.address import Address
-from app.models.item import PriceList
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin
-from app.schemas.organization import (
-    OrganizationCreate, OrganizationUpdate, OrganizationOut,
-    PriceListAssign, ServiceOut,
-)
+from app.schemas.organization import OrganizationCreate, OrganizationUpdate, OrganizationOut, ServiceOut
 
 router = APIRouter(prefix="/api/organizations", tags=["organizations"])
 
@@ -23,14 +21,8 @@ VALID_ORG_SORT_FIELDS = {"name", "code", "contact_email", "status", "created_at"
 
 
 def _enrich_org(org: Organization, db: Session) -> OrganizationOut:
-    """Build OrganizationOut with computed extra fields."""
     contacts_count = db.query(Contact).filter(Contact.org_id == org.id).count()
     addresses_count = db.query(Address).filter(Address.org_id == org.id).count()
-    price_list_name = None
-    if org.price_list_id:
-        pl = db.query(PriceList).filter(PriceList.id == org.price_list_id).first()
-        if pl:
-            price_list_name = pl.name
     return OrganizationOut(
         id=org.id,
         name=org.name,
@@ -40,8 +32,6 @@ def _enrich_org(org: Organization, db: Session) -> OrganizationOut:
         status=org.status,
         notes=org.notes,
         created_at=org.created_at,
-        price_list_id=org.price_list_id,
-        price_list_name=price_list_name,
         contacts_count=contacts_count,
         addresses_count=addresses_count,
     )
@@ -119,7 +109,7 @@ def get_organization(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     if user.role == "customer" and org.id != user.org_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Organization not found")
     return _enrich_org(org, db)
 
 
@@ -140,26 +130,6 @@ def update_organization(
     return _enrich_org(org, db)
 
 
-@router.put("/{org_id}/price-list", response_model=OrganizationOut)
-def assign_price_list(
-    org_id: int,
-    payload: PriceListAssign,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-    if payload.price_list_id is not None:
-        pl = db.query(PriceList).filter(PriceList.id == payload.price_list_id, PriceList.is_active.is_(True)).first()
-        if not pl:
-            raise HTTPException(status_code=404, detail="Price list not found or inactive")
-    org.price_list_id = payload.price_list_id
-    db.commit()
-    db.refresh(org)
-    return _enrich_org(org, db)
-
-
 @router.get("/{org_id}/services", response_model=List[ServiceOut])
 def get_org_services(
     org_id: int,
@@ -170,5 +140,5 @@ def get_org_services(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     if user.role == "customer" and org_id != user.org_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Organization not found")
     return db.query(Service).filter(Service.org_id == org_id).all()

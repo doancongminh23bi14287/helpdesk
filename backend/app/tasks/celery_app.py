@@ -5,8 +5,8 @@ from app import config
 
 celery_app = Celery(
     "helpdesk",
-    broker=f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/0",
-    backend=f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/0",
+    broker=f"{config.REDIS_URL}/0",
+    backend=f"{config.REDIS_URL}/0",
     include=[
         "app.tasks.email_poller",
         "app.tasks.sla_checker",
@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.tasks.expiry_notifier",
         "app.tasks.invoice_tasks",
         "app.tasks.email_sender_task",
+        "app.tasks.email_outbox_task",
     ],
 )
 
@@ -41,6 +42,10 @@ celery_app.conf.beat_schedule = {
     "auto-generate-invoices-daily": {
         "task": "app.tasks.invoice_tasks.auto_generate_invoices",
         "schedule": crontab(hour=8, minute=30),
+    },
+    "process-email-outbox": {
+        "task": "app.tasks.email_outbox_task.process_email_outbox",
+        "schedule": 120.0,  # every 2 minutes
     },
 }
 celery_app.conf.timezone = "UTC"

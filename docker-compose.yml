@@ -34,6 +34,7 @@ services:
       - helpdesk-net
 
   backend:
+    image: helpdesk-system-backend
     build: ./backend
     container_name: helpdesk_backend
     restart: unless-stopped
@@ -46,6 +47,44 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - helpdesk-net
+
+  celery_worker:
+    image: helpdesk-system-backend
+    build: ./backend
+    container_name: helpdesk_celery_worker
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    env_file:
+      - ./backend/.env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - helpdesk-net
+
+  celery_beat:
+    image: helpdesk-system-backend
+    build: ./backend
+    container_name: helpdesk_celery_beat
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    env_file:
+      - ./backend/.env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - helpdesk-net
 

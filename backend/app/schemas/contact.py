@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict
 from typing import Literal, Optional
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
 
 
 class ContactCreate(BaseModel):

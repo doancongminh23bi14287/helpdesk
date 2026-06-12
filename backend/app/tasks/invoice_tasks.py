@@ -49,40 +49,70 @@ def check_overdue_invoices():
 @celery_app.task(name="app.tasks.invoice_tasks.auto_generate_invoices")
 def auto_generate_invoices():
     """
-    Find subscriptions where next_billing_date = today AND status='active'.
-    For each: create an invoice and advance the subscription billing dates.
+    Pass 1: subscriptions where next_billing_date <= today (renewal) — generate + advance dates.
+    Pass 2: active subscriptions with no non-cancelled invoice yet — generate initial invoice.
     Returns {"generated": N}
     """
     db = SessionLocal()
     try:
         from datetime import date
-        from app.models.subscription import Subscription, SubscriptionPlan
+        from app.models.subscription import Subscription
+        from app.models.invoice import Invoice
         from app.services.invoice_service import create_invoice_from_subscription
         from app.services.billing import compute_period_end, compute_next_billing_date
 
         today = date.today()
+        count = 0
+        handled_ids: set = set()
 
-        active_subs = db.query(Subscription).filter(
-            Subscription.next_billing_date == today,
+        # --- Pass 1: renewal billing ---
+        renewal_subs = db.query(Subscription).filter(
+            Subscription.next_billing_date <= today,
             Subscription.status == "active",
         ).all()
 
-        count = 0
-        for sub in active_subs:
+        for sub in renewal_subs:
+            # Idempotency: skip if a non-cancelled invoice already exists for this
+            # billing period (issue_date >= next_billing_date catches same-day re-runs).
+            existing = db.query(Invoice).filter(
+                Invoice.subscription_id == sub.id,
+                Invoice.issue_date >= sub.next_billing_date,
+                Invoice.status != "cancelled",
+            ).first()
+            if existing:
+                handled_ids.add(sub.id)
+                continue
+
             create_invoice_from_subscription(sub.id, db)
 
-            plan = db.query(SubscriptionPlan).filter(
-                SubscriptionPlan.id == sub.subscription_plan_id
-            ).first()
-
             new_period_start = sub.next_billing_date
-            new_period_end = compute_period_end(new_period_start, plan.billing_cycle)
+            cycle = getattr(sub, "billing_cycle", None) or "monthly"
+            new_period_end = compute_period_end(new_period_start, cycle)
             new_next_billing = compute_next_billing_date(new_period_end)
 
             sub.current_period_start = new_period_start
             sub.current_period_end = new_period_end
             sub.next_billing_date = new_next_billing
 
+            handled_ids.add(sub.id)
+            count += 1
+
+        # --- Pass 2: initial invoices for subscriptions that have none yet ---
+        invoiced_sub_ids = {
+            row[0]
+            for row in db.query(Invoice.subscription_id).filter(
+                Invoice.subscription_id.isnot(None),
+                Invoice.status.notin_(["cancelled"]),
+            ).all()
+        }
+
+        uninvoiced_subs = db.query(Subscription).filter(
+            Subscription.status == "active",
+            Subscription.id.notin_(invoiced_sub_ids | handled_ids),
+        ).all()
+
+        for sub in uninvoiced_subs:
+            create_invoice_from_subscription(sub.id, db)
             count += 1
 
         db.commit()

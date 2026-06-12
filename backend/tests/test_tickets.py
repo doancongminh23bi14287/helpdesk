@@ -56,30 +56,36 @@ def test_create_ticket_customer_cannot_use_other_org(
 
 # ── LIST ─────────────────────────────────────────────────────────────────────
 
-def test_list_tickets_customer_sees_only_own_org(
-    client, customer_token, admin_token, client_org, second_client_org, service, db
+def test_list_tickets_customer_sees_only_own_tickets(
+    client, customer_token, admin_token, customer_user, client_org, second_client_org, service, db
 ):
-    """Customer from client_org should only see tickets in their org."""
+    """Customer sees only their own tickets (raised_by == self AND org_id == own org)."""
     from app.models.service import Service
 
-    # Create service for second_client_org
     svc2 = Service(org_id=second_client_org.id, name="Other SaaS", type="saas", status="active")
     db.add(svc2)
     db.commit()
     db.refresh(svc2)
 
-    # Admin creates one ticket in client_org and one in second_client_org
-    r1 = create_ticket(client, admin_token, client_org.id, service.id, "Ticket in org A")
+    # Customer creates their own ticket in client_org — should be visible
+    r1 = create_ticket(client, customer_token, client_org.id, service.id, "My ticket")
     assert r1.status_code == 201, r1.text
 
-    r2 = create_ticket(client, admin_token, second_client_org.id, svc2.id, "Ticket in org B")
+    # Admin creates a ticket in client_org — customer should NOT see it (raised_by != customer)
+    r2 = create_ticket(client, admin_token, client_org.id, service.id, "Admin ticket same org")
     assert r2.status_code == 201, r2.text
+
+    # Admin creates a ticket in another org — customer should NOT see it
+    r3 = create_ticket(client, admin_token, second_client_org.id, svc2.id, "Ticket in org B")
+    assert r3.status_code == 201, r3.text
 
     r = client.get("/api/tickets", headers=auth(customer_token))
     assert r.status_code == 200, r.text
-    tickets = r.json()
-    assert len(tickets) == 1
-    assert tickets[0]["org_id"] == client_org.id
+    data = r.json()
+    items = data["items"]
+    assert len(items) == 1
+    assert items[0]["org_id"] == client_org.id
+    assert items[0]["raised_by"] == customer_user.id
 
 
 def test_list_tickets_admin_sees_all(
@@ -99,7 +105,7 @@ def test_list_tickets_admin_sees_all(
 
     r = client.get("/api/tickets", headers=auth(admin_token))
     assert r.status_code == 200, r.text
-    assert len(r.json()) == 2
+    assert r.json()["total"] == 2
 
 
 def test_list_tickets_filter_by_status(
@@ -124,9 +130,9 @@ def test_list_tickets_filter_by_status(
 
     r = client.get("/api/tickets?status=Open", headers=auth(admin_token))
     assert r.status_code == 200, r.text
-    tickets = r.json()
-    assert len(tickets) == 1
-    assert tickets[0]["id"] == open_id
+    data = r.json()
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == open_id
 
 
 # ── DETAIL ────────────────────────────────────────────────────────────────────
@@ -237,7 +243,7 @@ def test_soft_delete_admin_only(
     assert r.status_code == 200, r.text
 
     r = client.get("/api/tickets", headers=auth(admin_token))
-    ids = [t["id"] for t in r.json()]
+    ids = [t["id"] for t in r.json()["items"]]
     assert tid not in ids
 
 
@@ -343,3 +349,59 @@ def test_customer_cannot_see_internal_replies(client, db, customer_token, admin_
     # Admin sees both
     r2 = client.get(f"/api/tickets/{ticket.id}", headers={"Authorization": f"Bearer {admin_token}"})
     assert len(r2.json()["replies"]) == 2
+
+
+# ── TICKET TYPE VALIDATION ───────────────────────────────────────────────────
+# Regression: previously POST /api/tickets with ticket_type="support" returned 500
+# because the value was passed straight through to MariaDB whose enum rejected it.
+# Invalid values must now be rejected at the schema layer with 422.
+
+ALLOWED_TICKET_TYPES = [
+    "Bug",
+    "Incident",
+    "Question",
+    "Unspecified",
+    "Service SaaS",
+    "Service Hosting",
+    "Renewal",
+]
+
+
+@pytest.mark.parametrize("ticket_type", ALLOWED_TICKET_TYPES)
+def test_create_ticket_accepts_valid_ticket_type(
+    client, customer_token, client_org, service, ticket_type
+):
+    r = create_ticket(
+        client, customer_token, client_org.id, service.id,
+        f"Valid type {ticket_type}", ticket_type=ticket_type,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["ticket_type"] == ticket_type
+
+
+@pytest.mark.parametrize("bad_type", ["support", "URGENT_BUG", "bug", "question", "random"])
+def test_create_ticket_rejects_invalid_ticket_type(
+    client, db, customer_token, client_org, service, bad_type
+):
+    from app.models.ticket import Ticket
+    before = db.query(Ticket).count()
+    r = create_ticket(
+        client, customer_token, client_org.id, service.id,
+        "Bad type ticket", ticket_type=bad_type,
+    )
+    assert r.status_code == 422, r.text
+    # Body must not be inserted
+    after = db.query(Ticket).count()
+    assert after == before
+
+
+def test_create_ticket_empty_ticket_type_defaults_to_unspecified(
+    client, customer_token, client_org, service
+):
+    """Pre-existing behaviour: empty/blank ticket_type is normalised to 'Unspecified'."""
+    r = create_ticket(
+        client, customer_token, client_org.id, service.id,
+        "Blank type", ticket_type="",
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["ticket_type"] == "Unspecified"

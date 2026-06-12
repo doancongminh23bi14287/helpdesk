@@ -1,7 +1,8 @@
 # backend/app/schemas/organization.py
-from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime, date
+
+from pydantic import BaseModel, ConfigDict
 
 
 class OrganizationCreate(BaseModel):
@@ -32,14 +33,8 @@ class OrganizationOut(BaseModel):
     status: str
     notes: Optional[str] = None
     created_at: datetime
-    price_list_id: Optional[int] = None
-    price_list_name: Optional[str] = None
     contacts_count: int = 0
     addresses_count: int = 0
-
-
-class PriceListAssign(BaseModel):
-    price_list_id: Optional[int] = None
 
 
 class ServiceOut(BaseModel):

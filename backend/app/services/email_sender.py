@@ -1,6 +1,7 @@
 """Outbound email sender with SMTP/SSL and DB logging."""
 import smtplib
 import logging
+import uuid
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -11,16 +12,27 @@ from app.models.notification import EmailLog
 logger = logging.getLogger(__name__)
 
 
-def send_email(to: str, subject: str, body_html: str, body_text: str = None, db: Session = None) -> bool:
+def send_email(
+    to: str,
+    subject: str,
+    body_html: str,
+    body_text: str = None,
+    db: Session = None,
+    ticket_id: int = None,
+) -> str | None:
     """
-    Send an email via SMTP SSL. Returns True on success, False on failure.
+    Send an email via SMTP SSL.
+    Generates and sets a unique Message-ID header.
+    Returns the generated Message-ID on success, None on failure.
     Logs result to email_log table if db is provided.
     """
+    outbound_message_id = f"<{uuid.uuid4()}@osd.vn>"
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = formataddr((config.SMTP_FROM_NAME, config.SMTP_USER))
+        msg["From"] = formataddr((config.SMTP_FROM_NAME, config.SMTP_FROM_EMAIL))
         msg["To"] = to
+        msg["Message-ID"] = outbound_message_id
 
         if body_text:
             msg.attach(MIMEText(body_text, "plain", "utf-8"))
@@ -35,15 +47,33 @@ def send_email(to: str, subject: str, body_html: str, body_text: str = None, db:
             if not config.SMTP_USE_SSL:
                 server.starttls()
             server.login(config.SMTP_USER, config.SMTP_PASS)
-            server.sendmail(config.SMTP_USER, [to], msg.as_string())
+            server.sendmail(config.SMTP_FROM_EMAIL, [to], msg.as_string())
 
-        _log(db, to, subject, None, "outbound", "sent")
-        return True
+        _log(db, to, subject, ticket_id, "outbound", "sent")
+        return outbound_message_id
 
     except Exception as exc:
         logger.warning("Email send failed to %s: %s", to, exc)
-        _log(db, to, subject, None, "outbound", f"failed: {exc}"[:255])
-        return False
+        _log(db, to, subject, ticket_id, "outbound", f"failed: {exc}"[:255])
+        return None
+
+
+def _record_outbound_thread(db: Session, ticket_id: int, message_id: str) -> None:
+    """Insert an outbound EmailThread row so future replies can reference it."""
+    if db is None or not ticket_id or not message_id:
+        return
+    from app.models.email_thread import EmailThread
+    try:
+        thread = EmailThread(
+            ticket_id=ticket_id,
+            message_id=message_id,
+            direction="outbound",
+        )
+        db.add(thread)
+        db.commit()
+    except Exception as exc:
+        logger.warning("EmailThread record failed: %s", exc)
+        db.rollback()
 
 
 def _log(db: Session, to: str, subject: str, ticket_id, action: str, detail: str):
@@ -64,9 +94,9 @@ def _log(db: Session, to: str, subject: str, ticket_id, action: str, detail: str
         db.rollback()
 
 
-def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = None):
+def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = None) -> None:
     """Send new ticket notification to admin AND confirmation to creator."""
-    ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
+    ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
 
     # — Admin notification —
     admin_subject = f"[Ticket #{ticket.id}] {ticket.subject}"
@@ -86,7 +116,7 @@ def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = No
     admin_text = f"New ticket #{ticket.id}: {ticket.subject}\nOrg: {org_name}\nService: {service_name}\nPriority: {ticket.priority}\nRaised by: {ticket.raised_by_email}\n\nView: {ticket_url}"
     send_email(config.ADMIN_NOTIFICATION_EMAIL, admin_subject, admin_html, admin_text, db=db)
 
-    # — Creator confirmation —
+    # — Creator confirmation (record thread so their reply can be threaded) —
     creator_email = ticket.raised_by_email
     if creator_email and creator_email != config.ADMIN_NOTIFICATION_EMAIL:
         creator_subject = f"[Ticket #{ticket.id}] Yêu cầu hỗ trợ đã được tiếp nhận"
@@ -104,10 +134,12 @@ def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = No
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System — Nếu bạn không tạo yêu cầu này, vui lòng bỏ qua email.</p>
 </body></html>"""
         creator_text = f"Yêu cầu hỗ trợ #{ticket.id} đã được tiếp nhận.\nTiêu đề: {ticket.subject}\nMức độ: {ticket.priority}\nXem tại: {ticket_url}"
-        send_email(creator_email, creator_subject, creator_html, creator_text, db=db)
+        mid = send_email(creator_email, creator_subject, creator_html, creator_text,
+                         db=db, ticket_id=ticket.id)
+        _record_outbound_thread(db, ticket.id, mid)
 
 
-def bg_notify_new_ticket(ticket_id: int, org_name: str, service_name: str):
+def bg_notify_new_ticket(ticket_id: int, org_name: str, service_name: str) -> None:
     """Background-task wrapper — creates its own DB session."""
     from app.database import SessionLocal
     from app.models.ticket import Ticket
@@ -120,17 +152,17 @@ def bg_notify_new_ticket(ticket_id: int, org_name: str, service_name: str):
         db.close()
 
 
-def bg_send_email(to: str, subject: str, body_html: str, body_text: str = None):
+def bg_send_email(to: str, subject: str, body_html: str, body_text: str = None) -> None:
     """Background-task wrapper for a one-off email."""
     send_email(to, subject, body_html, body_text)
 
 
-def notify_ticket_reply(ticket, reply_content: str, sender_role: str, to_email: str, db: Session = None):
+def notify_ticket_reply(ticket, reply_content: str, sender_role: str, to_email: str, db: Session = None) -> None:
     """Send reply notification to the other party."""
     if not to_email:
         return
     subject = f"Re: [#{ticket.id}] {ticket.subject}"
-    ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
+    ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
     body_html = f"""
 <html><body style="font-family:Arial,sans-serif;color:#333">
 <h2 style="color:#1a56db">New Reply on Ticket #{ticket.id}</h2>
@@ -144,15 +176,16 @@ def notify_ticket_reply(ticket, reply_content: str, sender_role: str, to_email: 
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System</p>
 </body></html>"""
     body_text = f"New reply on ticket #{ticket.id}: {ticket.subject}\n\n{reply_content[:200]}\n\nLink: {ticket_url}"
-    send_email(to_email, subject, body_html, body_text, db=db)
+    mid = send_email(to_email, subject, body_html, body_text, db=db, ticket_id=ticket.id)
+    _record_outbound_thread(db, ticket.id, mid)
 
 
-def notify_status_changed(ticket, new_status: str, to_email: str, db: Session = None):
+def notify_status_changed(ticket, new_status: str, to_email: str, db: Session = None) -> None:
     """Send status change notification (Resolved / Closed only)."""
     if not to_email:
         return
     subject = f"[#{ticket.id}] Status changed to {new_status}"
-    ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
+    ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
     body_html = f"""
 <html><body style="font-family:Arial,sans-serif;color:#333">
 <h2 style="color:#1a56db">Ticket #{ticket.id} — {new_status}</h2>
@@ -163,4 +196,5 @@ def notify_status_changed(ticket, new_status: str, to_email: str, db: Session = 
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System</p>
 </body></html>"""
     body_text = f"Ticket #{ticket.id} '{ticket.subject}' status changed to {new_status}.\nLink: {ticket_url}"
-    send_email(to_email, subject, body_html, body_text, db=db)
+    mid = send_email(to_email, subject, body_html, body_text, db=db, ticket_id=ticket.id)
+    _record_outbound_thread(db, ticket.id, mid)

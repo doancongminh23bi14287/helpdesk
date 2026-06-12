@@ -1,6 +1,6 @@
 from sqlalchemy import BigInteger, Column, String, Text, Integer, Date, DateTime, Enum, DECIMAL, ForeignKey
 from sqlalchemy.sql import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, relationship
 from app.database import Base
 
 
@@ -30,9 +30,17 @@ class Invoice(Base):
     tax_amount = Column(DECIMAL(15, 2), nullable=False)
     total = Column(DECIMAL(15, 2), nullable=False)
     notes = Column(Text, nullable=True)
+    cancel_reason = Column(Text, nullable=True)
     paid_at = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+    payments = relationship(
+        "InvoicePayment",
+        back_populates="invoice",
+        order_by="InvoicePayment.paid_at",
+    )
 
 
 class InvoiceLine(Base):
@@ -53,7 +61,6 @@ def generate_invoice_number(db: Session, year: int) -> str:
     Uses SELECT FOR UPDATE to prevent race conditions.
     Creates the sequence row if it doesn't exist.
     """
-    from sqlalchemy import text
 
     # Lock the row for this year (or create it)
     seq_row = db.query(InvoiceNumberSeq).filter_by(year=year).with_for_update().first()

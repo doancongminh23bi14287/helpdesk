@@ -1,6 +1,5 @@
 # backend/app/services/sla_monitor.py
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from sqlalchemy.orm import Session
 from app.models.ticket import Ticket
 from app.models.sla import SlaPolicy
@@ -41,6 +40,7 @@ def get_sla_status(ticket: Ticket) -> dict:
             "hours_remaining": None,
             "resolution_by": None,
             "response_by": ticket.response_by,
+            "paused_total_seconds": getattr(ticket, "sla_paused_total_seconds", 0) or 0,
         }
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -57,6 +57,7 @@ def get_sla_status(ticket: Ticket) -> dict:
             "hours_remaining": None,
             "resolution_by": resolution_by,
             "response_by": ticket.response_by,
+            "paused_total_seconds": getattr(ticket, "sla_paused_total_seconds", 0) or 0,
         }
 
     # For open tickets
@@ -93,4 +94,5 @@ def get_sla_status(ticket: Ticket) -> dict:
         "hours_remaining": round(hours_remaining, 2),
         "resolution_by": resolution_by,
         "response_by": ticket.response_by,
+        "paused_total_seconds": getattr(ticket, "sla_paused_total_seconds", 0) or 0,
     }

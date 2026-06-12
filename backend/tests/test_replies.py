@@ -98,6 +98,39 @@ def test_list_replies_customer_sees_only_public(
     assert data[0]["content"] == "Public reply"
 
 
+def test_ticket_detail_customer_never_sees_internal_notes(
+    client, db, client_org, service, customer_user, staff_user, customer_token, staff_assignment
+):
+    ticket = make_ticket(db, client_org, service, customer_user)
+    db.add(TicketReply(
+        ticket_id=ticket.id,
+        author_id=staff_user.id,
+        author_email=staff_user.email,
+        content="Internal note must stay hidden",
+        is_internal=True,
+        source="portal",
+    ))
+    db.add(TicketReply(
+        ticket_id=ticket.id,
+        author_id=staff_user.id,
+        author_email=staff_user.email,
+        content="Public reply is visible",
+        is_internal=False,
+        source="portal",
+    ))
+    db.commit()
+
+    r = client.get(
+        f"/api/tickets/{ticket.id}",
+        headers={"Authorization": f"Bearer {customer_token}"},
+    )
+
+    assert r.status_code == 200
+    contents = {reply["content"] for reply in r.json()["replies"]}
+    assert "Public reply is visible" in contents
+    assert "Internal note must stay hidden" not in contents
+
+
 def test_list_replies_staff_sees_all(
     client, db, client_org, service, customer_user, staff_user, staff_token, staff_assignment
 ):

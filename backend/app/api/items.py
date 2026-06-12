@@ -1,11 +1,12 @@
+from typing import Optional
+from math import ceil
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from typing import List, Optional, Union
-from math import ceil
+
 from app.database import get_db
-from app.models.item import Item, PriceList, PriceListItem
-from app.models.organization import Organization
+from app.models.item import Item
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin
 from app.schemas.item import ItemCreate, ItemUpdate, ItemOut
@@ -29,16 +30,12 @@ def list_items(
     user: User = Depends(get_current_user),
 ):
     q = db.query(Item)
-    # If no pagination/search params requested, return flat list for backwards compat (active only)
     if not paginated and search is None and type is None and is_active is None:
         return q.filter(Item.is_active.is_(True)).all()
-    # Apply is_active filter: explicit param takes precedence; paginated mode with no param returns all
     if is_active is not None:
         q = q.filter(Item.is_active == is_active)
     elif not paginated:
-        # Non-paginated but with other filters: still restrict to active
         q = q.filter(Item.is_active.is_(True))
-    # Paginated path
     if type:
         q = q.filter(Item.type == type)
     if search:
@@ -57,43 +54,6 @@ def list_items(
         "per_page": per_page,
         "pages": ceil(total / per_page) if total > 0 else 1,
     }
-
-
-@router.get("/lookup")
-def lookup_items(
-    org_id: int = Query(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Return items with prices resolved for the org's price list."""
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-    if user.role == "customer" and user.org_id != org_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    items = db.query(Item).filter(Item.is_active.is_(True)).all()
-
-    # Pre-fetch all price list item overrides in one query
-    price_overrides = {}
-    if org.price_list_id:
-        pli_rows = db.query(PriceListItem).filter(
-            PriceListItem.price_list_id == org.price_list_id
-        ).all()
-        price_overrides = {pli.item_id: pli.unit_price for pli in pli_rows}
-
-    result = []
-    for item in items:
-        price = price_overrides.get(item.id, item.unit_price)
-        result.append({
-            "id": item.id,
-            "code": item.code,
-            "name": item.name,
-            "type": item.type,
-            "unit_price": float(price),
-            "unit": item.unit,
-        })
-    return result
 
 
 @router.get("/{item_id}", response_model=ItemOut)
@@ -138,3 +98,16 @@ def update_item(
     db.commit()
     db.refresh(item)
     return item
+
+
+@router.delete("/{item_id}", status_code=204)
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item.is_active = False
+    db.commit()

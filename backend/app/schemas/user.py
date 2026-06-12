@@ -1,7 +1,8 @@
 # backend/app/schemas/user.py
-from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class UserCreate(BaseModel):

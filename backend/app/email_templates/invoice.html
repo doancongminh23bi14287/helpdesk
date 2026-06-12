@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:Arial,sans-serif;color:#333;max-width:640px;margin:0 auto;padding:24px;background:#f9fafb">
+<div style="background:#fff;border-radius:8px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+
+  <div style="border-bottom:3px solid #1a56db;padding-bottom:16px;margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <h1 style="margin:0;color:#1a56db;font-size:22px;font-weight:700">HÓA ĐƠN DỊCH VỤ</h1>
+      <p style="margin:4px 0 0;color:#6b7280;font-size:14px;font-family:monospace">$invoice_number</p>
+    </div>
+    <div style="text-align:right">
+      <p style="margin:0;font-size:12px;color:#6b7280">OSD Support System</p>
+      <p style="margin:2px 0 0;font-size:12px;color:#6b7280">ticket@osd.vn</p>
+    </div>
+  </div>
+
+  <table style="width:100%;margin-bottom:24px">
+    <tr>
+      <td style="vertical-align:top;width:50%">
+        <p style="margin:0 0 4px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em">Kính gửi</p>
+        <p style="margin:0;font-weight:700;font-size:17px;color:#111">$org_name</p>
+      </td>
+      <td style="vertical-align:top;text-align:right">
+        <table style="margin-left:auto;font-size:13px">
+          <tr>
+            <td style="color:#6b7280;padding:2px 12px 2px 0">Ngày phát hành:</td>
+            <td style="font-weight:600;color:#111">$issue_date</td>
+          </tr>
+          <tr>
+            <td style="color:#6b7280;padding:2px 12px 2px 0">Hạn thanh toán:</td>
+            <td style="font-weight:600;color:#dc2626">$due_date</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  $plan_section
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:13px">
+    <thead>
+      <tr style="background:#f3f4f6">
+        <th style="text-align:left;padding:10px 12px;color:#6b7280;border-bottom:2px solid #e5e7eb;font-weight:600">MÔ TẢ</th>
+        <th style="text-align:right;padding:10px 12px;color:#6b7280;border-bottom:2px solid #e5e7eb;font-weight:600">SL</th>
+        <th style="text-align:right;padding:10px 12px;color:#6b7280;border-bottom:2px solid #e5e7eb;font-weight:600">ĐƠN GIÁ</th>
+        <th style="text-align:right;padding:10px 12px;color:#6b7280;border-bottom:2px solid #e5e7eb;font-weight:600">THÀNH TIỀN</th>
+      </tr>
+    </thead>
+    <tbody>
+      $lines_html
+    </tbody>
+  </table>
+
+  <table style="margin-left:auto;margin-bottom:24px;min-width:280px;font-size:13px">
+    <tr>
+      <td style="padding:5px 16px;color:#6b7280">Tạm tính</td>
+      <td style="padding:5px 16px;text-align:right;color:#333">$subtotal_fmt</td>
+    </tr>
+    <tr>
+      <td style="padding:5px 16px;color:#6b7280">Thuế ($tax_rate%)</td>
+      <td style="padding:5px 16px;text-align:right;color:#333">$tax_amount_fmt</td>
+    </tr>
+    <tr style="border-top:2px solid #e5e7eb">
+      <td style="padding:12px 16px;font-weight:700;font-size:15px">Tổng cộng</td>
+      <td style="padding:12px 16px;text-align:right;font-weight:700;font-size:20px;color:#1a56db">$total_fmt</td>
+    </tr>
+  </table>
+
+  $notes_section
+
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:16px;margin-bottom:24px">
+    <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#1e40af">Thông tin thanh toán</p>
+    <p style="margin:0;font-size:13px;color:#1e3a8a;line-height:1.6">
+      Vui lòng thanh toán trước ngày <strong>$due_date</strong>.<br>
+      Liên hệ hỗ trợ: <a href="mailto:ticket@osd.vn" style="color:#1a56db">ticket@osd.vn</a>
+    </p>
+  </div>
+
+  <p style="font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:16px;margin:0;text-align:center">
+    OSD Support System &mdash; Email tự động, vui lòng không trả lời trực tiếp.
+  </p>
+
+</div>
+</body>
+</html>

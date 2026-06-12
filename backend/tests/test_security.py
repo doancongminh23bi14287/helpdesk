@@ -1,4 +1,5 @@
-# backend/tests/test_security.py
+import pytest
+
 from app.core.security import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
@@ -16,21 +17,25 @@ def test_verify_wrong_password_returns_false():
 
 
 def test_access_token_roundtrip():
-    token = create_access_token({"sub": "42"})
+    token, jti = create_access_token(42, "customer")
     claims = decode_token(token)
     assert claims["sub"] == "42"
+    assert claims["role"] == "customer"
+    assert claims["jti"] == jti
     assert claims["type"] == "access"
 
 
-def test_refresh_token_roundtrip():
-    token = create_refresh_token({"sub": "7"})
-    claims = decode_token(token)
-    assert claims["sub"] == "7"
-    assert claims["type"] == "refresh"
+def test_refresh_token_is_opaque_not_jwt():
+    token = create_refresh_token(7)
+    assert isinstance(token, str)
+    assert len(token) >= 32
+    with pytest.raises(Exception):
+        decode_token(token)
 
 
-def test_access_and_refresh_tokens_have_different_type_claim():
-    access = create_access_token({"sub": "1"})
-    refresh = create_refresh_token({"sub": "1"})
+def test_access_token_has_type_and_refresh_token_is_not_decodable():
+    access, _ = create_access_token(1, "admin")
+    refresh = create_refresh_token(1)
     assert decode_token(access)["type"] == "access"
-    assert decode_token(refresh)["type"] == "refresh"
+    with pytest.raises(Exception):
+        decode_token(refresh)

@@ -225,7 +225,7 @@ def test_new_user_has_must_change_password(client, admin_token, client_org):
 
 
 def test_change_password_clears_flag(client, admin_token, client_org):
-    """After a user changes their own password, must_change_password should be False."""
+    """Changing password clears the flag and revokes the old session token."""
     _create_test_user(client, admin_token, client_org, email="cp_test@example.com", password="pass1234")
 
     # Login as the new user
@@ -241,8 +241,15 @@ def test_change_password_clears_flag(client, admin_token, client_org):
     )
     assert cp_r.status_code == 200, cp_r.text
 
-    # must_change_password should now be False
+    # The password change revokes existing sessions, so the old token no longer works.
     me_r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_r.status_code == 401, me_r.text
+
+    login2_r = client.post("/api/auth/login", json={"email": "cp_test@example.com", "password": "newpass999"})
+    assert login2_r.status_code == 200, login2_r.text
+    new_token = login2_r.json()["access_token"]
+
+    me_r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {new_token}"})
     assert me_r.status_code == 200, me_r.text
     assert me_r.json()["must_change_password"] is False, "must_change_password should be False after password change"
 
@@ -275,8 +282,13 @@ def test_reset_password_sets_must_change_password(client, admin_token, client_or
         )
         assert cp_r.status_code == 200, cp_r.text
 
-        # Verify must_change_password is now False
-        me_r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
+        # The old session is revoked by change-password; log in again to verify the flag.
+        assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"}).status_code == 401
+        login2_r = client.post("/api/auth/login", json={"email": "reset_pw_test@example.com", "password": "changed999"})
+        assert login2_r.status_code == 200, login2_r.text
+        changed_token = login2_r.json()["access_token"]
+        me_r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {changed_token}"})
+        assert me_r.status_code == 200, me_r.text
         assert me_r.json()["must_change_password"] is False
 
         # Admin resets the password — this also blacklists existing tokens
@@ -287,5 +299,6 @@ def test_reset_password_sets_must_change_password(client, admin_token, client_or
         )
         assert reset_r.status_code == 200, reset_r.text
         assert reset_r.json()["must_change_password"] is True, "must_change_password should be True after admin reset"
+        assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {changed_token}"}).status_code == 401
     finally:
         redis_client.delete(f"blacklist:user:{user_id}")

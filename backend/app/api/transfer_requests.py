@@ -1,5 +1,5 @@
 """Ticket transfer request endpoints — staff-to-staff handoff with mutual consent."""
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -54,7 +54,7 @@ def create_transfer_request(
     db.query(TicketTransferRequest).filter(
         TicketTransferRequest.ticket_id == ticket_id,
         TicketTransferRequest.status == "pending",
-    ).update({"status": "declined", "resolved_at": datetime.utcnow()})
+    ).update({"status": "declined", "resolved_at": datetime.now(timezone.utc).replace(tzinfo=None)})
     req = TicketTransferRequest(
         ticket_id=ticket_id,
         from_staff_id=user.id,
@@ -107,7 +107,7 @@ def accept_transfer(
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     ticket.assignee_id = user.id
     req.status = "accepted"
-    req.resolved_at = datetime.utcnow()
+    req.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     create_notification(
         db,
         user_id=req.from_staff_id,
@@ -138,7 +138,7 @@ def decline_transfer(
         raise HTTPException(403, "Only the target staff or admin can decline")
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     req.status = "declined"
-    req.resolved_at = datetime.utcnow()
+    req.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     create_notification(
         db,
         user_id=req.from_staff_id,

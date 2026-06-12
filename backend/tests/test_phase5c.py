@@ -34,7 +34,7 @@ def _make_plan_direct(db, item_id, code="PLAN-INV01", billing_cycle="monthly"):
     return plan
 
 
-def _make_subscription_direct(db, org_id, plan_id, status="active", unit_price=300000):
+def _make_subscription_direct(db, org_id, plan_id, status="active", unit_price=300000, tax_rate=0):
     from app.models.subscription import Subscription
     today = date.today()
     sub = Subscription(
@@ -44,6 +44,7 @@ def _make_subscription_direct(db, org_id, plan_id, status="active", unit_price=3
         current_period_end=today - timedelta(days=1),
         next_billing_date=today,
         unit_price=Decimal(str(unit_price)),
+        tax_rate=Decimal(str(tax_rate)),
     )
     db.add(sub)
     db.commit()
@@ -92,7 +93,7 @@ def test_create_invoice_from_subscription_totals(db, client_org):
 
     item = _make_item_direct(db, "ITEM-INV-TOT01")
     plan = _make_plan_direct(db, item.id, code="PLAN-INV-TOT01")
-    sub = _make_subscription_direct(db, client_org.id, plan.id, unit_price=300000)
+    sub = _make_subscription_direct(db, client_org.id, plan.id, unit_price=300000, tax_rate=10)
 
     inv = create_invoice_from_subscription(sub.id, db)
 
@@ -157,9 +158,9 @@ def test_send_invoice_notifies_customer(db, client_org, customer_user):
     assert inv.invoice_number in notif.title
 
 
-def test_send_invoice_non_draft_fails(client, db, client_org, admin_token):
-    """Sending an already-sent invoice via the API returns HTTP 400."""
-    from app.services.invoice_service import create_manual_invoice, send_invoice
+def test_send_invoice_paid_fails(client, db, client_org, admin_token):
+    """Sending a paid invoice via the API returns HTTP 400."""
+    from app.services.invoice_service import create_manual_invoice, send_invoice, mark_paid
 
     inv = create_manual_invoice(
         org_id=client_org.id,
@@ -167,6 +168,7 @@ def test_send_invoice_non_draft_fails(client, db, client_org, admin_token):
         db=db,
     )
     send_invoice(inv.id, db)
+    mark_paid(inv.id, db)
 
     r = client.put(
         f"/api/invoices/{inv.id}/send",
@@ -200,8 +202,9 @@ def test_cancel_invoice_draft(db, client_org):
         lines_data=[{"description": "Test line", "quantity": 1, "unit_price": 100000}],
         db=db,
     )
-    cancelled_inv = cancel_invoice(inv.id, db)
+    cancelled_inv = cancel_invoice(inv.id, db, cancel_reason="Duplicate invoice")
     assert cancelled_inv.status == "cancelled"
+    assert cancelled_inv.cancel_reason == "Duplicate invoice"
 
 
 def test_cancel_paid_invoice_fails(client, db, client_org, admin_token):
@@ -218,6 +221,7 @@ def test_cancel_paid_invoice_fails(client, db, client_org, admin_token):
 
     r = client.put(
         f"/api/invoices/{inv.id}/cancel",
+        json={"cancel_reason": "Incorrect invoice"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 400
@@ -339,7 +343,7 @@ def test_customer_cannot_see_other_org_invoice(
         f"/api/invoices/{inv.id}",
         headers={"Authorization": f"Bearer {second_customer_token}"},
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 404, r.text
 
 
 def test_customer_cannot_post_invoice(client, customer_token, client_org):

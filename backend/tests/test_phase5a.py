@@ -1,7 +1,7 @@
 # backend/tests/test_phase5a.py
 """
 Phase 5A tests: Contact CRUD, Address CRUD, Item CRUD,
-Price List management, and Price resolution.
+and current item-based subscription pricing.
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -17,17 +17,6 @@ def _make_item(client, admin_token, code="SVC-001", unit_price=500000):
     )
     assert r.status_code == 200, r.text
     return r.json()
-
-
-def _make_price_list(client, admin_token, name="Test PL"):
-    r = client.post(
-        "/api/price-lists",
-        json={"name": name, "currency": "VND"},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-    return r.json()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Contact CRUD
@@ -125,7 +114,7 @@ def test_customer_cannot_read_other_org_contacts(client, second_customer_token,
         f"/api/organizations/{client_org.id}/contacts",
         headers={"Authorization": f"Bearer {second_customer_token}"},
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 404, r.text
 
 
 def test_non_admin_cannot_create_contact(client, customer_token, db, client_org):
@@ -191,7 +180,7 @@ def test_customer_cannot_read_other_org_addresses(client, second_customer_token,
         f"/api/organizations/{client_org.id}/addresses",
         headers={"Authorization": f"Bearer {second_customer_token}"},
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 404, r.text
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -272,75 +261,28 @@ def test_get_item_by_id(client, admin_token, db):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Price List with items
+# Item list/update/delete contracts
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_admin_can_create_price_list(client, admin_token):
-    r = client.post(
-        "/api/price-lists",
-        json={"name": "Standard PL", "currency": "VND"},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert data["name"] == "Standard PL"
-    assert data["currency"] == "VND"
+def test_items_paginated_search_returns_contract(client, admin_token):
+    item = _make_item(client, admin_token, code="SEARCH-001", unit_price=450000)
 
-
-def test_admin_can_add_item_to_price_list(client, admin_token, db):
-    item = _make_item(client, admin_token, code="PLI-001")
-    pl = _make_price_list(client, admin_token, name="PL With Items")
-
-    r = client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": 450000},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert data["item_id"] == item["id"]
-    assert float(data["unit_price"]) == 450000.0
-
-
-def test_get_price_list_detail_includes_items(client, admin_token, db):
-    item = _make_item(client, admin_token, code="PLI-DET-001")
-    pl = _make_price_list(client, admin_token, name="PL Detail")
-
-    # Add item to price list
-    r = client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": 420000},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-
-    # Fetch detail
     r = client.get(
-        f"/api/price-lists/{pl['id']}",
+        "/api/items?paginated=true&search=SEARCH-001",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 200, r.text
     data = r.json()
-    assert len(data["items"]) == 1
-    pl_item = data["items"][0]
-    assert pl_item["item_id"] == item["id"]
-    assert pl_item["item"] is not None
-    assert pl_item["item"]["code"] == "PLI-DET-001"
+    assert {"items", "total", "page", "per_page"}.issubset(data.keys())
+    assert any(i["id"] == item["id"] for i in data["items"])
 
 
-def test_admin_can_update_price_list_item(client, admin_token, db):
-    item = _make_item(client, admin_token, code="PLI-UPD-001")
-    pl = _make_price_list(client, admin_token, name="PL Update")
-
-    client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": 450000},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
+def test_admin_can_update_item_unit_price(client, admin_token):
+    item = _make_item(client, admin_token, code="PRICE-UPD-001")
 
     new_price = 399000
     r = client.put(
-        f"/api/price-lists/{pl['id']}/items/{item['id']}",
+        f"/api/items/{item['id']}",
         json={"unit_price": new_price},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -348,153 +290,152 @@ def test_admin_can_update_price_list_item(client, admin_token, db):
     assert float(r.json()["unit_price"]) == float(new_price)
 
 
-def test_admin_can_remove_item_from_price_list(client, admin_token, db):
-    item = _make_item(client, admin_token, code="PLI-DEL-001")
-    pl = _make_price_list(client, admin_token, name="PL Remove")
-
-    client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": 450000},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
+def test_admin_can_soft_delete_item(client, admin_token):
+    item = _make_item(client, admin_token, code="ITEM-DEL-001")
 
     r = client.delete(
-        f"/api/price-lists/{pl['id']}/items/{item['id']}",
+        f"/api/items/{item['id']}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 204, r.text
 
-    # Confirm the item is gone from the price list detail
+    r = client.get("/api/items", headers={"Authorization": f"Bearer {admin_token}"})
+    assert r.status_code == 200
+    assert all(i["id"] != item["id"] for i in r.json())
+
     r = client.get(
-        f"/api/price-lists/{pl['id']}",
+        "/api/items?paginated=true&is_active=false",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 200
-    assert r.json()["items"] == []
+    assert any(i["id"] == item["id"] for i in r.json()["items"])
+
+
+def test_deleted_item_detail_still_readable_for_admin(client, admin_token):
+    item = _make_item(client, admin_token, code="ITEM-READ-DELETED-001")
+
+    r = client.delete(
+        f"/api/items/{item['id']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    r = client.get(
+        f"/api/items/{item['id']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == item["id"]
+    assert r.json()["is_active"] is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Price resolution (lookup)
+# Current item-based subscription pricing
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_lookup_returns_base_price_for_org_without_price_list(
+def test_subscription_uses_item_base_price(
         client, admin_token, db, client_org):
     item = _make_item(client, admin_token, code="LOOK-001", unit_price=500000)
 
-    r = client.get(
-        f"/api/items/lookup?org_id={client_org.id}",
+    r = client.post(
+        "/api/subscriptions",
+        json={"org_id": client_org.id, "plan_id": item["id"], "start_date": "2024-01-01"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    assert r.status_code == 200, r.text
-    prices = {i["id"]: i["unit_price"] for i in r.json()}
-    assert prices[item["id"]] == 500000.0
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["item_id"] == item["id"]
+    assert float(data["unit_price"]) == 500000.0
 
 
-def test_lookup_returns_overridden_price_for_org_with_price_list(
+def test_subscription_monthly_price_uses_item_price(
         client, admin_token, db, client_org):
-    item = _make_item(client, admin_token, code="LOOK-OVR-001", unit_price=500000)
-    pl = _make_price_list(client, admin_token, name="Override PL")
+    item = _make_item(client, admin_token, code="LOOK-MONTH-001", unit_price=500000)
 
-    # Add item at overridden price
-    client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": 450000},
+    r = client.post(
+        "/api/subscriptions",
+        json={
+            "org_id": client_org.id,
+            "plan_id": item["id"],
+            "start_date": "2024-01-01",
+            "billing_cycle": "monthly",
+        },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-
-    # Assign price list to org
-    r = client.put(
-        f"/api/organizations/{client_org.id}/price-list",
-        json={"price_list_id": pl["id"]},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-
-    r = client.get(
-        f"/api/items/lookup?org_id={client_org.id}",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-    prices = {i["id"]: i["unit_price"] for i in r.json()}
-    assert prices[item["id"]] == 450000.0
+    assert r.status_code == 201, r.text
+    assert float(r.json()["unit_price"]) == 500000.0
 
 
-def test_lookup_10_percent_discount(client, admin_token, db, client_org):
+def test_subscription_quarterly_cycle_discount(client, admin_token, db, client_org):
     base_price = 500000
-    discounted_price = int(base_price * 0.9)  # 450000
+    item = _make_item(client, admin_token, code="DISC-Q-001", unit_price=base_price)
 
-    item = _make_item(client, admin_token, code="DISC10-001",
-                      unit_price=base_price)
-    pl = _make_price_list(client, admin_token, name="Premium PL 10pct")
-
-    client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": discounted_price},
+    r = client.post(
+        "/api/subscriptions",
+        json={
+            "org_id": client_org.id,
+            "plan_id": item["id"],
+            "start_date": "2024-01-01",
+            "billing_cycle": "quarterly",
+        },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-
-    client.put(
-        f"/api/organizations/{client_org.id}/price-list",
-        json={"price_list_id": pl["id"]},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-
-    r = client.get(
-        f"/api/items/lookup?org_id={client_org.id}",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-    prices = {i["id"]: i["unit_price"] for i in r.json()}
-    assert prices[item["id"]] == float(discounted_price)
+    assert r.status_code == 201, r.text
+    assert float(r.json()["unit_price"]) == 1425000.0
 
 
-def test_lookup_20_percent_discount(client, admin_token, db, client_org):
+def test_subscription_yearly_cycle_discount(client, admin_token, db, client_org):
     base_price = 500000
-    discounted_price = int(base_price * 0.8)  # 400000
+    item = _make_item(client, admin_token, code="DISC-Y-001", unit_price=base_price)
 
-    item = _make_item(client, admin_token, code="DISC20-001",
-                      unit_price=base_price)
-    pl = _make_price_list(client, admin_token, name="Premium PL 20pct")
-
-    client.post(
-        f"/api/price-lists/{pl['id']}/items",
-        json={"item_id": item["id"], "unit_price": discounted_price},
+    r = client.post(
+        "/api/subscriptions",
+        json={
+            "org_id": client_org.id,
+            "plan_id": item["id"],
+            "start_date": "2024-01-01",
+            "billing_cycle": "yearly",
+        },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-
-    client.put(
-        f"/api/organizations/{client_org.id}/price-list",
-        json={"price_list_id": pl["id"]},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-
-    r = client.get(
-        f"/api/items/lookup?org_id={client_org.id}",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert r.status_code == 200, r.text
-    prices = {i["id"]: i["unit_price"] for i in r.json()}
-    assert prices[item["id"]] == float(discounted_price)
+    assert r.status_code == 201, r.text
+    assert float(r.json()["unit_price"]) == 4800000.0
 
 
-def test_customer_cannot_lookup_other_org_prices(
-        client, second_customer_token, db, client_org):
-    r = client.get(
-        f"/api/items/lookup?org_id={client_org.id}",
-        headers={"Authorization": f"Bearer {second_customer_token}"},
+def test_customer_cannot_create_item(client, customer_token):
+    r = client.post(
+        "/api/items",
+        json={"code": "NOPE-001", "name": "Nope", "type": "saas",
+              "unit_price": 100000, "unit": "month"},
+        headers={"Authorization": f"Bearer {customer_token}"},
     )
     assert r.status_code == 403, r.text
 
 
-def test_assign_price_list_to_org(client, admin_token, db, client_org):
-    pl = _make_price_list(client, admin_token, name="Assigned PL")
-
-    r = client.put(
-        f"/api/organizations/{client_org.id}/price-list",
-        json={"price_list_id": pl["id"]},
+def test_subscription_rejects_missing_item(client, admin_token, db, client_org):
+    r = client.post(
+        "/api/subscriptions",
+        json={"org_id": client_org.id, "plan_id": 999999, "start_date": "2024-01-01"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 400, r.text
+
+
+def test_subscription_create_stores_due_days_and_tax_rate(client, admin_token, db, client_org):
+    item = _make_item(client, admin_token, code="SUB-TAX-001", unit_price=500000)
+
+    r = client.post(
+        "/api/subscriptions",
+        json={
+            "org_id": client_org.id,
+            "plan_id": item["id"],
+            "start_date": "2024-01-01",
+            "due_days": 30,
+            "tax_rate": 8.5,
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 201, r.text
     data = r.json()
-    assert data["price_list_id"] == pl["id"]
-    assert data["price_list_name"] == pl["name"]
+    assert data["due_days"] == 30
+    assert float(data["tax_rate"]) == 8.5

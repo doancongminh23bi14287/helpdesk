@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, String, Text, Enum, DateTime, Boolean, ForeignKey
+from sqlalchemy import BigInteger, Column, Integer, String, Text, Enum, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -31,6 +31,7 @@ class Ticket(Base):
     resolved_at = Column(DateTime)
     closed_at = Column(DateTime)
     sla_paused_at = Column(DateTime, nullable=True)
+    sla_paused_total_seconds = Column(Integer, nullable=False, default=0, server_default='0')
     sla_state = Column(Enum("green", "amber", "red", "breached"), default="green")
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())

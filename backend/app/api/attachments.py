@@ -3,30 +3,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.attachment import TicketAttachment
-from app.models.ticket import Ticket
-from app.models.team import StaffOrgAssignment
 from app.models.user import User
 from app.core.deps import get_current_user
+from app.core.scoping import get_ticket_in_scope
 from app.services.file_storage import get_attachment_path
-from sqlalchemy import select
 
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
-
-
-def _can_access_ticket(ticket: Ticket, user: User, db: Session) -> bool:
-    if user.role == "admin":
-        return True
-    if user.role == "staff":
-        assigned = (
-            select(StaffOrgAssignment.org_id)
-            .where(StaffOrgAssignment.user_id == user.id)
-            .scalar_subquery()
-        )
-        return db.query(Ticket).filter(
-            Ticket.id == ticket.id,
-            (Ticket.org_id.in_(assigned)) | (Ticket.assignee_id == user.id),
-        ).first() is not None
-    return ticket.org_id == user.org_id
 
 
 @router.get("/{attachment_id}/download")
@@ -49,8 +31,9 @@ def download_attachment(
     if ticket_id is None:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.is_deleted == False).first()
-    if not ticket or not _can_access_ticket(ticket, user, db):
+    try:
+        get_ticket_in_scope(ticket_id, user, db)
+    except HTTPException:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     abs_path = get_attachment_path(attachment.file_path)

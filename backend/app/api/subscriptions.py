@@ -1,14 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 from typing import List, Optional
 from math import ceil
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
 from app.database import get_db
 from app.models.subscription import SubscriptionPlan, Subscription
 from app.models.organization import Organization
+from app.models.item import Item
 from app.models.user import User
-from app.models.team import StaffOrgAssignment
 from app.core.deps import get_current_user, require_admin
+from app.core.scoping import scope_subscriptions, assert_org_access
 from app.schemas.subscription import SubscriptionCreate, SubscriptionOut
+from app.models.invoice import Invoice
+from app.models.service import Service
 from app.services.billing import create_subscription, cancel_subscription
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
@@ -17,43 +22,38 @@ VALID_SUB_SORT_FIELDS = {"start_date", "next_billing_date", "status", "created_a
 
 
 def _build_subscriptions_out(subs, db):
-    """Batch-fetch plans and orgs to avoid N+1 queries."""
-    plan_ids = list({s.subscription_plan_id for s in subs})
+    """Batch-fetch plans, items, and orgs to avoid N+1 queries."""
+    plan_ids = list({s.subscription_plan_id for s in subs if s.subscription_plan_id})
+    item_ids = list({s.item_id for s in subs if s.item_id})
     org_ids = list({s.org_id for s in subs})
     plan_map = {p.id: p for p in db.query(SubscriptionPlan).filter(SubscriptionPlan.id.in_(plan_ids)).all()} if plan_ids else {}
+    item_map = {i.id: i for i in db.query(Item).filter(Item.id.in_(item_ids)).all()} if item_ids else {}
     org_map = {o.id: o for o in db.query(Organization).filter(Organization.id.in_(org_ids)).all()} if org_ids else {}
 
     result = []
     for s in subs:
         plan = plan_map.get(s.subscription_plan_id)
+        item = item_map.get(s.item_id)
         org = org_map.get(s.org_id)
+        plan_name = (plan.name if plan else None) or (item.name if item else None)
         result.append(SubscriptionOut(
             **{c.key: getattr(s, c.key) for c in s.__table__.columns},
-            plan_name=plan.name if plan else None,
+            plan_name=plan_name,
             org_name=org.name if org else None,
         ))
     return result
 
 
 def _enrich_one(sub, db):
-    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.subscription_plan_id).first()
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.subscription_plan_id).first() if sub.subscription_plan_id else None
+    item = db.query(Item).filter(Item.id == sub.item_id).first() if sub.item_id else None
     org = db.query(Organization).filter(Organization.id == sub.org_id).first()
+    plan_name = (plan.name if plan else None) or (item.name if item else None)
     return SubscriptionOut(
         **{c.key: getattr(sub, c.key) for c in sub.__table__.columns},
-        plan_name=plan.name if plan else None,
+        plan_name=plan_name,
         org_name=org.name if org else None,
     )
-
-
-def _get_accessible_org_ids(user: User, db: Session) -> Optional[List[int]]:
-    """Returns None for admin (all), list of org IDs for staff/customer."""
-    if user.role == "admin":
-        return None
-    if user.role == "customer":
-        return [user.org_id]
-    # staff
-    rows = db.query(StaffOrgAssignment).filter(StaffOrgAssignment.user_id == user.id).all()
-    return [r.org_id for r in rows]
 
 
 @router.get("/my", response_model=List[SubscriptionOut])
@@ -80,11 +80,8 @@ def list_subscriptions(
     user: User = Depends(get_current_user),
 ):
     """List subscriptions scoped by role."""
-    from sqlalchemy import or_
-    org_ids = _get_accessible_org_ids(user, db)
     q = db.query(Subscription)
-    if org_ids is not None:
-        q = q.filter(Subscription.org_id.in_(org_ids))
+    q = scope_subscriptions(q, user, db)
     if status:
         q = q.filter(Subscription.status == status)
     # Search: match on org name via join
@@ -122,7 +119,10 @@ def create_subscription_endpoint(
             org_id=payload.org_id,
             plan_id=payload.plan_id,
             start_date=payload.start_date,
-            price_list_id=payload.price_list_id,
+            billing_cycle=payload.billing_cycle,
+            due_days=payload.due_days,
+            tax_rate=payload.tax_rate,
+            end_date=payload.end_date,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -139,10 +139,26 @@ def get_subscription(
     sub = db.query(Subscription).filter(Subscription.id == sub_id).first()
     if not sub:
         raise HTTPException(status_code=404, detail="Subscription not found")
-    org_ids = _get_accessible_org_ids(user, db)
-    if org_ids is not None and sub.org_id not in org_ids:
-        raise HTTPException(status_code=403, detail="Access denied")
+    assert_org_access(sub.org_id, user, db)
     return _enrich_one(sub, db)
+
+
+@router.delete("/{sub_id}", status_code=204)
+def delete_subscription_endpoint(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Delete a cancelled subscription permanently (admin only)."""
+    sub = db.query(Subscription).filter(Subscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if sub.status != "cancelled":
+        raise HTTPException(status_code=400, detail="Only cancelled subscriptions can be deleted")
+    db.query(Invoice).filter(Invoice.subscription_id == sub_id).update({"subscription_id": None})
+    db.query(Service).filter(Service.subscription_id == sub_id).update({"subscription_id": None})
+    db.delete(sub)
+    db.commit()
 
 
 @router.put("/{sub_id}/cancel", response_model=SubscriptionOut)

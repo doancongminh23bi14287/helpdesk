@@ -1,25 +1,27 @@
 # backend/app/api/tickets.py
-from datetime import datetime
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, File, UploadFile
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import select, or_
+from datetime import datetime, timezone
 from typing import List, Optional
 from math import ceil
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, File, UploadFile, Request
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.database import get_db
 from app.models.ticket import Ticket, TicketActivity, TicketReply
 from app.models.attachment import TicketAttachment
 from app.models.organization import Organization
 from app.models.service import Service
-from app.models.team import StaffOrgAssignment
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
+from app.core.scoping import get_ticket_in_scope, scope_tickets
+from app.core.limiter import limiter
+from app import config
 from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload, AttachmentOut
 from app.services.auto_assign import find_best_assignee, score_breakdown
 from app.services.notify import create_notification
 from app.services.sla_monitor import compute_sla_timestamps, get_sla_status
-from app.services.file_storage import save_attachment, get_attachment_path
+from app.services.file_storage import save_attachment
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -53,31 +55,15 @@ VALID_TRANSITIONS = {
 
 def _get_ticket_in_scope(ticket_id: int, user: User, db: Session) -> Ticket:
     """Return ticket if user can access it. Raises 404 if not found or out of scope."""
-    base = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.is_deleted == False)
-
-    if user.role == "admin":
-        ticket = base.first()
-    elif user.role == "staff":
-        assigned = (
-            select(StaffOrgAssignment.org_id)
-            .where(StaffOrgAssignment.user_id == user.id)
-            .scalar_subquery()
-        )
-        ticket = base.filter(
-            (Ticket.org_id.in_(assigned)) | (Ticket.assignee_id == user.id)
-        ).first()
-    else:  # customer
-        ticket = base.filter(Ticket.org_id == user.org_id).first()
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
+    return get_ticket_in_scope(ticket_id, user, db)
 
 
 # ── POST /api/tickets ─────────────────────────────────────────────────────────
 
 @router.post("", status_code=201, response_model=TicketOut)
+@limiter.limit(config.RATE_LIMIT_TICKET_CREATE)
 def create_ticket(
+    request: Request,
     payload: TicketCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -87,10 +73,11 @@ def create_ticket(
     if user.role == "customer" and payload.org_id != user.org_id:
         raise HTTPException(status_code=403, detail="Cannot create ticket for another organization")
 
-    # Validate that service_id belongs to the declared org
-    service = db.query(Service).filter(Service.id == payload.service_id).first()
-    if not service or service.org_id != payload.org_id:
-        raise HTTPException(status_code=422, detail="Service does not belong to the specified organization")
+    # Validate service belongs to org (only when service_id is provided)
+    if payload.service_id is not None:
+        service = db.query(Service).filter(Service.id == payload.service_id).first()
+        if not service or service.org_id != payload.org_id:
+            raise HTTPException(status_code=422, detail="Service does not belong to the specified organization")
 
     ticket = Ticket(
         org_id=payload.org_id,
@@ -137,6 +124,10 @@ def create_ticket(
                 type="assignment",
                 ref_ticket_id=ticket.id,
             )
+            # Stamp the winner so the tie-breaker stays accurate next time.
+            assigned_user = db.query(User).filter(User.id == best_id).first()
+            if assigned_user:
+                assigned_user.last_assigned_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(ticket)
@@ -154,6 +145,16 @@ def create_ticket(
         )
     except Exception:
         pass  # email failure must never break ticket creation
+
+    # Socket.IO: notify admin users of new ticket
+    try:
+        from app.socketio_server import notify_user
+        admin_users = db.query(User).filter(User.role == "admin", User.is_active == True).all()
+        event_data = {"ticket_id": ticket.id, "subject": ticket.subject}
+        for admin_user in admin_users:
+            background_tasks.add_task(notify_user, admin_user.id, "new_ticket", event_data)
+    except Exception:
+        pass
 
     return ticket
 
@@ -177,19 +178,7 @@ def list_tickets(
     query = db.query(Ticket).filter(Ticket.is_deleted == False)  # noqa: E712
 
     # Role-based scoping
-    if user.role == "admin":
-        pass  # no restriction
-    elif user.role == "staff":
-        assigned = (
-            select(StaffOrgAssignment.org_id)
-            .where(StaffOrgAssignment.user_id == user.id)
-            .scalar_subquery()
-        )
-        query = query.filter(
-            (Ticket.org_id.in_(assigned)) | (Ticket.assignee_id == user.id)
-        )
-    else:  # customer
-        query = query.filter(Ticket.org_id == user.org_id)
+    query = scope_tickets(query, user, db)
 
     # Optional filters
     if status:
@@ -206,7 +195,7 @@ def list_tickets(
         term = f"%{search}%"
         query = query.filter(or_(
             Ticket.subject.ilike(term),
-            Ticket.ticket_number.ilike(term),
+            Ticket.description.ilike(term),
         ))
 
     # Sort
@@ -322,15 +311,19 @@ def update_ticket(
         ticket.status = new_status
 
         # SLA pause/resume
-        now_utc = datetime.utcnow()
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         if new_status == "Waiting" and ticket.sla_paused_at is None:
             ticket.sla_paused_at = now_utc
         elif new_status == "In Progress" and ticket.sla_paused_at is not None:
             pause_duration = now_utc - ticket.sla_paused_at
+            duration_seconds = int(pause_duration.total_seconds())
             if ticket.resolution_by:
                 ticket.resolution_by = ticket.resolution_by + pause_duration
             if ticket.response_by:
                 ticket.response_by = ticket.response_by + pause_duration
+            ticket.sla_paused_total_seconds = (
+                (ticket.sla_paused_total_seconds or 0) + duration_seconds
+            )
             ticket.sla_paused_at = None
 
     if "priority" in changes:
@@ -369,7 +362,7 @@ def update_ticket(
             to_email = ticket.raised_by_email
             if to_email:
                 new_status = changes["status"]
-                ticket_url = f"http://localhost:5173/tickets/{ticket.id}"
+                ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
                 subject = f"[#{ticket.id}] Status changed to {new_status}"
                 body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
 <h2>Ticket #{ticket.id} — {new_status}</h2>
@@ -377,6 +370,19 @@ def update_ticket(
 <p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
                 body_text = f"Ticket #{ticket.id} '{ticket.subject}' → {new_status}\n{ticket_url}"
                 background_tasks.add_task(bg_send_email, to_email, subject, body_html, body_text)
+    except Exception:
+        pass
+
+    # Socket.IO: notify affected users of ticket update
+    try:
+        from app.socketio_server import notify_user
+        event_data = {"ticket_id": ticket.id, "status": ticket.status, "priority": ticket.priority, "assignee_id": ticket.assignee_id}
+        notified = set()
+        if ticket.raised_by:
+            background_tasks.add_task(notify_user, ticket.raised_by, "ticket_updated", event_data)
+            notified.add(ticket.raised_by)
+        if ticket.assignee_id and ticket.assignee_id not in notified:
+            background_tasks.add_task(notify_user, ticket.assignee_id, "ticket_updated", event_data)
     except Exception:
         pass
 
@@ -438,11 +444,15 @@ def add_reply(
         old_status = ticket.status
         # Resume SLA if coming back from Waiting
         if old_status == "Waiting" and ticket.sla_paused_at is not None:
-            pause_duration = datetime.utcnow() - ticket.sla_paused_at
+            pause_duration = datetime.now(timezone.utc).replace(tzinfo=None) - ticket.sla_paused_at
+            duration_seconds = int(pause_duration.total_seconds())
             if ticket.resolution_by:
                 ticket.resolution_by = ticket.resolution_by + pause_duration
             if ticket.response_by:
                 ticket.response_by = ticket.response_by + pause_duration
+            ticket.sla_paused_total_seconds = (
+                (ticket.sla_paused_total_seconds or 0) + duration_seconds
+            )
             ticket.sla_paused_at = None
         ticket.status = "In Progress"
         reopen_activity = TicketActivity(
@@ -490,7 +500,7 @@ def add_reply(
     try:
         if not is_internal:
             from app.services.email_sender import bg_send_email
-            ticket_url = f"http://localhost:5173/tickets/{ticket_id}"
+            ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket_id}"
             subject = f"Re: [#{ticket_id}] {ticket.subject}"
             body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
 <h2>New Reply on Ticket #{ticket_id}</h2>
@@ -504,6 +514,17 @@ def add_reply(
                     background_tasks.add_task(bg_send_email, assignee.email, subject, body_html, body_text)
             elif user.role != "customer" and ticket.raised_by_email:
                 background_tasks.add_task(bg_send_email, ticket.raised_by_email, subject, body_html, body_text)
+    except Exception:
+        pass
+
+    # Socket.IO: push new reply to the other party
+    try:
+        from app.socketio_server import notify_user
+        event_data = {"ticket_id": ticket_id, "reply_id": reply.id, "author_id": user.id}
+        if user.role == "customer" and ticket.assignee_id:
+            background_tasks.add_task(notify_user, ticket.assignee_id, "new_reply", event_data)
+        elif user.role != "customer" and ticket.raised_by:
+            background_tasks.add_task(notify_user, ticket.raised_by, "new_reply", event_data)
     except Exception:
         pass
 
@@ -592,7 +613,9 @@ def list_replies(
 # ── POST /api/tickets/{id}/attachments ────────────────────────────────────────
 
 @router.post("/{ticket_id}/attachments", status_code=201, response_model=AttachmentOut)
+@limiter.limit(config.RATE_LIMIT_FILE_UPLOAD)
 async def upload_attachment(
+    request: Request,
     ticket_id: int,
     file: UploadFile = File(...),
     reply_id: Optional[int] = Query(None),
@@ -606,15 +629,17 @@ async def upload_attachment(
     mime_type = file.content_type or "application/octet-stream"
     original_name = file.filename or "upload"
 
-    rel_path, file_size = save_attachment(file_data, org_id, original_name, mime_type)
+    result = save_attachment(file_data, org_id, original_name, mime_type)
 
     attachment = TicketAttachment(
         ticket_id=ticket_id,
         reply_id=reply_id,
         file_name=original_name[:255],
-        file_path=rel_path,
-        file_size=file_size,
+        file_path=result["stored_path"],
+        file_size=result["file_size"],
         mime_type=mime_type[:100],
+        detected_mime=result["detected_mime"],
+        sha256=result["sha256"],
         uploaded_by=user.id,
     )
     db.add(attachment)

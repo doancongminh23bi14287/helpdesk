@@ -1,17 +1,40 @@
 # backend/app/schemas/ticket.py
-from pydantic import BaseModel, ConfigDict
-from typing import Optional, List
+from typing import Literal, Optional, List
 from datetime import datetime, date
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+# Allowed values mirror the MariaDB enum on `tickets.ticket_type`.
+# Update both in lockstep — adding a value here without a migration will still 500.
+TicketTypeLiteral = Literal[
+    "Bug",
+    "Incident",
+    "Question",
+    "Unspecified",
+    "Service SaaS",
+    "Service Hosting",
+    "Renewal",
+]
 
 
 class TicketCreate(BaseModel):
     org_id: int
-    service_id: int
+    service_id: Optional[int] = None
     subject: str
     description: Optional[str] = None
     priority: str = "Medium"
-    ticket_type: str = "Unspecified"
+    ticket_type: TicketTypeLiteral = "Unspecified"
     assignee_id: Optional[int] = None
+
+    @field_validator("ticket_type", mode="before")
+    @classmethod
+    def default_ticket_type(cls, v):
+        if v is None:
+            return "Unspecified"
+        if isinstance(v, str) and not v.strip():
+            return "Unspecified"
+        return v
 
 
 class TicketUpdate(BaseModel):
@@ -126,5 +149,7 @@ class AttachmentOut(BaseModel):
     file_path: str
     file_size: int
     mime_type: str
+    detected_mime: Optional[str] = None
+    sha256: Optional[str] = None
     uploaded_by: int
     created_at: datetime

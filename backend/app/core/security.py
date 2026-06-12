@@ -1,8 +1,11 @@
 # backend/app/core/security.py
+import hashlib
+import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from jose import jwt
 from passlib.context import CryptContext
-from app.config import JWT_SECRET, JWT_ALGO, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+from app.config import JWT_SECRET, JWT_ALGO, ACCESS_TOKEN_EXPIRE_MINUTES
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -15,16 +18,28 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(data: dict) -> str:
-    payload = {**data, "type": "access",
-                "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+def hash_token(token: str) -> str:
+    """SHA-256 hex digest — used to store refresh tokens in DB without plaintext."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create_refresh_token(data: dict) -> str:
-    payload = {**data, "type": "refresh",
-                "exp": datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)}
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+def create_access_token(user_id: int, role: str) -> tuple[str, str]:
+    """Return (encoded_jwt, jti). jti is a UUID4 string identifying this specific token."""
+    jti = str(uuid.uuid4())
+    payload = {
+        "sub": str(user_id),
+        "role": role,
+        "jti": jti,
+        "type": "access",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+    return token, jti
+
+
+def create_refresh_token(user_id: int) -> str:
+    """Return an opaque random string (not a JWT). Store its hash in DB."""
+    return secrets.token_urlsafe(32)
 
 
 def decode_token(token: str) -> dict:
