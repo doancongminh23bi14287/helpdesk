@@ -14,3 +14,8 @@ venv/
 *.log
 .DS_Store
 celerybeat-schedule
+
+# Frontend local files
+frontend/.env.local
+frontend/node_modules/
+frontend/dist/
