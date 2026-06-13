@@ -18,6 +18,7 @@ from app.models.email_outbox import EmailOutbox
 from app.models.invoice_payment import InvoicePayment
 from app.models.user_session import UserSession
 from app.models.project import Project, ProjectTask, ProjectDocument
+from app.models.password_reset import PasswordResetOTP
 
 __all__ = [
     "Organization", "User",
@@ -38,4 +39,5 @@ __all__ = [
     "InvoicePayment",
     "UserSession",
     "Project", "ProjectTask", "ProjectDocument",
+    "PasswordResetOTP",
 ]

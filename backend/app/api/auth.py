@@ -1,4 +1,6 @@
 # backend/app/api/auth.py
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -8,6 +10,8 @@ from app.models.user import User
 from app.models.login_history import LoginHistory
 from app.models.organization import Organization
 from app.models.user_session import UserSession
+from app.models.password_reset import PasswordResetOTP
+from app.models.email_outbox import EmailOutbox
 from app.core.security import (
     verify_password, create_access_token, create_refresh_token,
     decode_token, hash_password, hash_token,
@@ -445,3 +449,143 @@ def change_password(
     blacklist_user_tokens(current_user.id, redis_client)
     db.commit()
     return {"message": "Password changed successfully"}
+
+
+@router.post("/forgot-password")
+@limiter.limit("3/minute")
+def forgot_password(request: Request, payload: dict = Body(...), db: Session = Depends(get_db)):
+    email = (payload.get("email") or "").strip().lower()
+    # Always return 200 to prevent email enumeration
+    generic_ok = {"message": "If that email exists, a code was sent"}
+
+    user = db.query(User).filter(User.email == email, User.is_active.is_(True)).first()
+    if not user:
+        return generic_ok
+
+    # Invalidate any existing unused OTPs for this user
+    db.query(PasswordResetOTP).filter(
+        PasswordResetOTP.user_id == user.id,
+        PasswordResetOTP.used_at.is_(None),
+    ).update({"used_at": datetime.utcnow()})
+
+    # Generate 6-digit OTP
+    otp = f"{secrets.randbelow(1000000):06d}"
+    otp_hash = hashlib.sha256(otp.encode()).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+    otp_row = PasswordResetOTP(
+        user_id=user.id,
+        otp_hash=otp_hash,
+        expires_at=expires_at,
+    )
+    db.add(otp_row)
+
+    # Queue email
+    body_text = (
+        f"Your CustomerHub password reset code is: {otp}. "
+        f"It expires in 10 minutes.\n\n"
+        f"Mã đặt lại mật khẩu của bạn là: {otp}, hết hạn sau 10 phút."
+    )
+    body_html = (
+        f"<p>Your CustomerHub password reset code is: <strong>{otp}</strong>. "
+        f"It expires in 10 minutes.</p>"
+        f"<p>Mã đặt lại mật khẩu của bạn là: <strong>{otp}</strong>, hết hạn sau 10 phút.</p>"
+    )
+    email_row = EmailOutbox(
+        email_type="password_reset",
+        recipient_email=user.email,
+        recipient_name=user.full_name,
+        subject="CustomerHub — Password Reset Code",
+        body_text=body_text,
+        body_html=body_html,
+        status="pending",
+        scheduled_at=datetime.utcnow(),
+    )
+    db.add(email_row)
+    db.commit()
+
+    return generic_ok
+
+
+@router.post("/verify-otp")
+def verify_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
+    email = (payload.get("email") or "").strip().lower()
+    otp_input = str(payload.get("otp") or "").strip()
+
+    user = db.query(User).filter(User.email == email, User.is_active.is_(True)).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    now = datetime.utcnow()
+    otp_row = (
+        db.query(PasswordResetOTP)
+        .filter(
+            PasswordResetOTP.user_id == user.id,
+            PasswordResetOTP.used_at.is_(None),
+            PasswordResetOTP.expires_at > now,
+        )
+        .order_by(PasswordResetOTP.created_at.desc())
+        .first()
+    )
+    if not otp_row:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    # Check attempt count before verifying
+    if otp_row.attempts >= 5:
+        otp_row.used_at = now  # invalidate
+        db.commit()
+        raise HTTPException(status_code=429, detail="Too many attempts. Request a new code.")
+
+    otp_row.attempts += 1
+    db.flush()
+
+    expected_hash = hashlib.sha256(otp_input.encode()).hexdigest()
+    if otp_row.otp_hash != expected_hash:
+        db.commit()
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    # Correct — issue a short-lived reset token
+    reset_token, _ = create_access_token(user.id, "reset")
+    # Mark used when reset-password is called (otp_row guards single-use)
+    db.commit()
+    return {"reset_token": reset_token}
+
+
+@router.post("/reset-password")
+def reset_password_via_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
+    reset_token = payload.get("reset_token") or ""
+    new_password = payload.get("new_password") or ""
+
+    try:
+        claims = decode_token(reset_token)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    if claims.get("role") != "reset":
+        raise HTTPException(status_code=400, detail="Invalid token type")
+
+    user_id = int(claims.get("sub", 0))
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid token")
+
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    # Mark the OTP as used (prevents reuse of the reset_token)
+    now = datetime.utcnow()
+    db.query(PasswordResetOTP).filter(
+        PasswordResetOTP.user_id == user_id,
+        PasswordResetOTP.used_at.is_(None),
+    ).update({"used_at": now})
+
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    _revoke_all_sessions(user_id, db)
+    blacklist_user_tokens(user_id, redis_client)
+    db.commit()
+
+    return {"message": "Password updated. Please log in."}
