@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.contact import Contact
 from app.models.login_history import LoginHistory
+from app.models.ticket import Ticket
 from app.models.user_session import UserSession
 from app.core.deps import require_admin
 from app.core.security import hash_password, blacklist_user_tokens, remove_user_from_blacklist
@@ -182,20 +183,19 @@ def delete_user(
     admin: User = Depends(require_admin),
 ):
     """Hard-delete a user. Returns 409 if the user has any tickets."""
-    from app.models.ticket import Ticket
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if target.id == admin.id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     ticket_count = db.query(Ticket).filter(
-        Ticket.raised_by == user_id,
+        or_(Ticket.raised_by == user_id, Ticket.assignee_id == user_id),
         Ticket.is_deleted == False,  # noqa: E712
     ).count()
     if ticket_count > 0:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot delete user: they have {ticket_count} open ticket(s). Deactivate instead.",
+            detail=f"Cannot delete user: they have {ticket_count} ticket(s). Deactivate instead.",
         )
     # Revoke sessions before deleting
     from datetime import datetime, timezone
