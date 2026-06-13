@@ -24,8 +24,21 @@ function fmtDate(str) {
 function todayISO() { return new Date().toISOString().slice(0, 10) }
 function daysAgoISO(n) { return subDays(new Date(), n).toISOString().slice(0, 10) }
 
-// Pie chart colours
-const PIE_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6']
+// Chart colour palette
+const CHART_COLORS = {
+  primary:    '#2563EB',  // blue-600
+  secondary:  '#0EA5E9',  // sky-500
+  tertiary:   '#10B981',  // emerald-500
+  quaternary: '#14B8A6',  // teal-500
+  accent:     '#6366F1',  // indigo-500
+}
+
+const PRIORITY_COLORS = {
+  Low:    '#10B981',  // emerald — cool, calm
+  Medium: '#0EA5E9',  // sky
+  High:   '#2563EB',  // blue-600
+  Urgent: '#6366F1',  // indigo — distinct but not red
+}
 
 // ── sub-components ─────────────────────────────────────────────────────────────
 
@@ -386,7 +399,7 @@ export default function AnalyticsDashboard() {
                           fontSize: '12px',
                         }}
                       />
-                      <Bar dataKey="count" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="count" fill={CHART_COLORS.primary} radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -413,8 +426,8 @@ export default function AnalyticsDashboard() {
                         }
                         labelLine={false}
                       >
-                        {priorityPieData.map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        {priorityPieData.map((entry) => (
+                          <Cell key={entry.name} fill={PRIORITY_COLORS[entry.name] ?? CHART_COLORS.primary} />
                         ))}
                       </Pie>
                       <Tooltip
@@ -567,8 +580,8 @@ export default function AnalyticsDashboard() {
                         formatter={(value, name) => [fmtVND(value), name]}
                       />
                       <Legend wrapperStyle={{ fontSize: '12px' }} />
-                      <Bar dataKey="invoiced" name="Invoiced" fill="#6366f1" radius={[3, 3, 0, 0]} />
-                      <Bar dataKey="paid" name="Paid" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="invoiced" name="Invoiced" fill={CHART_COLORS.primary} radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="paid" name="Paid" fill={CHART_COLORS.tertiary} radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
