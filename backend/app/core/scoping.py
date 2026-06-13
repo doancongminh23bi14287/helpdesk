@@ -104,7 +104,7 @@ def scope_projects(query, user: User, db: Session, include_internal: bool = Fals
     Apply SEO project visibility rules.
 
     - Admin: unrestricted
-    - Staff: projects in assigned organisations
+    - Staff: projects in assigned orgs OR projects where staff has an assigned ticket
     - Customer: own org and customer-visible projects only
     """
     if user.role == "admin":
@@ -114,8 +114,23 @@ def scope_projects(query, user: User, db: Session, include_internal: bool = Fals
             Project.org_id == user.org_id,
             Project.visibility == "customer_visible",
         )
+    # staff: assigned-org projects OR projects linked via an assigned ticket
     org_ids = get_accessible_org_ids(user, db)
-    return query.filter(Project.org_id.in_(org_ids or []))
+    linked_via_ticket = (
+        db.query(Ticket.project_id)
+        .filter(
+            Ticket.assignee_id == user.id,
+            Ticket.project_id.isnot(None),
+            Ticket.is_deleted == False,  # noqa: E712
+        )
+        .scalar_subquery()
+    )
+    return query.filter(
+        or_(
+            Project.org_id.in_(org_ids or []),
+            Project.id.in_(linked_via_ticket),
+        )
+    )
 
 
 def scope_project_tasks(query, user: User, db: Session, include_internal: bool = False):

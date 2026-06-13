@@ -283,3 +283,59 @@ def test_scope_notifications_user_scoped(
     ids = {n.id for n in q.all()}
     assert mine.id in ids
     assert theirs.id not in ids
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _make_project(db, org_id, created_by_id, name="Test Project"):
+    from app.models.project import Project
+    p = Project(
+        org_id=org_id,
+        name=name,
+        project_type="seo",
+        status="open",
+        visibility="internal",
+        created_by=created_by_id,
+    )
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return p
+
+
+# ── scope_projects ────────────────────────────────────────────────────────────
+
+def test_staff_sees_project_via_assigned_ticket(
+    db, staff_user2, second_client_org2, customer_user
+):
+    """Staff with no org assignment sees a project only when they have a ticket
+    linked to it and assigned to them."""
+    from app.core.scoping import scope_projects
+    from app.models.project import Project
+
+    # project in an org that staff_user2 is NOT assigned to
+    project = _make_project(db, second_client_org2.id, customer_user.id, name="Linked Project")
+
+    # ticket in that org, assigned to staff_user2, linked to the project
+    ticket = _make_ticket(db, second_client_org2.id, customer_user.id, assignee_id=staff_user2.id)
+    ticket.project_id = project.id
+    db.commit()
+
+    q = scope_projects(db.query(Project), staff_user2, db)
+    ids = {p.id for p in q.all()}
+    assert project.id in ids, "staff should see project via assigned ticket"
+
+
+def test_staff_does_not_see_unlinked_project(
+    db, staff_user2, second_client_org2, customer_user
+):
+    """Control: staff with no org assignment and no assigned ticket cannot see the project."""
+    from app.core.scoping import scope_projects
+    from app.models.project import Project
+
+    project = _make_project(db, second_client_org2.id, customer_user.id, name="Hidden Project")
+    # No ticket linking staff_user2 to this project
+
+    q = scope_projects(db.query(Project), staff_user2, db)
+    ids = {p.id for p in q.all()}
+    assert project.id not in ids, "staff should NOT see project without ticket link"
