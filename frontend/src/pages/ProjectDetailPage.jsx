@@ -757,9 +757,106 @@ export default function ProjectDetailPage() {
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          {/* Left column — tasks primary */}
           <main className="space-y-5 min-w-0">
-          <div className={`grid grid-cols-1 gap-5 ${!isCustomer ? 'xl:grid-cols-2' : ''}`}>
+            {!isCustomer && <div ref={taskFormRef}><TaskCreateForm onCreate={addTask} /></div>}
+            <WorkspaceCard title="Task List" icon={CheckCircleIcon} action={<span className="text-xs text-slate-500">{tasks.length} shown</span>}>
+              {tasks.length === 0 ? (
+                <EmptyPanel>{isCustomer ? 'No customer-visible tasks are available yet.' : 'No tasks have been created yet.'}</EmptyPanel>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-slate-100 bg-slate-50">
+                      <tr>
+                        <th className="w-10 px-4 py-3" />
+                        <th className="text-left px-4 py-3 font-medium text-slate-500">Task</th>
+                        <th className="text-left px-4 py-3 font-medium text-slate-500">Assignee</th>
+                        <th className="text-left px-4 py-3 font-medium text-slate-500">Priority</th>
+                        <th className="text-left px-4 py-3 font-medium text-slate-500">Status</th>
+                        {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Client</th>}
+                        <th className="text-left px-4 py-3 font-medium text-slate-500">Deadline</th>
+                        {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Actions</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {tasks.map(task => (
+                        <Fragment key={task.id}>
+                        <tr className="hover:bg-slate-50/70">
+                          <td className="px-4 py-3">
+                            <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${task.status === 'completed' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-slate-300 text-transparent'}`}>
+                              <CheckCircleIcon className="h-4 w-4" aria-hidden="true" />
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 min-w-64">
+                            <p className="font-medium text-slate-900">{task.title}</p>
+                            {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
+                            <p className="mt-1 text-xs text-slate-400">{TASK_TYPES.find(([value]) => value === task.task_type)?.[1] ?? task.task_type}</p>
+                            {!isCustomer && task.internal_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 mt-2">Internal: {task.internal_note}</p>}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">{isCustomer ? (task.assignee_name || '—') : (task.assignee_name || task.assignee_email || '—')}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${PRIORITY_CLASSES[task.priority] ?? PRIORITY_CLASSES.medium}`}>{task.priority}</span>
+                          </td>
+                          <td className="px-4 py-3"><TaskStatusBadge status={task.status} /></td>
+                          {!isCustomer && <td className="px-4 py-3">{task.is_client_visible ? 'Visible' : 'Internal'}</td>}
+                          <td className="px-4 py-3 text-slate-500">
+                            <span className="inline-flex items-center gap-1">
+                              <CalendarDaysIcon className="w-3.5 h-3.5" aria-hidden="true" />
+                              {fmtDate(task.due_date)}
+                            </span>
+                          </td>
+                          {!isCustomer && (
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                              <select
+                                value={task.status}
+                                disabled={updatingTask === task.id || task.status === 'cancelled'}
+                                onChange={e => changeStatus(task.id, e.target.value)}
+                                className="px-2 py-1 border border-slate-200 rounded bg-white text-xs"
+                              >
+                                {TASK_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setEditingTaskId(task.id)}
+                                className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100"
+                                title="Edit task"
+                              >
+                                <PencilSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => cancelTask(task.id)}
+                                disabled={taskActionId === task.id || task.status === 'cancelled'}
+                                className="rounded border border-red-100 p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                title="Cancel task"
+                              >
+                                <XMarkIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                              </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                        {!isCustomer && editingTaskId === task.id && (
+                          <TaskEditRow
+                            key={`${task.id}-edit`}
+                            task={task}
+                            onCancel={() => setEditingTaskId(null)}
+                            onSave={(payload) => saveTask(task.id, payload)}
+                          />
+                        )}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </WorkspaceCard>
+          </main>
+
+          {/* Right sidebar — supporting info */}
+          <aside className="space-y-5">
             <WorkspaceCard title="Progress" icon={CheckCircleIcon}>
               <div className="px-5 py-4">
                 <div className="flex items-center justify-between gap-4">
@@ -776,13 +873,13 @@ export default function ProjectDetailPage() {
             </WorkspaceCard>
 
             {!isCustomer && <TeamMembers project={project} tasks={tasks} />}
-          </div>
 
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <LinkedTicketsPanel tickets={linkedTickets} />
+
             <WorkspaceCard title="About Project" icon={FolderIcon}>
               <div className="px-5 py-5">
                 <p className="text-sm leading-6 text-slate-600 whitespace-pre-wrap">{project.description || 'No project description has been added yet.'}</p>
-                <dl className="mt-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                <dl className="mt-5 grid grid-cols-1 gap-3 text-sm">
                   {!isCustomer && project.org_name && (
                     <div className="rounded-lg bg-muted/30 px-3 py-2">
                       <dt className="text-xs text-muted-foreground">Organisation</dt>
@@ -806,18 +903,6 @@ export default function ProjectDetailPage() {
                       <dd className="font-medium text-foreground truncate">{project.project_manager_name}</dd>
                     </div>
                   )}
-                  {!isCustomer && project.service_id && (
-                    <div className="rounded-lg bg-muted/30 px-3 py-2">
-                      <dt className="text-xs text-muted-foreground">Service</dt>
-                      <dd className="font-medium text-foreground">#{project.service_id}</dd>
-                    </div>
-                  )}
-                  {!isCustomer && project.subscription_id && (
-                    <div className="rounded-lg bg-muted/30 px-3 py-2">
-                      <dt className="text-xs text-muted-foreground">Subscription</dt>
-                      <dd className="font-medium text-foreground">#{project.subscription_id}</dd>
-                    </div>
-                  )}
                 </dl>
               </div>
             </WorkspaceCard>
@@ -831,108 +916,9 @@ export default function ProjectDetailPage() {
               onUpload={uploadDocument}
               onDownload={downloadProjectDocument}
             />
-          </div>
 
-          {!isCustomer && <div ref={taskFormRef}><TaskCreateForm onCreate={addTask} /></div>}
-
-          <WorkspaceCard title="Task List" icon={CheckCircleIcon} action={<span className="text-xs text-slate-500">{tasks.length} shown</span>}>
-            {tasks.length === 0 ? (
-              <EmptyPanel>{isCustomer ? 'No customer-visible tasks are available yet.' : 'No tasks have been created yet.'}</EmptyPanel>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-slate-100 bg-slate-50">
-                    <tr>
-                      <th className="w-10 px-4 py-3" />
-                      <th className="text-left px-4 py-3 font-medium text-slate-500">Task</th>
-                      <th className="text-left px-4 py-3 font-medium text-slate-500">Assignee</th>
-                      <th className="text-left px-4 py-3 font-medium text-slate-500">Priority</th>
-                      <th className="text-left px-4 py-3 font-medium text-slate-500">Status</th>
-                      {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Client</th>}
-                      <th className="text-left px-4 py-3 font-medium text-slate-500">Deadline</th>
-                      {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Actions</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tasks.map(task => (
-                      <Fragment key={task.id}>
-                      <tr className="hover:bg-slate-50/70">
-                        <td className="px-4 py-3">
-                          <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${task.status === 'completed' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-slate-300 text-transparent'}`}>
-                            <CheckCircleIcon className="h-4 w-4" aria-hidden="true" />
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 min-w-64">
-                          <p className="font-medium text-slate-900">{task.title}</p>
-                          {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
-                          <p className="mt-1 text-xs text-slate-400">{TASK_TYPES.find(([value]) => value === task.task_type)?.[1] ?? task.task_type}</p>
-                          {!isCustomer && task.internal_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 mt-2">Internal: {task.internal_note}</p>}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500">{isCustomer ? (task.assignee_name || '—') : (task.assignee_name || task.assignee_email || '—')}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${PRIORITY_CLASSES[task.priority] ?? PRIORITY_CLASSES.medium}`}>{task.priority}</span>
-                        </td>
-                        <td className="px-4 py-3"><TaskStatusBadge status={task.status} /></td>
-                        {!isCustomer && <td className="px-4 py-3">{task.is_client_visible ? 'Visible' : 'Internal'}</td>}
-                        <td className="px-4 py-3 text-slate-500">
-                          <span className="inline-flex items-center gap-1">
-                            <CalendarDaysIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                            {fmtDate(task.due_date)}
-                          </span>
-                        </td>
-                        {!isCustomer && (
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                            <select
-                              value={task.status}
-                              disabled={updatingTask === task.id || task.status === 'cancelled'}
-                              onChange={e => changeStatus(task.id, e.target.value)}
-                              className="px-2 py-1 border border-slate-200 rounded bg-white text-xs"
-                            >
-                              {TASK_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={() => setEditingTaskId(task.id)}
-                              className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100"
-                              title="Edit task"
-                            >
-                              <PencilSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => cancelTask(task.id)}
-                              disabled={taskActionId === task.id || task.status === 'cancelled'}
-                              className="rounded border border-red-100 p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40"
-                              title="Cancel task"
-                            >
-                              <XMarkIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                            </button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                      {!isCustomer && editingTaskId === task.id && (
-                        <TaskEditRow
-                          key={`${task.id}-edit`}
-                          task={task}
-                          onCancel={() => setEditingTaskId(null)}
-                          onSave={(payload) => saveTask(task.id, payload)}
-                        />
-                      )}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </WorkspaceCard>
-          </main>
-
-          <aside className="space-y-5">
-          <LinkedTicketsPanel tickets={linkedTickets} />
-          <NotesPanel tasks={tasks} isCustomer={isCustomer} />
-          <ActivityPanel project={project} tasks={tasks} />
+            <NotesPanel tasks={tasks} isCustomer={isCustomer} />
+            <ActivityPanel project={project} tasks={tasks} />
           </aside>
         </div>
       </div>
