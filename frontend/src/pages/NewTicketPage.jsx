@@ -400,6 +400,10 @@ export default function NewTicketPage() {
   const setField = (key) => (val) => setForm((f) => ({ ...f, [key]: val }))
   const clearErr  = (key) => setErrors((x) => ({ ...x, [key]: '' }))
 
+  const requestService = useCallback(() => {
+    setForm((f) => ({ ...f, subject: "I'd like to request a new service", ticket_type: 'Question' }))
+  }, [])
+
   const selectedOrg = orgs.find((o) => o.id === selectedOrgId)
 
   return (
@@ -421,98 +425,119 @@ export default function NewTicketPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
 
-        {/* Block 1 — Organization & Service */}
-        <FormBlock step="1" title="Organization & Service" description="Select which service this ticket is about" icon={BuildingOffice2Icon}>
+        {/* Block 1 — Ticket Details */}
+        <FormBlock step="1" title="Ticket Details" description="Organization, service, type, and subject" icon={DocumentTextIcon}>
 
-          <Field label="Organization" required error={errors.org_id}>
-            {isCustomer ? (
-              <StyledInput
-                value={orgsLoading ? 'Loading…' : (selectedOrg?.name ?? user?.org_id ?? '')}
-                disabled
-                className="bg-muted/40"
-              />
-            ) : (
-              <StyledSelect
-                value={selectedOrgId ?? ''}
-                onChange={(e) => { setSelectedOrgId(Number(e.target.value) || null); clearErr('org_id') }}
-                disabled={orgsLoading}
-                error={errors.org_id}
-              >
-                <option value="">{orgsLoading ? 'Loading…' : 'Select organization'}</option>
-                {orgs.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
-                ))}
-              </StyledSelect>
-            )}
-          </Field>
+          {/* Row 1: Organization | Service */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Organization" required error={errors.org_id}>
+              {isCustomer ? (
+                <StyledInput
+                  value={orgsLoading ? 'Loading…' : (selectedOrg?.name ?? user?.org_id ?? '')}
+                  disabled
+                  className="bg-muted/40"
+                />
+              ) : (
+                <StyledSelect
+                  value={selectedOrgId ?? ''}
+                  onChange={(e) => { setSelectedOrgId(Number(e.target.value) || null); clearErr('org_id') }}
+                  disabled={orgsLoading}
+                  error={errors.org_id}
+                >
+                  <option value="">{orgsLoading ? 'Loading…' : 'Select organization'}</option>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
+                  ))}
+                </StyledSelect>
+              )}
+            </Field>
 
-          <Field label="Service" required={isCustomer} hint={isCustomer ? "Select the service related to your issue" : "Optional — leave blank if not applicable"} error={errors.service_id}>
-            <StyledSelect
-              value={selectedServiceId ?? ''}
-              onChange={(e) => { setSelectedServiceId(Number(e.target.value) || null); clearErr('service_id') }}
-              disabled={!selectedOrgId || servicesLoading}
-              error={errors.service_id}
-            >
-              <option value="">
-                {!selectedOrgId ? 'Select an organization first' :
-                 servicesLoading ? 'Loading services…' :
-                 services.length === 0 ? 'No services found' :
-                 'Select a service'}
-              </option>
-              {services.map((s) => {
-                const typeLabel = SERVICE_TYPE_BADGE[s.type]?.label ?? s.type
-                const statusLabel = s.status ? ` — ${s.status.replace('_', ' ')}` : ''
-                return (
-                  <option key={s.id} value={s.id}>
-                    [{typeLabel}] {s.name}{statusLabel}
+            <Field label="Service" required={isCustomer} hint={isCustomer ? "Select the service related to your issue" : "Optional — leave blank if not applicable"} error={errors.service_id}>
+              {services.length === 0 && !servicesLoading && selectedOrgId ? (
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center">
+                  <p className="text-sm text-gray-600">No active services on this account yet.</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    You can still submit a ticket — just describe your issue below.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={requestService}
+                    className="mt-3 text-xs text-amber-600 hover:text-amber-700 font-medium"
+                  >
+                    + Request a service
+                  </button>
+                </div>
+              ) : (
+                <StyledSelect
+                  value={selectedServiceId ?? ''}
+                  onChange={(e) => { setSelectedServiceId(Number(e.target.value) || null); clearErr('service_id') }}
+                  disabled={!selectedOrgId || servicesLoading}
+                  error={errors.service_id}
+                >
+                  <option value="">
+                    {!selectedOrgId ? 'Select an organization first' :
+                     servicesLoading ? 'Loading services…' :
+                     'Select a service'}
                   </option>
-                )
-              })}
-            </StyledSelect>
-            {/* Service preview card */}
-            {selectedServiceId && (() => {
-              const svc = services.find((s) => s.id === selectedServiceId)
-              if (!svc) return null
-              return <ServicePreviewCard service={svc} />
-            })()}
-          </Field>
+                  {services.map((s) => {
+                    const typeLabel = SERVICE_TYPE_BADGE[s.type]?.label ?? s.type
+                    const statusLabel = s.status ? ` — ${s.status.replace('_', ' ')}` : ''
+                    return (
+                      <option key={s.id} value={s.id}>
+                        [{typeLabel}] {s.name}{statusLabel}
+                      </option>
+                    )
+                  })}
+                </StyledSelect>
+              )}
+              {/* Service preview card */}
+              {selectedServiceId && (() => {
+                const svc = services.find((s) => s.id === selectedServiceId)
+                if (!svc) return null
+                return <ServicePreviewCard service={svc} />
+              })()}
+            </Field>
+          </div>
 
+          {/* Row 2: Link to Project (only if projects exist) */}
           {projects.length > 0 && (
-            <Field label="Link to Project" hint="Optional — link this ticket to an ongoing SEO project">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Link to Project" hint="Optional — link this ticket to an ongoing SEO project">
+                <StyledSelect
+                  value={selectedProjectId ?? ''}
+                  onChange={(e) => setSelectedProjectId(Number(e.target.value) || null)}
+                  disabled={projectsLoading}
+                >
+                  <option value="">{projectsLoading ? 'Loading projects…' : 'No project (optional)'}</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </StyledSelect>
+              </Field>
+            </div>
+          )}
+
+          {/* Row 3: Ticket Type | Priority */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Ticket Type" required={isCustomer} error={errors.ticket_type}>
               <StyledSelect
-                value={selectedProjectId ?? ''}
-                onChange={(e) => setSelectedProjectId(Number(e.target.value) || null)}
-                disabled={projectsLoading}
+                value={form.ticket_type}
+                onChange={(e) => { setField('ticket_type')(e.target.value); clearErr('ticket_type') }}
+                error={errors.ticket_type}
               >
-                <option value="">{projectsLoading ? 'Loading projects…' : 'No project (optional)'}</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                <option value="">Select type</option>
+                {TICKET_TYPES.map((t) => (
+                  <option key={t} value={t}>{t}</option>
                 ))}
               </StyledSelect>
             </Field>
-          )}
-        </FormBlock>
 
-        {/* Block 2 — Basic Info */}
-        <FormBlock step="2" title="Ticket Information" description="Type, priority, and subject" icon={DocumentTextIcon}>
+            <Field label="Priority">
+              <PriorityPicker value={form.priority} onChange={setField('priority')} />
+            </Field>
+          </div>
 
-          <Field label="Ticket Type" required={isCustomer} error={errors.ticket_type}>
-            <StyledSelect
-              value={form.ticket_type}
-              onChange={(e) => { setField('ticket_type')(e.target.value); clearErr('ticket_type') }}
-              error={errors.ticket_type}
-            >
-              <option value="">Select type</option>
-              {TICKET_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </StyledSelect>
-          </Field>
-
-          <Field label="Priority">
-            <PriorityPicker value={form.priority} onChange={setField('priority')} />
-          </Field>
-
+          {/* Row 4: Assign to (admin only, full-width) */}
           {isAdmin && (
             <Field label="Assign to" hint="Leave blank to auto-assign">
               <StyledSelect
@@ -527,6 +552,7 @@ export default function NewTicketPage() {
             </Field>
           )}
 
+          {/* Row 5: Subject (full-width) */}
           <Field label="Subject" required error={errors.subject}>
             <StyledInput
               placeholder="e.g. Cannot access admin panel after update"
@@ -536,8 +562,8 @@ export default function NewTicketPage() {
           </Field>
         </FormBlock>
 
-        {/* Block 3 — Description */}
-        <FormBlock step="3" title="Description" description="Describe your issue in detail" icon={TagIcon}>
+        {/* Block 2 — Description & Attachments */}
+        <FormBlock step="2" title="Description & Attachments" description="Describe your issue and attach relevant files" icon={PaperClipIcon}>
           <Field label="Description" required={isCustomer} error={errors.description}
             hint={isCustomer ? "Include steps to reproduce, error messages, device info, and when the issue started." : "Optional — describe the issue if needed"}>
             <StyledTextarea
@@ -547,10 +573,7 @@ export default function NewTicketPage() {
               rows={7}
             />
           </Field>
-        </FormBlock>
 
-        {/* Block 4 — Attachments */}
-        <FormBlock step="4" title="Attachments" description="Optional files or screenshots" icon={PaperClipIcon}>
           <AttachmentZone
             files={files}
             onAdd={(newFiles) => setFiles((f) => {
