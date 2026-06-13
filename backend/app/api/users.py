@@ -173,3 +173,37 @@ def get_login_history(
         .all()
     )
     return events
+
+
+@router.delete("/{user_id}", status_code=204)
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Hard-delete a user. Returns 409 if the user has any tickets."""
+    from app.models.ticket import Ticket
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    ticket_count = db.query(Ticket).filter(
+        Ticket.raised_by == user_id,
+        Ticket.is_deleted == False,  # noqa: E712
+    ).count()
+    if ticket_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete user: they have {ticket_count} open ticket(s). Deactivate instead.",
+        )
+    # Revoke sessions before deleting
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.query(UserSession).filter(
+        UserSession.user_id == user_id,
+        UserSession.is_active.is_(True),
+    ).update({"is_active": False, "revoked_at": now})
+    blacklist_user_tokens(user_id, redis_client)
+    db.delete(target)
+    db.commit()
