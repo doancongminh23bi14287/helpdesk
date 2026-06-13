@@ -26,6 +26,7 @@ import {
   createProjectTask,
   downloadProjectDocument,
   getProject,
+  getProjectTickets,
   listProjectDocuments,
   listProjectTasks,
   updateProjectTask,
@@ -522,6 +523,40 @@ function TaskEditRow({ task, onCancel, onSave }) {
   )
 }
 
+const TICKET_STATUS_BADGE = {
+  'Open':        'bg-blue-50 text-blue-700',
+  'In Progress': 'bg-amber-50 text-amber-700',
+  'Waiting':     'bg-purple-50 text-purple-700',
+  'Resolved':    'bg-green-50 text-green-700',
+  'Closed':      'bg-gray-100 text-gray-500',
+}
+
+function LinkedTicketsPanel({ tickets }) {
+  return (
+    <WorkspaceCard title="Linked Tickets" icon={DocumentTextIcon}>
+      {tickets.length === 0 ? (
+        <EmptyPanel>No tickets linked to this project yet.</EmptyPanel>
+      ) : (
+        <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+          {tickets.map((t) => (
+            <div key={t.id} className="px-5 py-3 flex items-center justify-between gap-3">
+              <Link
+                to={`/tickets/${t.id}`}
+                className="text-sm font-medium text-slate-900 hover:text-amber-600 truncate flex-1"
+              >
+                #{t.id} {t.subject}
+              </Link>
+              <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${TICKET_STATUS_BADGE[t.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                {t.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </WorkspaceCard>
+  )
+}
+
 export default function ProjectDetailPage() {
   const { id } = useParams()
   const { isCustomer } = useRole()
@@ -529,6 +564,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState(null)
   const [tasks, setTasks] = useState([])
   const [documents, setDocuments] = useState([])
+  const [linkedTickets, setLinkedTickets] = useState([])
   const [loading, setLoading] = useState(true)
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -553,14 +589,16 @@ export default function ProjectDetailPage() {
     setLoading(true)
     setError('')
     try {
-      const [projectData, taskData, documentData] = await Promise.all([
+      const [projectData, taskData, documentData, ticketData] = await Promise.all([
         getProject(id),
         listProjectTasks(id),
         listProjectDocuments(id).catch(() => []),
+        getProjectTickets(id).catch(() => []),
       ])
       setProject(projectData)
       setTasks(taskData)
       setDocuments(documentData)
+      setLinkedTickets(ticketData)
     } catch (err) {
       setError(err?.response?.data?.detail ?? err?.message ?? 'Failed to load project')
     } finally {
@@ -892,6 +930,7 @@ export default function ProjectDetailPage() {
           </main>
 
           <aside className="space-y-5">
+          <LinkedTicketsPanel tickets={linkedTickets} />
           <NotesPanel tasks={tasks} isCustomer={isCustomer} />
           <ActivityPanel project={project} tasks={tasks} />
           </aside>
