@@ -179,6 +179,9 @@ export default function AnalyticsDashboard() {
   const [errorAgents, setErrorAgents] = useState('')
   const [errorRevenue, setErrorRevenue] = useState('')
 
+  // Revenue year picker
+  const [revenueYear, setRevenueYear] = useState(new Date().getFullYear())
+
   // Org fetch error state
   const [orgError, setOrgError] = useState(false)
 
@@ -234,14 +237,14 @@ export default function AnalyticsDashboard() {
       // Revenue analytics
       setLoadingRevenue(true)
       setErrorRevenue('')
-      getRevenueAnalytics(params, signal)
+      getRevenueAnalytics({ year: revenueYear, ...(orgId ? { org_id: orgId } : {}) }, signal)
         .then((r) => setRevenueData(r.data))
         .catch((e) => {
           if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorRevenue(e.message || 'Failed to load revenue analytics')
         })
         .finally(() => setLoadingRevenue(false))
     }
-  }, [fromDate, toDate, orgId, isAdmin])
+  }, [fromDate, toDate, orgId, isAdmin, revenueYear])
 
   // Fetch on mount and when filters change; abort stale requests
   useEffect(() => {
@@ -526,7 +529,20 @@ export default function AnalyticsDashboard() {
       {/* ── Section 4: Revenue (admin only) ── */}
       {isAdmin && (
         <section>
-          <SectionHeader title="Revenue" />
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-foreground">
+              Revenue — {revenueData?.year ?? new Date().getFullYear()}
+            </h2>
+            <select
+              value={revenueYear}
+              onChange={(e) => setRevenueYear(Number(e.target.value))}
+              className="px-3 py-1.5 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {[new Date().getFullYear(), new Date().getFullYear() - 1, new Date().getFullYear() - 2].map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
 
           {loadingRevenue ? (
             <LoadingSkeleton rows={3} />
@@ -537,26 +553,29 @@ export default function AnalyticsDashboard() {
               {/* Stat cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                 <StatCard
-                  label="Total Invoiced"
-                  value={fmtVND(revenueData?.total_invoiced)}
-                  color="text-blue-600"
-                />
-                <StatCard
                   label="Total Paid"
                   value={fmtVND(revenueData?.total_paid)}
                   color="text-emerald-600"
+                  sub="actual revenue received"
+                />
+                <StatCard
+                  label="Total Invoiced"
+                  value={fmtVND(revenueData?.total_invoiced)}
+                  color="text-blue-600"
+                  sub="all issued invoices"
                 />
                 <StatCard
                   label="Overdue"
                   value={fmtVND(revenueData?.total_overdue)}
                   color="text-red-600"
+                  sub="unpaid past due"
                 />
               </div>
 
               {/* Monthly revenue bar chart */}
               {revenueByMonth.length > 0 && (
                 <div className="bg-card border border-border rounded-xl p-5 mb-6">
-                  <p className="text-sm font-semibold text-foreground mb-4">Monthly Revenue</p>
+                  <p className="text-sm font-semibold text-foreground mb-4">Monthly Revenue — {revenueData?.year ?? revenueYear}</p>
                   <ResponsiveContainer width="100%" height={250}>
                     <BarChart data={revenueByMonth} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
