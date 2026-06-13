@@ -10,8 +10,6 @@ import {
   MagnifyingGlassIcon,
   TicketIcon,
   XMarkIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
 } from '@heroicons/react/24/outline'
 
 const STATUSES = ['All', 'Open', 'In Progress', 'Waiting', 'Resolved', 'Closed']
