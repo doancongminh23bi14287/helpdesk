@@ -58,3 +58,6 @@ export const downloadProjectDocument = async (projectId, projectDocument) => {
   a.remove()
   window.URL.revokeObjectURL(url)
 }
+
+export const getProjectTickets = (projectId) =>
+  client.get(`/projects/${projectId}/tickets`).then(r => r.data)

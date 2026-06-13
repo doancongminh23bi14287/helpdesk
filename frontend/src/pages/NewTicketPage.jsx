@@ -4,6 +4,7 @@ import { useCreateTicket } from '@/hooks/useTickets'
 import { useAuthStore } from '@/hooks/useAuth'
 import { useRole } from '@/hooks/useRole'
 import { listOrganizations, getOrgServices } from '@/api/organizations'
+import { listProjects } from '@/api/projects'
 import { listUsers } from '@/api/users'
 import { Button, Spinner } from '@/components/ui'
 import { uploadAttachment } from '@/api/attachments'
@@ -276,6 +277,11 @@ export default function NewTicketPage() {
   const [servicesLoading, setServicesLoading] = useState(false)
   const [selectedServiceId, setSelectedServiceId] = useState(null)
 
+  // Project state
+  const [projects, setProjects] = useState([])
+  const [projectsLoading, setProjectsLoading] = useState(false)
+  const [selectedProjectId, setSelectedProjectId] = useState(null)
+
   // Staff list for assignee picker (admin/staff only)
   const [staffList, setStaffList] = useState([])
   const [assigneeId, setAssigneeId] = useState('')
@@ -337,6 +343,17 @@ export default function NewTicketPage() {
       .finally(() => setServicesLoading(false))
   }, [selectedOrgId, navState?.service_id])
 
+  // Load projects when org changes
+  useEffect(() => {
+    if (!selectedOrgId) { setProjects([]); setSelectedProjectId(null); return }
+    setProjectsLoading(true)
+    setSelectedProjectId(null)
+    listProjects({ org_id: selectedOrgId, per_page: 100 })
+      .then((data) => setProjects(data?.items ?? []))
+      .catch(() => setProjects([]))
+      .finally(() => setProjectsLoading(false))
+  }, [selectedOrgId])
+
   const validate = () => {
     const e = {}
     if (!selectedOrgId)       e.org_id  = 'Please select an organization'
@@ -358,6 +375,7 @@ export default function NewTicketPage() {
       const ticket = await submit({
         org_id: selectedOrgId,
         ...(selectedServiceId ? { service_id: selectedServiceId } : {}),
+        ...(selectedProjectId ? { project_id: selectedProjectId } : {}),
         ticket_type: form.ticket_type || 'Unspecified',
         priority: form.priority,
         subject: form.subject,
@@ -458,6 +476,21 @@ export default function NewTicketPage() {
               return <ServicePreviewCard service={svc} />
             })()}
           </Field>
+
+          {projects.length > 0 && (
+            <Field label="Link to Project" hint="Optional — link this ticket to an ongoing SEO project">
+              <StyledSelect
+                value={selectedProjectId ?? ''}
+                onChange={(e) => setSelectedProjectId(Number(e.target.value) || null)}
+                disabled={projectsLoading}
+              >
+                <option value="">{projectsLoading ? 'Loading projects…' : 'No project (optional)'}</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </StyledSelect>
+            </Field>
+          )}
         </FormBlock>
 
         {/* Block 2 — Basic Info */}
