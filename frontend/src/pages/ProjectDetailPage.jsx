@@ -6,6 +6,8 @@ import {
   ArchiveBoxIcon,
   CalendarDaysIcon,
   CheckCircleIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   ClockIcon,
   DocumentArrowUpIcon,
   DocumentTextIcon,
@@ -14,6 +16,7 @@ import {
   FolderIcon,
   HomeIcon,
   PencilSquareIcon,
+  PhotoIcon,
   PlusIcon,
   XMarkIcon,
   UserGroupIcon,
@@ -267,160 +270,6 @@ function TeamMembers({ project, tasks }) {
   )
 }
 
-function DocumentsPanel({ projectId, documents, loading, error, canUpload, onUpload, onDownload }) {
-  const fileInputRef = useRef(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState('')
-  const [isClientVisible, setIsClientVisible] = useState(false)
-
-  const handleFiles = async (files) => {
-    if (!files.length) return
-    setUploading(true)
-    setUploadError('')
-    try {
-      await onUpload(files[0], isClientVisible)
-    } catch (err) {
-      setUploadError(err?.response?.data?.detail ?? err?.message ?? 'Document upload failed')
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  return (
-    <section className="border border-border rounded-lg bg-card">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <DocumentTextIcon className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
-          <h2 className="font-semibold text-sm text-foreground">Documents</h2>
-        </div>
-        {canUpload && (
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={isClientVisible}
-                onChange={(e) => setIsClientVisible(e.target.checked)}
-              />
-              Client visible
-            </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept="image/*,.pdf,.zip,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.txt,.csv"
-              onChange={(e) => handleFiles(Array.from(e.target.files ?? []))}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-medium hover:bg-muted disabled:opacity-50"
-            >
-              {uploading ? <Spinner className="w-3.5 h-3.5" /> : <DocumentArrowUpIcon className="w-3.5 h-3.5" aria-hidden="true" />}
-              Upload
-            </button>
-          </div>
-        )}
-      </div>
-      {(error || uploadError) && <p className="m-4 text-xs text-red-600 bg-red-50 border border-red-100 rounded px-2 py-1">{uploadError || error}</p>}
-      {loading ? (
-        <div className="p-4 flex items-center gap-2 text-sm text-muted-foreground"><Spinner className="w-4 h-4" /> Loading documents</div>
-      ) : documents.length === 0 ? (
-        <p className="p-4 text-sm text-muted-foreground">No project documents uploaded yet.</p>
-      ) : (
-        <div className="divide-y divide-border">
-          {documents.map((doc) => (
-            <div key={doc.id} className="p-4 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{doc.file_name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {fmtSize(doc.file_size)} · {doc.mime_type} · {fmtDateTime(doc.created_at)}
-                </p>
-                {canUpload && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {doc.is_client_visible ? 'Client visible' : 'Internal document'}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => onDownload(projectId, doc)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-medium hover:bg-muted"
-              >
-                <ArrowDownTrayIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                Download
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function NotesPanel({ tasks, isCustomer }) {
-  const notes = isCustomer
-    ? []
-    : tasks
-      .filter((task) => task.internal_note)
-      .map((task) => ({ id: task.id, title: task.title, note: task.internal_note }))
-
-  return (
-    <WorkspaceCard title="Notes" icon={DocumentTextIcon}>
-      {notes.length === 0 ? (
-        <EmptyPanel>{isCustomer ? 'No customer-visible notes yet.' : 'No internal notes yet.'}</EmptyPanel>
-      ) : (
-        <div className="divide-y divide-slate-100">
-          {notes.map((item) => (
-            <div key={item.id} className="px-5 py-4">
-              <p className="text-xs font-semibold text-slate-500">{item.title}</p>
-              <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{item.note}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </WorkspaceCard>
-  )
-}
-
-function ActivityPanel({ project, tasks }) {
-  const activity = useMemo(() => {
-    const rows = []
-    if (project?.created_at) rows.push({ id: 'project-created', label: 'Project created', at: project.created_at })
-    if (project?.updated_at && project.updated_at !== project.created_at) {
-      rows.push({ id: 'project-updated', label: 'Project updated', at: project.updated_at })
-    }
-    tasks.forEach((task) => {
-      if (task.created_at) rows.push({ id: `task-${task.id}-created`, label: `Task created: ${task.title}`, at: task.created_at })
-      if (task.completed_at) rows.push({ id: `task-${task.id}-completed`, label: `Task completed: ${task.title}`, at: task.completed_at })
-    })
-    return rows
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-      .slice(0, 6)
-  }, [project, tasks])
-
-  return (
-    <WorkspaceCard title="Activity" icon={ClockIcon}>
-      {activity.length === 0 ? (
-        <EmptyPanel>No project activity yet.</EmptyPanel>
-      ) : (
-        <div className="divide-y divide-slate-100">
-          {activity.map((item) => (
-            <div key={item.id} className="flex gap-3 px-5 py-4">
-              <span className="mt-1.5 h-2 w-2 rounded-full bg-amber-400" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-800 truncate">{item.label}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{fmtDateTime(item.at)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </WorkspaceCard>
-  )
-}
-
 function TaskEditRow({ task, onCancel, onSave }) {
   const [form, setForm] = useState({
     title: task.title ?? '',
@@ -554,6 +403,194 @@ function LinkedTicketsPanel({ tickets }) {
         </div>
       )}
     </WorkspaceCard>
+  )
+}
+
+function AccordionSection({ title, count, icon: Icon, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border-b border-slate-100 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex w-full items-center justify-between gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {Icon && <Icon className="h-4 w-4 text-slate-400 flex-shrink-0" aria-hidden="true" />}
+          <span className="text-sm font-semibold text-slate-800 truncate">{title}</span>
+          {count > 0 && (
+            <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+              {count}
+            </span>
+          )}
+        </div>
+        {open
+          ? <ChevronUpIcon className="h-4 w-4 text-slate-400 flex-shrink-0" />
+          : <ChevronDownIcon className="h-4 w-4 text-slate-400 flex-shrink-0" />
+        }
+      </button>
+      {open && <div className="pb-3">{children}</div>}
+    </div>
+  )
+}
+
+function ImageLightbox({ src, name, onClose }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div className="relative max-w-4xl max-h-[90vh] w-full" onClick={e => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute -top-10 right-0 text-white/80 hover:text-white"
+        >
+          <XMarkIcon className="h-6 w-6" />
+        </button>
+        <img
+          src={src}
+          alt={name}
+          className="max-h-[85vh] w-auto max-w-full rounded-xl object-contain mx-auto block"
+        />
+        <p className="mt-2 text-center text-xs text-white/60">{name}</p>
+      </div>
+    </div>
+  )
+}
+
+function DocumentsAccordionBody({ projectId, documents, loading, error, canUpload, onUpload, onDownload }) {
+  const fileInputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const [isClientVisible, setIsClientVisible] = useState(false)
+  const [lightbox, setLightbox] = useState(null) // { src, name }
+
+  const handleFiles = async (files) => {
+    if (!files.length) return
+    setUploading(true)
+    setUploadError('')
+    try {
+      await onUpload(files[0], isClientVisible)
+    } catch (err) {
+      setUploadError(err?.response?.data?.detail ?? err?.message ?? 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const imageDocs = documents.filter(d => d.mime_type?.startsWith('image/'))
+  const otherDocs = documents.filter(d => !d.mime_type?.startsWith('image/'))
+
+  return (
+    <div className="px-5">
+      {/* Upload controls */}
+      {canUpload && (
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={isClientVisible}
+              onChange={(e) => setIsClientVisible(e.target.checked)}
+            />
+            Client visible
+          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/*,.pdf,.zip,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.txt,.csv"
+            onChange={(e) => handleFiles(Array.from(e.target.files ?? []))}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-medium hover:bg-muted disabled:opacity-50"
+          >
+            {uploading ? <Spinner className="w-3.5 h-3.5" /> : <DocumentArrowUpIcon className="w-3.5 h-3.5" aria-hidden="true" />}
+            Upload
+          </button>
+        </div>
+      )}
+
+      {(error || uploadError) && (
+        <p className="mb-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded px-2 py-1">{uploadError || error}</p>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+          <Spinner className="w-4 h-4" /> Loading…
+        </div>
+      ) : documents.length === 0 ? (
+        <p className="py-3 text-sm text-muted-foreground">No documents uploaded yet.</p>
+      ) : (
+        <>
+          {/* Image gallery */}
+          {imageDocs.length > 0 && (
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {imageDocs.slice(0, 4).map((doc, i) => (
+                <div
+                  key={doc.id}
+                  className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 cursor-pointer hover:ring-2 hover:ring-amber-400 transition"
+                  onClick={() => setLightbox({ src: `/api/projects/${projectId}/documents/${doc.id}/download`, name: doc.file_name })}
+                >
+                  <img
+                    src={`/api/projects/${projectId}/documents/${doc.id}/download`}
+                    alt={doc.file_name}
+                    className="w-full h-full object-cover"
+                  />
+                  {i === 3 && imageDocs.length > 4 && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-sm font-semibold">
+                      +{imageDocs.length - 4}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Non-image document list */}
+          {otherDocs.length > 0 && (
+            <div className="divide-y divide-slate-100">
+              {otherDocs.map((doc) => (
+                <div key={doc.id} className="py-2.5 flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground truncate">{doc.file_name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {fmtSize(doc.file_size)} · {fmtDateTime(doc.created_at)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onDownload(projectId, doc)}
+                    className="inline-flex items-center gap-1 px-2 py-1 border border-input rounded text-xs font-medium hover:bg-muted flex-shrink-0"
+                  >
+                    <ArrowDownTrayIcon className="w-3 h-3" />
+                    Download
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {lightbox && (
+        <ImageLightbox
+          src={lightbox.src}
+          name={lightbox.name}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </div>
   )
 }
 
@@ -907,18 +944,80 @@ export default function ProjectDetailPage() {
               </div>
             </WorkspaceCard>
 
-            <DocumentsPanel
-              projectId={id}
-              documents={documents}
-              loading={documentsLoading}
-              error={documentsError}
-              canUpload={!isCustomer}
-              onUpload={uploadDocument}
-              onDownload={downloadProjectDocument}
-            />
+            {/* Accordion: Documents / Notes / Activity */}
+            <WorkspaceCard title="Files & Activity" icon={DocumentTextIcon}>
+              <AccordionSection
+                title="Documents"
+                count={documents.length}
+                icon={DocumentTextIcon}
+                defaultOpen={documents.length > 0}
+              >
+                <DocumentsAccordionBody
+                  projectId={id}
+                  documents={documents}
+                  loading={documentsLoading}
+                  error={documentsError}
+                  canUpload={!isCustomer}
+                  onUpload={uploadDocument}
+                  onDownload={downloadProjectDocument}
+                />
+              </AccordionSection>
 
-            <NotesPanel tasks={tasks} isCustomer={isCustomer} />
-            <ActivityPanel project={project} tasks={tasks} />
+              <AccordionSection
+                title="Notes"
+                count={(() => {
+                  if (isCustomer) return 0
+                  return tasks.filter(t => t.internal_note).length
+                })()}
+                icon={DocumentTextIcon}
+              >
+                {(() => {
+                  if (isCustomer) return <p className="px-5 py-3 text-sm text-slate-500">No customer-visible notes yet.</p>
+                  const notes = tasks.filter(t => t.internal_note)
+                  return notes.length === 0
+                    ? <p className="px-5 py-3 text-sm text-slate-500">No internal notes yet.</p>
+                    : <div className="divide-y divide-slate-100">
+                        {notes.map(task => (
+                          <div key={task.id} className="px-5 py-3">
+                            <p className="text-xs font-semibold text-slate-500">{task.title}</p>
+                            <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{task.internal_note}</p>
+                          </div>
+                        ))}
+                      </div>
+                })()}
+              </AccordionSection>
+
+              <AccordionSection
+                title="Activity"
+                count={0}
+                icon={ClockIcon}
+              >
+                {(() => {
+                  const rows = []
+                  if (project?.created_at) rows.push({ id: 'project-created', label: 'Project created', at: project.created_at })
+                  if (project?.updated_at && project.updated_at !== project.created_at)
+                    rows.push({ id: 'project-updated', label: 'Project updated', at: project.updated_at })
+                  tasks.forEach(task => {
+                    if (task.created_at) rows.push({ id: `task-${task.id}-created`, label: `Task created: ${task.title}`, at: task.created_at })
+                    if (task.completed_at) rows.push({ id: `task-${task.id}-completed`, label: `Task completed: ${task.title}`, at: task.completed_at })
+                  })
+                  const sorted = rows.sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 6)
+                  return sorted.length === 0
+                    ? <p className="px-5 py-3 text-sm text-slate-500">No project activity yet.</p>
+                    : <div className="divide-y divide-slate-100">
+                        {sorted.map(item => (
+                          <div key={item.id} className="flex gap-3 px-5 py-3">
+                            <span className="mt-1.5 h-2 w-2 rounded-full bg-amber-400 flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.label}</p>
+                              <p className="mt-0.5 text-xs text-slate-500">{fmtDateTime(item.at)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                })()}
+              </AccordionSection>
+            </WorkspaceCard>
           </aside>
         </div>
       </div>
