@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
-import { PlusIcon, UserGroupIcon, KeyIcon, ClockIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, UserGroupIcon, KeyIcon, ClockIcon, CheckCircleIcon, XCircleIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
-import { listUsers, createUser, updateUser, resetUserPassword, getUserLoginHistory } from '@/api/users'
+import { listUsers, createUser, updateUser, resetUserPassword, getUserLoginHistory, deleteUser } from '@/api/users'
 import { listOrganizations } from '@/api/organizations'
 import { formatDateTime } from '@/lib/utils'
+import { useNotificationStore } from '@/hooks/useNotificationStore'
 
 const PER_PAGE = 20
 
@@ -237,6 +238,7 @@ function UserForm({ orgs, onSubmit, onCancel, loading }) {
 }
 
 export default function UsersPage() {
+  const addToast = useNotificationStore((s) => s.addToast)
   const [users, setUsers] = useState([])
   const [orgs, setOrgs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -256,6 +258,10 @@ export default function UsersPage() {
 
   // Login history modal state
   const [loginHistory, setLoginHistory] = useState(null)
+
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const orgMap = useMemo(() => Object.fromEntries(orgs.map((o) => [o.id, o.name])), [orgs])
 
@@ -335,6 +341,23 @@ export default function UsersPage() {
       setLoginHistory(history)
     } catch (err) {
       setError(err?.response?.data?.detail ?? 'Failed to fetch login history')
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await deleteUser(deleteTarget.id)
+      setDeleteTarget(null)
+      addToast({ type: 'success', message: `User ${deleteTarget.email} deleted` })
+      load()
+    } catch (err) {
+      const detail = err?.response?.data?.detail ?? err?.message ?? 'Delete failed'
+      addToast({ type: 'error', message: detail })
+      setDeleteTarget(null)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -501,6 +524,16 @@ export default function UsersPage() {
                       >
                         <ClockIcon className="w-4 h-4" />
                       </button>
+
+                      {/* Delete User */}
+                      <button
+                        type="button"
+                        title="Delete user"
+                        onClick={() => setDeleteTarget(u)}
+                        className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <TrashIcon className="w-4 h-4" aria-hidden="true" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -533,6 +566,37 @@ export default function UsersPage() {
         history={loginHistory}
         onClose={() => setLoginHistory(null)}
       />
+
+      {/* Delete Confirm Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <h2 className="text-base font-semibold text-gray-900">Delete user?</h2>
+            <p className="text-sm text-gray-600">
+              This will permanently delete <strong>{deleteTarget.email}</strong> and cannot be undone.
+              If they have open tickets, deletion will be blocked.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="btn-secondary"
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

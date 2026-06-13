@@ -40,3 +40,5 @@ export async function getUserLoginHistory(id) {
   const res = await client.get(`/users/${id}/login-history`)
   return res.data
 }
+
+export const deleteUser = (id) => client.delete(`/users/${id}`)
