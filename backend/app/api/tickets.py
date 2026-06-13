@@ -79,9 +79,17 @@ def create_ticket(
         if not service or service.org_id != payload.org_id:
             raise HTTPException(status_code=422, detail="Service does not belong to the specified organization")
 
+    # Validate project belongs to same org (when project_id is provided)
+    if payload.project_id is not None:
+        from app.models.project import Project
+        project = db.query(Project).filter(Project.id == payload.project_id).first()
+        if not project or project.org_id != payload.org_id:
+            raise HTTPException(status_code=422, detail="Project does not belong to the specified organization")
+
     ticket = Ticket(
         org_id=payload.org_id,
         service_id=payload.service_id,
+        project_id=payload.project_id,
         subject=payload.subject,
         description=payload.description,
         priority=payload.priority,
@@ -251,6 +259,7 @@ def get_ticket(
         "org_name": org.name if org else None,
         "org_code": org.code if org else None,
         "service_id": ticket.service_id,
+        "project_id": ticket.project_id,
         "service_name": svc.name if svc else None,
         "service_type": svc.type if svc else None,
         "service_status": svc.status if svc else None,

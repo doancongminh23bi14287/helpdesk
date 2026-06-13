@@ -21,6 +21,7 @@ TicketTypeLiteral = Literal[
 class TicketCreate(BaseModel):
     org_id: int
     service_id: Optional[int] = None
+    project_id: Optional[int] = None
     subject: str
     description: Optional[str] = None
     priority: str = "Medium"
@@ -84,6 +85,7 @@ class TicketOut(BaseModel):
     org_name: Optional[str] = None
     org_code: Optional[str] = None
     service_id: Optional[int] = None
+    project_id: Optional[int] = None
     service_name: Optional[str] = None
     service_type: Optional[str] = None
     service_status: Optional[str] = None
@@ -115,6 +117,7 @@ class TicketDetailOut(BaseModel):
     org_name: Optional[str] = None
     org_code: Optional[str] = None
     service_id: Optional[int] = None
+    project_id: Optional[int] = None
     service_name: Optional[str] = None
     service_type: Optional[str] = None
     service_status: Optional[str] = None

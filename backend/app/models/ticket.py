@@ -9,6 +9,7 @@ class Ticket(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     org_id = Column(BigInteger, ForeignKey("organizations.id"), nullable=False)
     service_id = Column(BigInteger, ForeignKey("services.id"))
+    project_id = Column(BigInteger, ForeignKey("projects.id"), nullable=True)
     subject = Column(String(300), nullable=False)
     description = Column(Text)
     status = Column(

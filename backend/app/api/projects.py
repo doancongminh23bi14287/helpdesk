@@ -253,6 +253,36 @@ def list_project_tasks(
     return [_task_dict(task, db, user) for task in tasks]
 
 
+@router.get("/{project_id}/tickets")
+def list_project_tickets(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return all non-deleted tickets linked to this project."""
+    project = assert_project_access(project_id, user, db)
+    from app.models.ticket import Ticket
+    query = db.query(Ticket).filter(
+        Ticket.project_id == project.id,
+        Ticket.is_deleted == False,  # noqa: E712
+    )
+    if user.role == "customer":
+        query = query.filter(Ticket.org_id == user.org_id)
+    tickets = query.order_by(Ticket.created_at.desc()).limit(50).all()
+    from app.api.tickets import _enrich_tickets
+    _enrich_tickets(tickets, db)
+    return [
+        {
+            "id": t.id,
+            "subject": t.subject,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at,
+        }
+        for t in tickets
+    ]
+
+
 @router.post("/{project_id}/tasks", status_code=201)
 def create_project_task_endpoint(
     project_id: int,
