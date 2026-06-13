@@ -283,20 +283,34 @@ def agent_analytics(
 
 @router.get("/revenue")
 def revenue_analytics(
-    from_date: Optional[str] = Query(None),
-    to_date: Optional[str] = Query(None),
+    year: Optional[int] = Query(None),          # NEW — defaults to current year
+    from_date: Optional[str] = Query(None),     # keep for backward compat
+    to_date: Optional[str] = Query(None),       # keep for backward compat
     org_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    q = db.query(Invoice).filter(Invoice.status != "cancelled")
+    from datetime import date
 
-    if from_date:
-        fd = _parse_date(from_date)
-        q = q.filter(Invoice.issue_date >= fd.date() if fd else fd)
-    if to_date:
-        td = _parse_to_date(to_date)
-        q = q.filter(Invoice.issue_date <= td.date() if td else td)
+    # Determine date range: year param takes precedence over from_date/to_date
+    if year is not None or (from_date is None and to_date is None):
+        target_year = year if year is not None else datetime.now().year
+        range_start = date(target_year, 1, 1)
+        range_end = date(target_year, 12, 31)
+        q = db.query(Invoice).filter(
+            Invoice.status != "cancelled",
+            Invoice.issue_date >= range_start,
+            Invoice.issue_date <= range_end,
+        )
+    else:
+        q = db.query(Invoice).filter(Invoice.status != "cancelled")
+        if from_date:
+            fd = _parse_date(from_date)
+            q = q.filter(Invoice.issue_date >= fd.date() if fd else fd)
+        if to_date:
+            td = _parse_to_date(to_date)
+            q = q.filter(Invoice.issue_date <= td.date() if td else td)
+
     if org_id is not None:
         q = q.filter(Invoice.org_id == org_id)
 
@@ -306,8 +320,13 @@ def revenue_analytics(
     total_paid = sum(float(inv.total) for inv in invoices if inv.status == "paid")
     total_overdue = sum(float(inv.total) for inv in invoices if inv.status == "overdue")
 
-    # Monthly breakdown
-    monthly: dict = {}
+    # Always build a full 12-month skeleton for the year view
+    active_year = target_year if (year is not None or (from_date is None and to_date is None)) else None
+    if active_year:
+        monthly: dict = {f"{active_year}-{m:02d}": {"invoiced": 0.0, "paid": 0.0} for m in range(1, 13)}
+    else:
+        monthly: dict = {}
+
     for inv in invoices:
         month = inv.issue_date.strftime("%Y-%m") if inv.issue_date else None
         if not month:
@@ -344,6 +363,7 @@ def revenue_analytics(
     ]
 
     return {
+        "year": active_year,
         "total_invoiced": total_invoiced,
         "total_paid": total_paid,
         "total_overdue": total_overdue,
