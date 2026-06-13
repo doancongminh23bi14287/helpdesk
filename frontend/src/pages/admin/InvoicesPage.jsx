@@ -459,6 +459,7 @@ export default function AdminInvoicesPage() {
 
       {/* Table */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
         <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

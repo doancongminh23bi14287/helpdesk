@@ -409,6 +409,7 @@ export default function ItemsPage() {
           </div>
         )}
 
+        <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
         <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { getTickets } from '@/api/tickets'
 import { useRole } from '@/hooks/useRole'
 import { Spinner } from '@/components/ui'
+import Pagination from '@/components/ui/Pagination'
 import { formatDateTime } from '@/lib/utils'
 import {
   PlusIcon,
@@ -18,16 +19,16 @@ const PRIORITIES = ['All', 'Urgent', 'High', 'Medium', 'Low']
 
 const STATUS_STYLES = {
   Open:          'bg-blue-50 text-blue-700',
-  'In Progress': 'bg-purple-50 text-purple-700',
-  Waiting:       'bg-amber-50 text-amber-700',
+  'In Progress': 'bg-amber-50 text-amber-700',
+  Waiting:       'bg-purple-50 text-purple-700',
   Resolved:      'bg-green-50 text-green-700',
   Closed:        'bg-gray-100 text-gray-500',
 }
 
 const PRIORITY_STYLES = {
-  Urgent: 'bg-red-100 text-red-700',
-  High:   'bg-orange-100 text-orange-700',
-  Medium: 'bg-yellow-100 text-yellow-700',
+  Urgent: 'bg-red-50 text-red-700',
+  High:   'bg-orange-50 text-orange-700',
+  Medium: 'bg-yellow-50 text-yellow-700',
   Low:    'bg-gray-100 text-gray-500',
 }
 
@@ -140,14 +141,14 @@ export default function TicketListPage() {
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="font-semibold text-lg text-gray-900">Support Tickets</h1>
+            <h1 className="page-title">Support Tickets</h1>
             <p className="text-xs text-gray-400 mt-0.5">
               {loading ? '…' : `${total} ticket${total !== 1 ? 's' : ''}`}
             </p>
           </div>
           <Link
             to="/tickets/new"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+            className="btn-primary"
           >
             <PlusIcon className="w-4 h-4" />
             New Ticket
@@ -243,7 +244,7 @@ export default function TicketListPage() {
             <p className="text-xs text-gray-400">{error}</p>
             <button
               onClick={() => setReloadKey((k) => k + 1)}
-              className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+              className="mt-1 btn-primary"
             >
               Retry
             </button>
@@ -258,7 +259,7 @@ export default function TicketListPage() {
             {!hasFilters && (
               <Link
                 to="/tickets/new"
-                className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+                className="mt-1 btn-primary"
               >
                 <PlusIcon className="w-4 h-4" /> New Ticket
               </Link>
@@ -266,18 +267,19 @@ export default function TicketListPage() {
           </div>
         ) : (
           <>
+            <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-6 py-2.5 w-24">#</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5">Subject</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-6 py-2.5 w-24">#</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5">Subject</th>
                   {!isCustomer && (
-                    <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5 w-36">Org</th>
+                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5 w-36">Org</th>
                   )}
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5 w-36">Service</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5 w-28">Status</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5 w-24">Priority</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-6 py-2.5 w-36">Created</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5 w-36">Service</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5 w-28">Status</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5 w-24">Priority</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-6 py-2.5 w-36">Created</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 bg-white">
@@ -355,30 +357,7 @@ export default function TicketListPage() {
               </tbody>
             </table>
 
-            {/* Pagination */}
-            {pages > 1 && (
-              <div className="flex items-center justify-between px-6 py-3 bg-white border-t border-gray-100">
-                <span className="text-xs text-gray-400">Page {page} of {pages}</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeftIcon className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setPage((p) => Math.min(pages, p + 1))}
-                    disabled={page === pages}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Next page"
-                  >
-                    <ChevronRightIcon className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
+            <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} />
           </>
         )}
       </div>

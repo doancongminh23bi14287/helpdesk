@@ -1,13 +1,23 @@
-// Simple pagination component used by admin list pages
+import { useEffect } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 
-export default function Pagination({ page, pages, total, perPage, onPage }) {
+export default function Pagination({ page, pages, total, perPage, onPage, className = '' }) {
   if (pages <= 1) return null
   const start = (page - 1) * perPage + 1
   const end = Math.min(page * perPage, total)
 
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
+      if (e.key === 'ArrowLeft' && page > 1) onPage(page - 1)
+      if (e.key === 'ArrowRight' && page < pages) onPage(page + 1)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [page, pages, onPage])
+
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+    <div className={`flex items-center justify-between px-4 py-3 border-t border-border ${className}`}>
       <p className="text-sm text-muted-foreground">
         Showing {start}–{end} of {total}
       </p>
@@ -16,13 +26,13 @@ export default function Pagination({ page, pages, total, perPage, onPage }) {
           onClick={() => onPage(page - 1)}
           disabled={page <= 1}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          aria-label="Previous page"
         >
           <ChevronLeftIcon className="w-4 h-4" />
         </button>
-        {/* Page number buttons — show up to 5 pages around current */}
-        {getPageRange(page, pages).map((p) =>
+        {getPageRange(page, pages).map((p, i) =>
           p === '...' ? (
-            <span key={`ellipsis-${Math.random()}`} className="px-2 text-muted-foreground text-sm">…</span>
+            <span key={`ellipsis-${i}`} className="px-2 text-muted-foreground text-sm">…</span>
           ) : (
             <button
               key={p}
@@ -41,6 +51,7 @@ export default function Pagination({ page, pages, total, perPage, onPage }) {
           onClick={() => onPage(page + 1)}
           disabled={page >= pages}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          aria-label="Next page"
         >
           <ChevronRightIcon className="w-4 h-4" />
         </button>
