@@ -109,3 +109,12 @@ export async function uploadAvatar(file) {
 
 export const deleteAvatar = () =>
   client.delete('/auth/me/avatar').then(r => r.data)
+
+export const forgotPassword = (email) =>
+  client.post('/auth/forgot-password', { email }).then(r => r.data)
+
+export const verifyOtp = (email, otp) =>
+  client.post('/auth/verify-otp', { email, otp }).then(r => r.data)
+
+export const resetPassword = (reset_token, new_password) =>
+  client.post('/auth/reset-password', { reset_token, new_password }).then(r => r.data)

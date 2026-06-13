@@ -68,6 +68,12 @@ export default function LoginPage() {
               required
             />
 
+            <div className="flex justify-end">
+              <Link to="/forgot-password" className="text-xs text-gray-500 hover:text-gray-700 transition-colors">
+                Forgot password?
+              </Link>
+            </div>
+
             {error && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                 <ExclamationCircleIcon className="w-4 h-4 flex-shrink-0" />

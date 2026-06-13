@@ -10,6 +10,7 @@ import { LanguageProvider } from '@/lib/i18n'
 
 const LoginPage          = lazy(() => import('@/pages/LoginPage'))
 const RegisterPage       = lazy(() => import('@/pages/RegisterPage'))
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage'))
 const DashboardPage      = lazy(() => import('@/pages/DashboardPage'))
 const TicketListPage     = lazy(() => import('@/pages/TicketListPage'))
 const NewTicketPage      = lazy(() => import('@/pages/NewTicketPage'))
@@ -67,8 +68,9 @@ export default function App() {
       <ErrorBoundary>
       <Suspense fallback={<PageFallback />}>
         <Routes>
-          <Route path="/login"    element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/login"           element={<LoginPage />} />
+          <Route path="/register"        element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/"                 element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
           <Route path="/tickets"          element={<ProtectedLayout><TicketListPage /></ProtectedLayout>} />
           <Route path="/tickets/new"      element={<ProtectedLayout><NewTicketPage /></ProtectedLayout>} />
