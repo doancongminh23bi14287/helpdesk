@@ -269,8 +269,6 @@ def list_project_tickets(
     if user.role == "customer":
         query = query.filter(Ticket.org_id == user.org_id)
     tickets = query.order_by(Ticket.created_at.desc()).limit(50).all()
-    from app.api.tickets import _enrich_tickets
-    _enrich_tickets(tickets, db)
     return [
         {
             "id": t.id,
