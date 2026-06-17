@@ -64,10 +64,10 @@ describe('Layout sidebar', () => {
     markRead.mockResolvedValue(undefined)
   })
 
-  it('shows the WorkDesk brand and Client Support Platform subtitle', () => {
+  it('shows the CustomerHub brand and OSD.vn subtitle', () => {
     renderLayout()
-    expect(screen.getByText(/WorkDesk/i)).toBeInTheDocument()
-    expect(screen.getByText(/Client Support Platform/i)).toBeInTheDocument()
+    expect(screen.getByText(/CustomerHub/i)).toBeInTheDocument()
+    expect(screen.getByText(/OSD\.vn/i)).toBeInTheDocument()
   })
 
   it('renames Projects to SEO Projects in the sidebar', () => {

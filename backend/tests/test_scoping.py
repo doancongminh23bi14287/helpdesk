@@ -65,7 +65,7 @@ def _make_ticket(db, org_id, raised_by_id, assignee_id=None):
         description="desc",
         status="Open",
         priority="Medium",
-        ticket_type="question",
+        ticket_type="Question",
     )
     if assignee_id:
         t.assignee_id = assignee_id

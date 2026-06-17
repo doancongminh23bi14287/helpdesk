@@ -111,7 +111,7 @@ def create_manual_invoice(
             "line_total": line_total,
         })
 
-    tax_amount = round(subtotal * Decimal("0.10"), 2)
+    tax_amount = Decimal("0.00")
     total = subtotal + tax_amount
 
     invoice = Invoice(
@@ -122,7 +122,7 @@ def create_manual_invoice(
         issue_date=issue_date,
         due_date=due_date,
         subtotal=subtotal,
-        tax_rate=Decimal("10.00"),
+        tax_rate=Decimal("0.00"),
         tax_amount=tax_amount,
         total=total,
         notes=notes,
@@ -348,11 +348,9 @@ def cancel_invoice(invoice_id: int, db: Session, cancel_reason: str | None = Non
         raise ValueError(
             f"Invoice {invoice_id} has status '{invoice.status}', expected 'draft' or 'sent'"
         )
-    if not cancel_reason or not cancel_reason.strip():
-        raise ValueError("cancel_reason is required when cancelling an invoice")
 
     invoice.status = "cancelled"
-    invoice.cancel_reason = cancel_reason.strip()
+    invoice.cancel_reason = (cancel_reason.strip() if cancel_reason and cancel_reason.strip() else "Cancelled by admin")
     db.commit()
     db.refresh(invoice)
     return invoice

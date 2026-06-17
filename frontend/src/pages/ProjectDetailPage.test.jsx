@@ -13,6 +13,7 @@ const listProjectDocumentsMock = vi.fn()
 const uploadProjectDocumentMock = vi.fn()
 const downloadProjectDocumentMock = vi.fn()
 const listUsersMock = vi.fn()
+const getProjectTicketsMock = vi.fn()
 
 vi.mock('@/hooks/useRole', () => ({
   useRole: () => mockRole,
@@ -26,7 +27,10 @@ vi.mock('@/api/projects', () => ({
   listProjectDocuments: (...args) => listProjectDocumentsMock(...args),
   uploadProjectDocument: (...args) => uploadProjectDocumentMock(...args),
   downloadProjectDocument: (...args) => downloadProjectDocumentMock(...args),
+  getProjectTickets: (...args) => getProjectTicketsMock(...args),
   cancelProject: vi.fn(),
+  updateProjectTask: vi.fn(),
+  cancelProjectTask: vi.fn(),
 }))
 
 vi.mock('@/api/users', () => ({
@@ -71,6 +75,7 @@ describe('ProjectDetailPage', () => {
     uploadProjectDocumentMock.mockResolvedValue({})
     downloadProjectDocumentMock.mockResolvedValue({})
     listUsersMock.mockResolvedValue({ items: [{ id: 2, full_name: 'Staff One', email: 'staff@example.com' }] })
+    getProjectTicketsMock.mockResolvedValue([])
   })
 
   it('customer detail is read-only and does not show internal notes', async () => {

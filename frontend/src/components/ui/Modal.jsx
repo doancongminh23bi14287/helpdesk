@@ -8,6 +8,7 @@ export function Modal({ open, onClose, title, children, className }) {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm" />
         <Dialog.Content
+          aria-describedby={undefined}
           className={cn(
             'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
             'bg-card border border-border rounded-xl p-6 w-full max-w-lg z-50 shadow-xl',

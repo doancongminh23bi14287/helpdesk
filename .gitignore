@@ -2,20 +2,41 @@ backend/venv/
 __pycache__/
 *.pyc
 *.pyo
+
+# Environment files — ignore all .env variants; un-ignore example templates
 .env
-.env.docker
+.env.*
+!.env.example
+!.env.*.example
+
 *.egg-info/
 .pytest_cache/
 frontend/node_modules/
 dist/
 node_modules/
 venv/
-/files/
-*.log
-.DS_Store
-celerybeat-schedule
 
-# Frontend local files
-frontend/.env.local
+# Uploaded files directory (FILES_ROOT)
+/files/
+
+# Logs
+*.log
+
+# SSL/TLS certificates and private keys
+*.pem
+*.key
+
+# OS artifacts
+.DS_Store
+
+# Celery state files
+celerybeat-schedule
+celerybeat.pid
+
+# Vite cache
+.vite/
+
+# Frontend build output and local overrides
 frontend/node_modules/
 frontend/dist/
+frontend/.env.local

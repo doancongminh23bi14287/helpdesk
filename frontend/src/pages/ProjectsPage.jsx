@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ArrowRightIcon, CalendarDaysIcon, CheckCircleIcon, FolderIcon, MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { EmptyState, PageShell, PageHeader } from '@/components/ui'
 import { listProjects, createProject, listProjectTasks } from '@/api/projects'
@@ -154,6 +154,7 @@ export { StatusBadge, ProgressBar }
 
 export default function ProjectsPage() {
   const { isCustomer } = useRole()
+  const navigate = useNavigate()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -274,7 +275,11 @@ export default function ProjectsPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visibleProjects.map(project => (
-                <tr key={project.id} className="hover:bg-slate-50/70">
+                <tr
+                  key={project.id}
+                  className="hover:bg-slate-50/70 cursor-pointer"
+                  onClick={e => { if (e.target.closest('a')) return; navigate(`/projects/${project.id}`) }}
+                >
                   <td className="px-4 py-3">
                     <Link to={`/projects/${project.id}`} className="font-semibold text-slate-900 hover:text-amber-700">{project.name}</Link>
                     <p className="text-xs text-slate-500 mt-0.5">

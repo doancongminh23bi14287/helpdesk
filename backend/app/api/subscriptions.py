@@ -13,8 +13,10 @@ from app.core.deps import get_current_user, require_admin
 from app.core.scoping import scope_subscriptions, assert_org_access
 from app.schemas.subscription import SubscriptionCreate, SubscriptionOut
 from app.models.invoice import Invoice
+from app.models.project import Project
 from app.models.service import Service
 from app.services.billing import create_subscription, cancel_subscription
+from app.services.service_sync import sync_service_from_subscription
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
 
@@ -172,4 +174,63 @@ def cancel_subscription_endpoint(
         sub = cancel_subscription(db=db, subscription_id=sub_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    sync_service_from_subscription(db, sub, create_if_missing=False)
     return _enrich_one(sub, db)
+
+
+@router.delete("/{sub_id}/permanent")
+def hard_delete_subscription(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """
+    Permanently delete a cancelled/expired subscription and its paired service.
+    Invoices are kept for accounting; only invoice.subscription_id is nullified.
+    Admin only.
+    """
+    sub = db.query(Subscription).filter(Subscription.id == sub_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if sub.status not in ("cancelled", "expired"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only cancelled/expired subscriptions can be permanently deleted",
+        )
+
+    # a. Collect service IDs before deletion, then clear FKs referencing them
+    svc_ids = [row[0] for row in db.query(Service.id).filter(Service.subscription_id == sub_id).all()]
+    if svc_ids:
+        from app.models.ticket import Ticket
+        db.query(Ticket).filter(Ticket.service_id.in_(svc_ids)).update(
+            {"service_id": None}, synchronize_session=False
+        )
+        db.query(Project).filter(Project.service_id.in_(svc_ids)).update(
+            {"service_id": None}, synchronize_session=False
+        )
+
+    # Delete the paired service(s)
+    services_deleted = db.query(Service).filter(
+        Service.subscription_id == sub_id
+    ).delete(synchronize_session=False)
+
+    # b. Nullify invoice.subscription_id (keep invoices for accounting)
+    invoices_kept = db.query(Invoice).filter(
+        Invoice.subscription_id == sub_id
+    ).update({"subscription_id": None}, synchronize_session=False)
+
+    # c. Nullify project.subscription_id (keep projects)
+    db.query(Project).filter(Project.subscription_id == sub_id).update(
+        {"subscription_id": None}, synchronize_session=False
+    )
+
+    # d. Delete subscription (services FK is already cleared above)
+    db.query(Subscription).filter(Subscription.id == sub_id).delete(synchronize_session=False)
+    db.commit()
+
+    return {
+        "deleted": True,
+        "subscription_id": sub_id,
+        "service_deleted": services_deleted > 0,
+        "invoices_kept": invoices_kept,
+    }

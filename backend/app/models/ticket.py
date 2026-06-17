@@ -1,4 +1,5 @@
-from sqlalchemy import BigInteger, Column, Integer, String, Text, Enum, DateTime, Boolean, ForeignKey
+from sqlalchemy import BigInteger, Column, Integer, String, Text, Enum, DateTime, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -10,6 +11,7 @@ class Ticket(Base):
     org_id = Column(BigInteger, ForeignKey("organizations.id"), nullable=False)
     service_id = Column(BigInteger, ForeignKey("services.id"))
     project_id = Column(BigInteger, ForeignKey("projects.id"), nullable=True)
+    task_id = Column(BigInteger, ForeignKey("project_tasks.id", ondelete="SET NULL"), nullable=True)
     subject = Column(String(300), nullable=False)
     description = Column(Text)
     status = Column(
@@ -18,13 +20,23 @@ class Ticket(Base):
     )
     priority = Column(Enum("Low", "Medium", "High", "Urgent"), nullable=False, default="Medium")
     ticket_type = Column(
-        Enum("Bug", "Incident", "Question", "Unspecified", "Service SaaS", "Service Hosting", "Renewal"),
-        nullable=False, default="Unspecified",
+        Enum(
+            "Question", "Bug", "Incident", "Task Request", "Change Request",
+            "Feature Request", "Content Request", "SEO Request",
+            "Approval Required", "Complaint", "Renewal", "Other",
+        ),
+        nullable=False, default="Question",
     )
     source = Column(Enum("portal", "email", "phone", "manual"), nullable=False, default="portal")
     raised_by = Column(BigInteger, ForeignKey("users.id"))
     raised_by_email = Column(String(255))
-    assignee_id = Column(BigInteger, ForeignKey("users.id"))
+    assignee_id = Column(BigInteger, ForeignKey("users.id"))  # primary assignee — never drop
+    assignment_mode = Column(
+        Enum("none", "auto", "manual"),
+        nullable=False,
+        default="auto",
+        server_default="auto",
+    )
     team_id = Column(BigInteger, ForeignKey("teams.id"))
     response_by = Column(DateTime)
     resolution_by = Column(DateTime)
@@ -37,6 +49,26 @@ class Ticket(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+    ticket_assignees = relationship(
+        "TicketAssignee",
+        foreign_keys="TicketAssignee.ticket_id",
+        cascade="all, delete-orphan",
+    )
+
+
+class TicketAssignee(Base):
+    __tablename__ = "ticket_assignees"
+    __table_args__ = (
+        UniqueConstraint("ticket_id", "user_id", name="uq_ticket_assignees_ticket_user"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ticket_id = Column(BigInteger, ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    is_primary = Column(Boolean, nullable=False, default=False)
+    assigned_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
 
 
 class TicketReply(Base):

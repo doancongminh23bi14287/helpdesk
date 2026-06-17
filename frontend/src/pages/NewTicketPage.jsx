@@ -4,7 +4,8 @@ import { useCreateTicket } from '@/hooks/useTickets'
 import { useAuthStore } from '@/hooks/useAuth'
 import { useRole } from '@/hooks/useRole'
 import { listOrganizations, getOrgServices } from '@/api/organizations'
-import { listProjects } from '@/api/projects'
+import { listItems } from '@/api/items'
+import { listProjects, getProjectTasks } from '@/api/projects'
 import { listUsers } from '@/api/users'
 import { Button, Spinner } from '@/components/ui'
 import { uploadAttachment } from '@/api/attachments'
@@ -17,17 +18,22 @@ import {
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
 import { formatDate, daysUntil } from '@/lib/utils'
-import { SparklesIcon, ServerStackIcon as SvcServerStackIcon, CubeIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { SparklesIcon, ServerStackIcon as SvcServerStackIcon, CubeIcon, ExclamationTriangleIcon, GlobeAltIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/outline'
 
 const TICKET_TYPES = [
-  'Bug', 'Incident', 'Question', 'Unspecified',
-  'Service SaaS', 'Service Hosting', 'Renewal',
+  'Question', 'Bug', 'Incident', 'Task Request', 'Change Request',
+  'Feature Request', 'Content Request', 'SEO Request',
+  'Approval Required', 'Complaint', 'Renewal', 'Other',
 ]
 
+const CATALOGUE_TYPES = new Set(['Change Request', 'Renewal'])
+
 const SERVICE_TYPE_BADGE = {
-  saas:    { label: 'SaaS',    color: 'bg-violet-100 text-violet-700', Icon: SparklesIcon },
-  hosting: { label: 'Hosting', color: 'bg-blue-100 text-blue-700',     Icon: SvcServerStackIcon },
-  other:   { label: 'Other',   color: 'bg-gray-100 text-gray-600',     Icon: CubeIcon },
+  saas:    { label: 'SaaS',    color: 'bg-violet-100 text-violet-700',  Icon: SparklesIcon },
+  hosting: { label: 'Hosting', color: 'bg-blue-100 text-blue-700',      Icon: SvcServerStackIcon },
+  domain:  { label: 'Domain',  color: 'bg-purple-100 text-purple-700',  Icon: GlobeAltIcon },
+  support: { label: 'Support', color: 'bg-orange-100 text-orange-700',  Icon: WrenchScrewdriverIcon },
+  other:   { label: 'Other',   color: 'bg-gray-100 text-gray-600',      Icon: CubeIcon },
 }
 
 const SVC_STATUS_STYLES = {
@@ -234,6 +240,47 @@ function AttachmentZone({ files, onAdd, onRemove }) {
   )
 }
 
+function ItemCard({ item, selected, onSelect }) {
+  const [expanded, setExpanded] = useState(false)
+  const lines = item.description ? item.description.split(' | ') : []
+  return (
+    <div
+      onClick={() => onSelect(selected ? null : item.id)}
+      className={cn(
+        'rounded-xl border p-3 cursor-pointer transition-all',
+        selected
+          ? 'border-primary bg-primary/5 ring-1 ring-primary/40'
+          : 'border-border hover:border-primary/30 hover:bg-muted/30',
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-foreground">{item.name}</p>
+          {!expanded && lines[0] && (
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{lines[0]}</p>
+          )}
+          {expanded && (
+            <div className="mt-1.5 space-y-0.5">
+              {lines.map((l, i) => (
+                <p key={i} className="text-xs text-muted-foreground">{l.trim()}</p>
+              ))}
+            </div>
+          )}
+        </div>
+        {lines.length > 1 && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+            className="text-xs text-primary hover:underline flex-shrink-0 pt-0.5"
+          >
+            {expanded ? 'Thu gọn' : 'Xem thêm'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function FormBlock({ step, title, description, icon: Icon, children }) {
   return (
     <motion.div
@@ -281,10 +328,14 @@ export default function NewTicketPage() {
   const [projects, setProjects] = useState([])
   const [projectsLoading, setProjectsLoading] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState(null)
+  const [projectTasks, setProjectTasks] = useState([])
+  const [projectTasksLoading, setProjectTasksLoading] = useState(false)
+  const [selectedTaskId, setSelectedTaskId] = useState(null)
 
-  // Staff list for assignee picker (admin/staff only)
+  // Staff list for assignee picker (admin only)
   const [staffList, setStaffList] = useState([])
-  const [assigneeId, setAssigneeId] = useState('')
+  const [assignmentMode, setAssignmentMode] = useState('auto')
+  const [assigneeIds, setAssigneeIds] = useState([])
 
   // Form state
   const initialTicketType = TICKET_TYPES.includes(navState?.ticket_type)
@@ -300,6 +351,11 @@ export default function NewTicketPage() {
   const [submitted, setSubmitted] = useState(false)
   const [errors, setErrors] = useState({})
   const [uploadError, setUploadError] = useState('')
+
+  // Catalogue state (Change Request / Renewal)
+  const [requestedItemId, setRequestedItemId] = useState(null)
+  const [catalogueItems, setCatalogueItems] = useState([])
+  const [catalogueLoading, setCatalogueLoading] = useState(false)
 
   // Load staff list for assignee dropdown (admin only)
   useEffect(() => {
@@ -354,13 +410,36 @@ export default function NewTicketPage() {
       .finally(() => setProjectsLoading(false))
   }, [selectedOrgId])
 
+  // Load tasks when project changes
+  useEffect(() => {
+    if (!selectedProjectId) { setProjectTasks([]); setSelectedTaskId(null); return }
+    setProjectTasksLoading(true)
+    setSelectedTaskId(null)
+    getProjectTasks(selectedProjectId)
+      .then(data => setProjectTasks(Array.isArray(data) ? data : (data?.items ?? [])))
+      .catch(() => setProjectTasks([]))
+      .finally(() => setProjectTasksLoading(false))
+  }, [selectedProjectId])
+
+  // Load hosting catalogue when ticket type requires item selection
+  useEffect(() => {
+    if (!CATALOGUE_TYPES.has(form.ticket_type)) {
+      setRequestedItemId(null)
+      return
+    }
+    setCatalogueLoading(true)
+    listItems({ type: 'hosting' })
+      .then((data) => setCatalogueItems(Array.isArray(data) ? data : (data?.items ?? [])))
+      .catch(() => setCatalogueItems([]))
+      .finally(() => setCatalogueLoading(false))
+  }, [form.ticket_type])
+
   const validate = () => {
     const e = {}
     if (!selectedOrgId)       e.org_id  = 'Please select an organization'
     if (!form.subject.trim()) e.subject = 'Subject is required'
-    // Customers must select a service, ticket type, and provide a description
+    // Customers must select a ticket type and provide a description (service is optional)
     if (isCustomer) {
-      if (!selectedServiceId)       e.service_id  = 'Please select a service'
       if (!form.ticket_type)        e.ticket_type = 'Please select a ticket type'
       if (!form.description.trim()) e.description = 'Please describe your issue'
     }
@@ -376,11 +455,18 @@ export default function NewTicketPage() {
         org_id: selectedOrgId,
         ...(selectedServiceId ? { service_id: selectedServiceId } : {}),
         ...(selectedProjectId ? { project_id: selectedProjectId } : {}),
-        ticket_type: form.ticket_type || 'Unspecified',
+        ...(selectedTaskId ? { task_id: selectedTaskId } : {}),
+        ...(requestedItemId ? { requested_item_id: requestedItemId } : {}),
+        ticket_type: form.ticket_type || 'Question',
         priority: form.priority,
         subject: form.subject,
         ...(form.description.trim() ? { description: form.description } : {}),
-        ...(assigneeId ? { assignee_id: Number(assigneeId) } : {}),
+        ...(isAdmin ? {
+          assignment_mode: assignmentMode,
+          ...(assignmentMode === 'manual' && assigneeIds.length > 0
+            ? { assignee_ids: assigneeIds.map(Number) }
+            : {}),
+        } : {}),
       })
       // Upload attachments after ticket created; surface backend validation errors.
       if (files.length > 0) {
@@ -407,7 +493,7 @@ export default function NewTicketPage() {
   const selectedOrg = orgs.find((o) => o.id === selectedOrgId)
 
   return (
-    <div className="p-6 lg:p-8 max-w-2xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <Link to="/tickets"
         className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground mb-6 transition-colors group">
         <ArrowLeftIcon className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
@@ -424,171 +510,270 @@ export default function NewTicketPage() {
       </motion.div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+          className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden"
+        >
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-muted/30">
+            <DocumentTextIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <p className="text-sm font-bold text-foreground">Ticket Details</p>
+          </div>
 
-        {/* Block 1 — Ticket Details */}
-        <FormBlock step="1" title="Ticket Details" description="Organization, service, type, and subject" icon={DocumentTextIcon}>
+          <div className="px-6 py-5 space-y-5">
+            {/* 2-col grid: left = Subject; right = all selectors */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-          {/* Row 1: Organization | Service */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Organization" required error={errors.org_id}>
-              {isCustomer ? (
-                <StyledInput
-                  value={orgsLoading ? 'Loading…' : (selectedOrg?.name ?? user?.org_id ?? '')}
-                  disabled
-                  className="bg-muted/40"
-                />
-              ) : (
-                <StyledSelect
-                  value={selectedOrgId ?? ''}
-                  onChange={(e) => { setSelectedOrgId(Number(e.target.value) || null); clearErr('org_id') }}
-                  disabled={orgsLoading}
-                  error={errors.org_id}
-                >
-                  <option value="">{orgsLoading ? 'Loading…' : 'Select organization'}</option>
-                  {orgs.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
-                  ))}
-                </StyledSelect>
-              )}
-            </Field>
+              {/* LEFT: Subject */}
+              <div className="flex flex-col gap-5">
+                <Field label="Subject" required error={errors.subject}>
+                  <StyledInput
+                    placeholder="e.g. Cannot access admin panel after update"
+                    value={form.subject}
+                    onChange={(e) => { setField('subject')(e.target.value); clearErr('subject') }}
+                  />
+                </Field>
+              </div>
 
-            <Field label="Service" required={isCustomer} hint={isCustomer ? "Select the service related to your issue" : "Optional — leave blank if not applicable"} error={errors.service_id}>
-              {services.length === 0 && !servicesLoading && selectedOrgId ? (
-                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center">
-                  <p className="text-sm text-gray-600">No active services on this account yet.</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    You can still submit a ticket — just describe your issue below.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={requestService}
-                    className="mt-3 text-xs text-amber-600 hover:text-amber-700 font-medium"
-                  >
-                    + Request a service
-                  </button>
-                </div>
-              ) : (
-                <StyledSelect
-                  value={selectedServiceId ?? ''}
-                  onChange={(e) => { setSelectedServiceId(Number(e.target.value) || null); clearErr('service_id') }}
-                  disabled={!selectedOrgId || servicesLoading}
-                  error={errors.service_id}
-                >
-                  <option value="">
-                    {!selectedOrgId ? 'Select an organization first' :
-                     servicesLoading ? 'Loading services…' :
-                     'Select a service'}
-                  </option>
-                  {services.map((s) => {
-                    const typeLabel = SERVICE_TYPE_BADGE[s.type]?.label ?? s.type
-                    const statusLabel = s.status ? ` — ${s.status.replace('_', ' ')}` : ''
-                    return (
-                      <option key={s.id} value={s.id}>
-                        [{typeLabel}] {s.name}{statusLabel}
+              {/* RIGHT: all picker fields */}
+              <div className="space-y-4">
+
+                {/* Organization */}
+                <Field label="Organization" required error={errors.org_id}>
+                  {isCustomer ? (
+                    <StyledInput
+                      value={orgsLoading ? 'Loading…' : (selectedOrg?.name ?? user?.org_id ?? '')}
+                      disabled
+                      className="bg-muted/40"
+                    />
+                  ) : (
+                    <StyledSelect
+                      value={selectedOrgId ?? ''}
+                      onChange={(e) => { setSelectedOrgId(Number(e.target.value) || null); clearErr('org_id') }}
+                      disabled={orgsLoading}
+                      error={errors.org_id}
+                    >
+                      <option value="">{orgsLoading ? 'Loading…' : 'Select organization'}</option>
+                      {orgs.map((o) => (
+                        <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
+                      ))}
+                    </StyledSelect>
+                  )}
+                </Field>
+
+                {/* Service */}
+                <Field label="Service" hint="Optional — select the service related to your issue" error={errors.service_id}>
+                  {services.length === 0 && !servicesLoading && selectedOrgId ? (
+                    <p className="text-sm text-muted-foreground">
+                      No active services on this account yet.{' '}
+                      <button type="button" onClick={requestService} className="text-amber-600 hover:text-amber-700 font-medium">
+                        + Request one
+                      </button>
+                    </p>
+                  ) : (
+                    <StyledSelect
+                      value={selectedServiceId ?? ''}
+                      onChange={(e) => { setSelectedServiceId(Number(e.target.value) || null); clearErr('service_id') }}
+                      disabled={!selectedOrgId || servicesLoading}
+                      error={errors.service_id}
+                    >
+                      <option value="">
+                        {!selectedOrgId ? 'Select an organization first' :
+                         servicesLoading ? 'Loading services…' :
+                         '— Không chọn —'}
                       </option>
-                    )
-                  })}
-                </StyledSelect>
-              )}
-              {/* Service preview card */}
-              {selectedServiceId && (() => {
-                const svc = services.find((s) => s.id === selectedServiceId)
-                if (!svc) return null
-                return <ServicePreviewCard service={svc} />
-              })()}
-            </Field>
-          </div>
+                      {services.map((s) => {
+                        const typeLabel = SERVICE_TYPE_BADGE[s.type]?.label ?? s.type
+                        const statusLabel = s.status ? ` — ${s.status.replace('_', ' ')}` : ''
+                        return (
+                          <option key={s.id} value={s.id}>[{typeLabel}] {s.name}{statusLabel}</option>
+                        )
+                      })}
+                    </StyledSelect>
+                  )}
+                  {selectedServiceId && (() => {
+                    const svc = services.find((s) => s.id === selectedServiceId)
+                    return svc ? <ServicePreviewCard service={svc} /> : null
+                  })()}
+                </Field>
 
-          {/* Row 2: Link to Project (only if projects exist) */}
-          {projects.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Link to Project" hint="Optional — link this ticket to an ongoing SEO project">
-                <StyledSelect
-                  value={selectedProjectId ?? ''}
-                  onChange={(e) => setSelectedProjectId(Number(e.target.value) || null)}
-                  disabled={projectsLoading}
-                >
-                  <option value="">{projectsLoading ? 'Loading projects…' : 'No project (optional)'}</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </StyledSelect>
-              </Field>
+                {/* Project + Task */}
+                {projects.length > 0 && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Project" hint="Optional">
+                      <StyledSelect
+                        value={selectedProjectId ?? ''}
+                        onChange={(e) => setSelectedProjectId(Number(e.target.value) || null)}
+                        disabled={projectsLoading}
+                      >
+                        <option value="">{projectsLoading ? 'Loading…' : 'None'}</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </StyledSelect>
+                    </Field>
+                    <Field label="Task" hint="Optional">
+                      <StyledSelect
+                        value={selectedTaskId ?? ''}
+                        onChange={(e) => setSelectedTaskId(Number(e.target.value) || null)}
+                        disabled={!selectedProjectId || projectTasksLoading}
+                      >
+                        <option value="">{projectTasksLoading ? 'Loading…' : 'None'}</option>
+                        {projectTasks.map((t) => (
+                          <option key={t.id} value={t.id}>{t.title}</option>
+                        ))}
+                      </StyledSelect>
+                    </Field>
+                  </div>
+                )}
+
+                {/* Type + Priority */}
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Ticket Type" required={isCustomer} error={errors.ticket_type}>
+                    <StyledSelect
+                      value={form.ticket_type}
+                      onChange={(e) => { setField('ticket_type')(e.target.value); clearErr('ticket_type') }}
+                      error={errors.ticket_type}
+                    >
+                      <option value="">Select type</option>
+                      {TICKET_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </StyledSelect>
+                  </Field>
+
+                  <Field label="Priority">
+                    <StyledSelect
+                      value={form.priority}
+                      onChange={(e) => setField('priority')(e.target.value)}
+                    >
+                      {priorities.map((p) => (
+                        <option key={p.value} value={p.value}>{p.value}</option>
+                      ))}
+                    </StyledSelect>
+                  </Field>
+                </div>
+
+                {/* Hosting catalogue — shown for Change Request / Renewal */}
+                <AnimatePresence>
+                  {CATALOGUE_TYPES.has(form.ticket_type) && (
+                    <motion.div
+                      key="catalogue"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <Field label="Gói hosting muốn chuyển / gia hạn" hint="Tùy chọn — chọn gói nếu có">
+                        {catalogueLoading ? (
+                          <p className="text-sm text-muted-foreground">Đang tải danh sách gói…</p>
+                        ) : catalogueItems.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">Không có gói nào.</p>
+                        ) : (
+                          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                            {catalogueItems.map((item) => (
+                              <ItemCard
+                                key={item.id}
+                                item={item}
+                                selected={requestedItemId === item.id}
+                                onSelect={setRequestedItemId}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </Field>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Assignment mode (admin only) — 3-button toggle */}
+                {isAdmin && (
+                  <div className="space-y-3">
+                    <Field label="Assignment Mode">
+                      <div className="flex gap-1 bg-muted rounded-lg p-1">
+                        {[
+                          { value: 'none', label: 'None' },
+                          { value: 'auto', label: 'Auto' },
+                          { value: 'manual', label: 'Manual' },
+                        ].map(({ value, label }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => { setAssignmentMode(value); if (value !== 'manual') setAssigneeIds([]) }}
+                            className={cn(
+                              'flex-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
+                              assignmentMode === value
+                                ? 'bg-white shadow text-foreground'
+                                : 'text-muted-foreground hover:text-foreground',
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+
+                    {assignmentMode === 'manual' && (
+                      <Field label="Assignees" hint="Select one or more staff members">
+                        <div className="max-h-36 overflow-y-auto border border-border rounded-lg divide-y divide-border">
+                          {staffList.length === 0 && (
+                            <p className="px-3 py-2 text-xs text-muted-foreground">No staff available</p>
+                          )}
+                          {staffList.map((s) => (
+                            <label key={s.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-muted/50 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                value={s.id}
+                                checked={assigneeIds.includes(String(s.id))}
+                                onChange={(e) => {
+                                  const sid = String(s.id)
+                                  setAssigneeIds((prev) =>
+                                    e.target.checked ? [...prev, sid] : prev.filter((x) => x !== sid)
+                                  )
+                                }}
+                                className="accent-primary"
+                              />
+                              <span className="text-sm text-foreground">{s.full_name}</span>
+                              <span className="text-xs text-muted-foreground ml-auto">{s.email}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </Field>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
 
-          {/* Row 3: Ticket Type | Priority */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Ticket Type" required={isCustomer} error={errors.ticket_type}>
-              <StyledSelect
-                value={form.ticket_type}
-                onChange={(e) => { setField('ticket_type')(e.target.value); clearErr('ticket_type') }}
-                error={errors.ticket_type}
-              >
-                <option value="">Select type</option>
-                {TICKET_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </StyledSelect>
+            {/* Description — full width, 4 rows */}
+            <Field label="Description" required={isCustomer} error={errors.description}
+              hint={isCustomer ? "Include steps to reproduce, error messages, device info, and when the issue started." : "Optional — describe the issue if needed"}>
+              <StyledTextarea
+                placeholder="Describe the issue in detail — include error messages, affected device, time of occurrence…"
+                value={form.description}
+                onChange={(e) => { setField('description')(e.target.value); clearErr('description') }}
+                rows={4}
+              />
             </Field>
 
-            <Field label="Priority">
-              <PriorityPicker value={form.priority} onChange={setField('priority')} />
-            </Field>
+            {/* Attachments */}
+            <AttachmentZone
+              files={files}
+              onAdd={(newFiles) => setFiles((f) => {
+                const names = new Set(f.map((x) => x.name))
+                return [...f, ...newFiles.filter((x) => !names.has(x.name))]
+              })}
+              onRemove={(name) => setFiles((f) => f.filter((x) => x.name !== name))}
+            />
+            {uploadError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">
+                <ExclamationCircleIcon className="w-4 h-4 flex-shrink-0" />
+                {uploadError}
+              </div>
+            )}
           </div>
-
-          {/* Row 4: Assign to (admin only, full-width) */}
-          {isAdmin && (
-            <Field label="Assign to" hint="Leave blank to auto-assign">
-              <StyledSelect
-                value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value)}
-              >
-                <option value="">— Auto-assign —</option>
-                {staffList.map((s) => (
-                  <option key={s.id} value={s.id}>{s.full_name} ({s.email})</option>
-                ))}
-              </StyledSelect>
-            </Field>
-          )}
-
-          {/* Row 5: Subject (full-width) */}
-          <Field label="Subject" required error={errors.subject}>
-            <StyledInput
-              placeholder="e.g. Cannot access admin panel after update"
-              value={form.subject}
-              onChange={(e) => { setField('subject')(e.target.value); clearErr('subject') }}
-            />
-          </Field>
-        </FormBlock>
-
-        {/* Block 2 — Description & Attachments */}
-        <FormBlock step="2" title="Description & Attachments" description="Describe your issue and attach relevant files" icon={PaperClipIcon}>
-          <Field label="Description" required={isCustomer} error={errors.description}
-            hint={isCustomer ? "Include steps to reproduce, error messages, device info, and when the issue started." : "Optional — describe the issue if needed"}>
-            <StyledTextarea
-              placeholder="Describe the issue in detail — include error messages, affected device, time of occurrence…"
-              value={form.description}
-              onChange={(e) => { setField('description')(e.target.value); clearErr('description') }}
-              rows={7}
-            />
-          </Field>
-
-          <AttachmentZone
-            files={files}
-            onAdd={(newFiles) => setFiles((f) => {
-              const names = new Set(f.map((x) => x.name))
-              return [...f, ...newFiles.filter((x) => !names.has(x.name))]
-            })}
-            onRemove={(name) => setFiles((f) => f.filter((x) => x.name !== name))}
-          />
-          {uploadError && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">
-              <ExclamationCircleIcon className="w-4 h-4 flex-shrink-0" />
-              {uploadError}
-            </div>
-          )}
-        </FormBlock>
+        </motion.div>
 
         <AnimatePresence>
           {error && (

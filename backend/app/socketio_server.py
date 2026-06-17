@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins="*",
+    cors_allowed_origins=settings.CORS_ORIGINS,
 )
 
 

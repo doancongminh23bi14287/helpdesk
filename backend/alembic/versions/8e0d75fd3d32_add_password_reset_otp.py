@@ -34,5 +34,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f('ix_password_reset_otps_user_id'), table_name='password_reset_otps')
     op.drop_table('password_reset_otps')

@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { getTickets } from '@/api/tickets'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { getTickets, deleteTicket, deleteTicketPermanent } from '@/api/tickets'
 import { useRole } from '@/hooks/useRole'
 import { Spinner } from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
 import { formatDateTime } from '@/lib/utils'
+import { PAGE_SIZE } from '@/lib/constants'
 import {
   PlusIcon,
   MagnifyingGlassIcon,
@@ -48,10 +49,11 @@ function PriorityBadge({ label }) {
   )
 }
 
-const PER_PAGE = 20
+const PER_PAGE = PAGE_SIZE
 
 export default function TicketListPage() {
-  const { isCustomer } = useRole()
+  const { isCustomer, isAdmin } = useRole()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [searchInput, setSearchInput] = useState(searchParams.get('q') ?? '')
@@ -66,6 +68,17 @@ export default function TicketListPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
+
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState(null) // { ticket, x, y }
+
+  // Close context menu on outside mousedown (covers left + right + middle click)
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = () => setCtxMenu(null)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [ctxMenu])
 
   // Debounce search input → resets page to 1
   useEffect(() => {
@@ -131,6 +144,28 @@ export default function TicketListPage() {
     setStatus('All')
     setPriority('All')
     setPage(1)
+  }, [])
+
+  const handleSoftDelete = useCallback(async (ticket) => {
+    if (!window.confirm(`Xóa ticket #${ticket.id} "${ticket.subject}"?\n\nTicket sẽ bị ẩn (soft delete).`)) return
+    try {
+      await deleteTicket(ticket.id)
+      setReloadKey(k => k + 1)
+    } catch (err) {
+      alert(err.message || 'Xóa thất bại')
+    }
+  }, [])
+
+  const handleHardDelete = useCallback(async (ticket) => {
+    if (!window.confirm(`XÓA VĨNH VIỄN ticket #${ticket.id} "${ticket.subject}"?\n\nHành động này KHÔNG thể hoàn tác. Toàn bộ file đính kèm sẽ bị xóa khỏi server.`)) return
+    if (!window.confirm(`Xác nhận lần 2: Xóa vĩnh viễn #${ticket.id}?`)) return
+    try {
+      await deleteTicketPermanent(ticket.id)
+      setReloadKey(k => k + 1)
+    } catch (err) {
+      const detail = err.response?.data?.detail || err.message || 'Xóa thất bại'
+      alert(detail)
+    }
   }, [])
 
   return (
@@ -229,6 +264,39 @@ export default function TicketListPage() {
         </div>
       </div>
 
+      {/* Context menu */}
+      {ctxMenu && (
+        <div
+          className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px] text-sm"
+          style={{ top: ctxMenu.y, left: ctxMenu.x }}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <button
+            className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700"
+            onClick={() => { navigate(`/tickets/${ctxMenu.ticket.id}`); setCtxMenu(null) }}
+          >
+            Mở
+          </button>
+          {isAdmin && (
+            <button
+              className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600"
+              onClick={() => { handleSoftDelete(ctxMenu.ticket); setCtxMenu(null) }}
+            >
+              Xóa ticket
+            </button>
+          )}
+          {isAdmin && ['Resolved', 'Closed'].includes(ctxMenu.ticket.status) && (
+            <button
+              className="w-full text-left px-4 py-2 hover:bg-red-100 text-red-700 font-semibold border-t border-red-100 mt-1"
+              onClick={() => { handleHardDelete(ctxMenu.ticket); setCtxMenu(null) }}
+            >
+              Xóa vĩnh viễn
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Table */}
       <div className="flex-1 overflow-auto">
         {loading ? (
@@ -282,7 +350,19 @@ export default function TicketListPage() {
               </thead>
               <tbody className="divide-y divide-gray-50 bg-white">
                 {tickets.map((ticket) => (
-                  <tr key={ticket.id} className="hover:bg-gray-50 transition-colors group">
+                  <tr
+                    key={ticket.id}
+                    className="hover:bg-gray-50 transition-colors group cursor-pointer"
+                    onClick={e => { if (e.target.closest('a')) return; navigate(`/tickets/${ticket.id}`) }}
+                    onContextMenu={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const menuW = 180, menuH = 120
+                      const x = e.clientX + menuW > window.innerWidth ? e.clientX - menuW : e.clientX
+                      const y = e.clientY + menuH > window.innerHeight ? e.clientY - menuH : e.clientY
+                      setCtxMenu({ ticket, x, y })
+                    }}
+                  >
                     <td className="px-6 py-3">
                       <Link to={`/tickets/${ticket.id}`} className="block">
                         <span className="text-xs font-mono text-gray-400 group-hover:text-gray-900 transition-colors">
@@ -321,11 +401,15 @@ export default function TicketListPage() {
                             {ticket.service_type && (
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${
                                 ticket.service_type === 'saas'    ? 'bg-violet-100 text-violet-700' :
-                                ticket.service_type === 'hosting' ? 'bg-blue-100 text-blue-700' :
+                                ticket.service_type === 'hosting' ? 'bg-blue-100 text-blue-700'   :
+                                ticket.service_type === 'domain'  ? 'bg-purple-100 text-purple-700' :
+                                ticket.service_type === 'support' ? 'bg-orange-100 text-orange-700' :
                                 'bg-gray-100 text-gray-600'
                               }`}>
-                                {ticket.service_type === 'saas'    ? 'SaaS' :
+                                {ticket.service_type === 'saas'    ? 'SaaS'    :
                                  ticket.service_type === 'hosting' ? 'Hosting' :
+                                 ticket.service_type === 'domain'  ? 'Domain'  :
+                                 ticket.service_type === 'support' ? 'Support' :
                                  ticket.service_type}
                               </span>
                             )}

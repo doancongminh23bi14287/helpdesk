@@ -24,5 +24,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(None, 'tickets', type_='foreignkey')
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE"
+        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tickets'"
+        " AND COLUMN_NAME = 'project_id' AND REFERENCED_TABLE_NAME = 'projects'"
+    ))
+    row = result.fetchone()
+    if row:
+        op.drop_constraint(row[0], 'tickets', type_='foreignkey')
     op.drop_column('tickets', 'project_id')

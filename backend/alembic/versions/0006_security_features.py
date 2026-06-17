@@ -46,8 +46,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_login_history_created_at", "login_history")
-    op.drop_index("ix_login_history_user_id", "login_history")
     op.drop_table("login_history")
-    op.execute("DROP TYPE IF EXISTS login_status")
     op.drop_column("users", "must_change_password")

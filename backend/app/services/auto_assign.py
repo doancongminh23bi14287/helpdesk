@@ -5,15 +5,26 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select
 from app.models.user import User
-from app.models.ticket import Ticket
+from app.models.ticket import Ticket, TicketAssignee
 from app.models.team import StaffOrgAssignment
 from app.core.redis_client import redis_client
+from app.core.constants import (
+    ASSIGN_WORKLOAD_WEIGHT, ASSIGN_SKILL_WEIGHT, ASSIGN_ONLINE_WEIGHT,
+    ASSIGN_ONLINE_WINDOW_SECONDS, ASSIGN_LOCK_TTL_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 
 
+def _skill_score(agent: User, ticket: Ticket, max_resolved: int) -> float:
+    # future: skill-based matching (topic embeddings or tag overlap)
+    return 0.0
+
+
 def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
     """Compute raw + normalised scores for all staff candidates assigned to ticket's org."""
+    from app.models.project import ProjectTask
+
     assigned_user_ids = db.query(StaffOrgAssignment.user_id).filter(
         StaffOrgAssignment.org_id == ticket.org_id
     ).subquery()
@@ -27,32 +38,33 @@ def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     rows = []
     for agent in candidates:
-        open_count = db.query(func.count(Ticket.id)).filter(
-            Ticket.assignee_id == agent.id,
-            Ticket.status.in_(["Open", "In Progress", "Waiting"]),
-            Ticket.is_deleted == False,
+        # Workload = active project tasks; fallback to active tickets via ticket_assignees
+        task_count = db.query(func.count(ProjectTask.id)).filter(
+            ProjectTask.assignee_id == agent.id,
+            ProjectTask.status.in_(["open", "working", "review"]),
         ).scalar() or 0
 
-        resolved_match = db.query(func.count(Ticket.id)).filter(
-            Ticket.assignee_id == agent.id,
-            Ticket.status.in_(["Resolved", "Closed"]),
-            Ticket.is_deleted == False,
-            (
-                (Ticket.ticket_type == ticket.ticket_type) |
-                (Ticket.priority == ticket.priority)
-            ),
-        ).scalar() or 0
+        if task_count > 0:
+            open_count = task_count
+        else:
+            open_count = db.query(func.count(TicketAssignee.id)).join(
+                Ticket, TicketAssignee.ticket_id == Ticket.id
+            ).filter(
+                TicketAssignee.user_id == agent.id,
+                Ticket.status.in_(["Open", "In Progress", "Waiting"]),
+                Ticket.is_deleted == False,  # noqa: E712
+            ).scalar() or 0
 
         online = 0
         if agent.last_login_at:
             diff = (now - agent.last_login_at).total_seconds()
-            online = 1 if diff <= 1800 else 0
+            online = 1 if diff <= ASSIGN_ONLINE_WINDOW_SECONDS else 0
 
         rows.append({
             "user_id": agent.id,
             "full_name": agent.full_name,
             "open_count": open_count,
-            "resolved_match": resolved_match,
+            "resolved_match": 0,
             "online": online,
             "last_assigned_at": agent.last_assigned_at,
         })
@@ -61,12 +73,12 @@ def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
         return rows
 
     max_open = max(r["open_count"] for r in rows) or 1
-    max_resolved = max(r["resolved_match"] for r in rows) or 1
+    max_resolved = 1  # _skill_score always returns 0 currently
 
     for r in rows:
-        r["workload_score"] = round(40.0 * (1.0 - r["open_count"] / max_open), 2)
-        r["skill_score"]    = round(40.0 * (r["resolved_match"] / max_resolved), 2)
-        r["online_score"]   = round(20.0 * r["online"], 2)
+        r["workload_score"] = round(ASSIGN_WORKLOAD_WEIGHT * (1.0 - r["open_count"] / max_open), 2)
+        r["skill_score"]    = round(_skill_score(None, ticket, max_resolved), 2)
+        r["online_score"]   = round(ASSIGN_ONLINE_WEIGHT * r["online"], 2)
         r["total_score"]    = round(r["workload_score"] + r["skill_score"] + r["online_score"], 2)
 
     return rows
@@ -106,7 +118,7 @@ def find_best_assignee(ticket: Ticket, db: Session) -> int | None:
     creations from assigning the same agent twice.
     """
     lock_key = f"assignment:org:{ticket.org_id}"
-    lock_ttl = 10  # seconds — enough for the scoring query
+    lock_ttl = ASSIGN_LOCK_TTL_SECONDS
 
     acquired = redis_client.set(lock_key, "1", nx=True, ex=lock_ttl)
     if not acquired:

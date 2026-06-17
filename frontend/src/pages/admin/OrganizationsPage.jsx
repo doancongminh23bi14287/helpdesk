@@ -10,6 +10,7 @@ import {
   linkContactToUser,
 } from '@/api/items'
 import { createUser } from '@/api/users'
+import { SEARCH_DEBOUNCE_MS, PAGE_SIZE } from '@/lib/constants'
 
 const STATUS_COLORS = {
   active:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -505,7 +506,7 @@ function OrgDetailModal({ org, onClose, onSaved }) {
   )
 }
 
-const PER_PAGE = 20
+const PER_PAGE = PAGE_SIZE
 
 /* ── Main page ── */
 export default function OrganizationsPage() {
@@ -522,7 +523,7 @@ export default function OrganizationsPage() {
 
   // Debounce search input
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    const t = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [search])
 

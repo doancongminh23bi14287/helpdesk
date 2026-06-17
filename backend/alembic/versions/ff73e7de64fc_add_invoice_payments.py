@@ -41,5 +41,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f('ix_invoice_payments_invoice_id'), table_name='invoice_payments')
     op.drop_table('invoice_payments')

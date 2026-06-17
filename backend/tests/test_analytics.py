@@ -154,7 +154,7 @@ def test_ticket_analytics_org_filter(client, admin_token, ticket_data, second_cl
         subject="Other org ticket",
         status="Open",
         priority="Medium",
-        ticket_type="Unspecified",
+        ticket_type="Question",
         source="portal",
         raised_by_email="other@test.com",
     )

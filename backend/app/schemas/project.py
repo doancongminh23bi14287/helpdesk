@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+MEMBER_ROLES = {"manager", "staff", "customer"}
+
 PROJECT_TYPES = {"seo", "website", "hosting", "maintenance", "other"}
 PROJECT_STATUSES = {"open", "working", "on_hold", "completed", "cancelled"}
 PROJECT_VISIBILITIES = {"internal", "customer_visible"}
@@ -19,7 +21,7 @@ TASK_TYPES = {
     "support",
     "other",
 }
-TASK_STATUSES = {"open", "working", "review", "completed", "cancelled"}
+TASK_STATUSES = {"open", "working", "review", "approved", "completed", "cancelled"}
 TASK_PRIORITIES = {"low", "medium", "high", "urgent"}
 
 
@@ -41,6 +43,7 @@ class ProjectCreate(BaseModel):
     org_id: int
     service_id: Optional[int] = None
     subscription_id: Optional[int] = None
+    ticket_id: Optional[int] = None
     name: str
     description: Optional[str] = None
     project_type: str = "seo"
@@ -174,6 +177,7 @@ class ProjectTaskUpdate(BaseModel):
     description: Optional[str] = None
     task_type: Optional[str] = None
     assignee_id: Optional[int] = None
+    assignee_ids: Optional[list[int]] = None
     status: Optional[str] = None
     priority: Optional[str] = None
     is_client_visible: Optional[bool] = None
@@ -239,6 +243,31 @@ class ProjectTaskListItem(ProjectTaskRead):
     assignee_email: Optional[str] = None
 
 
+class ProjectMemberCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: int
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: str) -> str:
+        return _allowed(value, MEMBER_ROLES, "role")
+
+
+class ProjectMemberOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    user_id: int
+    user_full_name: Optional[str] = None
+    user_email: Optional[str] = None
+    role: str
+    added_by: Optional[int] = None
+    created_at: datetime
+
+
 class ProjectDocumentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -254,3 +283,125 @@ class ProjectDocumentRead(BaseModel):
     uploader_name: Optional[str] = None
     uploader_email: Optional[str] = None
     created_at: datetime
+    ticket_attachment_id: Optional[int] = None
+    source: str = "upload"
+    ticket_id: Optional[int] = None
+
+
+# ── Task comment / activity / assignee schemas ────────────────────────────────
+
+class TaskCommentCreate(BaseModel):
+    content: str
+    is_internal: bool = False
+
+
+class TaskCommentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    content: str
+    is_internal: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskActivityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    actor_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    action: str
+    from_value: Optional[str] = None
+    to_value: Optional[str] = None
+    detail: Optional[str] = None
+    created_at: datetime
+
+
+class TaskAssigneeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    is_primary: bool
+
+
+class ProjectTaskDetailOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    title: str
+    description: Optional[str] = None
+    task_type: str
+    assignee_id: Optional[int] = None
+    status: str
+    priority: str
+    is_client_visible: bool
+    internal_note: Optional[str] = None
+    start_date: Optional[date] = None
+    due_date: Optional[date] = None
+    completed_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    assignees: list[TaskAssigneeOut] = []
+    comments: list[TaskCommentOut] = []
+    activities: list[TaskActivityOut] = []
+
+
+# Extra fields added to create-task payload for multi-assignee
+class ProjectTaskCreateV2(ProjectTaskCreate):
+    assignee_ids: Optional[list[int]] = None
+
+
+class TaskApprovalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    action: str
+    actor_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    comment: Optional[str] = None
+    created_at: datetime
+
+
+class TaskApprovalCreate(BaseModel):
+    action: str
+    comment: Optional[str] = None
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: str) -> str:
+        allowed = {"submitted_for_review", "approved", "changes_requested"}
+        if v not in allowed:
+            raise ValueError(f"action must be one of {allowed}")
+        return v
+
+
+class ProjectDiscussionItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_id: int
+    ticket_subject: Optional[str] = None
+    ticket_status: Optional[str] = None
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    author_email: Optional[str] = None
+    author_role: Optional[str] = None
+    content: str
+    is_internal: bool
+    source: str
+    created_at: datetime
+
+
+class ProjectDiscussionCreate(BaseModel):
+    content: str
+    is_internal: bool = False

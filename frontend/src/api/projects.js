@@ -61,3 +61,36 @@ export const downloadProjectDocument = async (projectId, projectDocument) => {
 
 export const getProjectTickets = (projectId) =>
   client.get(`/projects/${projectId}/tickets`).then(r => r.data)
+
+export const getProjectTasks = (projectId, params = {}) =>
+  client.get(`/projects/${projectId}/tasks`, { params }).then(r => r.data)
+
+export const createTaskComment = (taskId, payload) =>
+  client.post(`/project-tasks/${taskId}/comments`, payload).then(r => r.data)
+
+export const listTaskComments = (taskId) =>
+  client.get(`/project-tasks/${taskId}/comments`).then(r => r.data)
+
+export const getTaskActivities = (taskId) =>
+  client.get(`/project-tasks/${taskId}/activities`).then(r => r.data)
+
+export const getProjectDiscussion = (projectId, page = 1, perPage = 50) =>
+  client.get(`/projects/${projectId}/discussion`, { params: { page, per_page: perPage } }).then(r => r.data)
+
+export const postProjectDiscussion = (projectId, payload) =>
+  client.post(`/projects/${projectId}/discussion`, payload).then(r => r.data)
+
+export const submitTaskApproval = (taskId, payload) =>
+  client.post(`/project-tasks/${taskId}/approval`, payload).then(r => r.data)
+
+export const getTaskApprovals = (taskId) =>
+  client.get(`/project-tasks/${taskId}/approvals`).then(r => r.data)
+
+export const addProjectMember = (projectId, payload) =>
+  client.post(`/projects/${projectId}/members`, payload).then(r => r.data)
+
+export const listProjectMembers = (projectId) =>
+  client.get(`/projects/${projectId}/members`).then(r => r.data)
+
+export const removeProjectMember = (projectId, userId) =>
+  client.delete(`/projects/${projectId}/members/${userId}`)

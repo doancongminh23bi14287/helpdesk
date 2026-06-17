@@ -324,7 +324,7 @@ def test_create_ticket_default_priority_and_type(client, db, customer_token, cli
                     headers={"Authorization": f"Bearer {customer_token}"})
     assert r.status_code == 201
     assert r.json()["priority"] == "Medium"
-    assert r.json()["ticket_type"] == "Unspecified"
+    assert r.json()["ticket_type"] == "Question"
 
 
 def test_customer_cannot_see_internal_replies(client, db, customer_token, admin_token, customer_user, client_org, service):
@@ -357,13 +357,18 @@ def test_customer_cannot_see_internal_replies(client, db, customer_token, admin_
 # Invalid values must now be rejected at the schema layer with 422.
 
 ALLOWED_TICKET_TYPES = [
+    "Question",
     "Bug",
     "Incident",
-    "Question",
-    "Unspecified",
-    "Service SaaS",
-    "Service Hosting",
+    "Task Request",
+    "Change Request",
+    "Feature Request",
+    "Content Request",
+    "SEO Request",
+    "Approval Required",
+    "Complaint",
     "Renewal",
+    "Other",
 ]
 
 
@@ -379,7 +384,10 @@ def test_create_ticket_accepts_valid_ticket_type(
     assert r.json()["ticket_type"] == ticket_type
 
 
-@pytest.mark.parametrize("bad_type", ["support", "URGENT_BUG", "bug", "question", "random"])
+@pytest.mark.parametrize(
+    "bad_type",
+    ["support", "URGENT_BUG", "bug", "question", "random", "Unspecified", "Service SaaS", "Service Hosting"],
+)
 def test_create_ticket_rejects_invalid_ticket_type(
     client, db, customer_token, client_org, service, bad_type
 ):
@@ -390,18 +398,17 @@ def test_create_ticket_rejects_invalid_ticket_type(
         "Bad type ticket", ticket_type=bad_type,
     )
     assert r.status_code == 422, r.text
-    # Body must not be inserted
     after = db.query(Ticket).count()
     assert after == before
 
 
-def test_create_ticket_empty_ticket_type_defaults_to_unspecified(
+def test_create_ticket_empty_ticket_type_defaults_to_question(
     client, customer_token, client_org, service
 ):
-    """Pre-existing behaviour: empty/blank ticket_type is normalised to 'Unspecified'."""
+    """Empty/blank ticket_type normalises to 'Question' (default)."""
     r = create_ticket(
         client, customer_token, client_org.id, service.id,
         "Blank type", ticket_type="",
     )
     assert r.status_code == 201, r.text
-    assert r.json()["ticket_type"] == "Unspecified"
+    assert r.json()["ticket_type"] == "Question"

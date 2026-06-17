@@ -3,6 +3,7 @@ import logging
 from app.tasks.celery_app import celery_app
 from app.core.redis_client import redis_client
 from app.database import SessionLocal
+from app.core.constants import SLA_DEDUP_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def check_sla():
 
                 # Set dedup key AFTER notifications are queued (before commit is fine —
                 # Redis write is independent of the DB transaction).
-                redis_client.setex(dedup_key, 3600, "1")
+                redis_client.setex(dedup_key, SLA_DEDUP_TTL_SECONDS, "1")
 
         db.commit()
         return {"checked": len(open_tickets)}

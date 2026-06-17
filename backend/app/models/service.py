@@ -17,7 +17,7 @@ class Service(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     org_id = Column(BigInteger, ForeignKey("organizations.id"), nullable=False)
     category_id = Column(BigInteger, ForeignKey("service_categories.id"))
-    type = Column(Enum("saas", "hosting", "other"), nullable=False, default="saas")
+    type = Column(Enum("saas", "hosting", "domain", "support", "other"), nullable=False, default="saas")
     name = Column(String(200), nullable=False)
     domain = Column(String(255))
     status = Column(Enum("active", "inactive", "cancelled", "past_due"), nullable=False, default="active")

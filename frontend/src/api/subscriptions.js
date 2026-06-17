@@ -31,3 +31,6 @@ export const cancelSubscription = (id) =>
 
 export const deleteSubscription = (id) =>
   client.delete(`/subscriptions/${id}`)
+
+export const deleteSubscriptionPermanent = (id) =>
+  client.delete(`/subscriptions/${id}/permanent`).then(r => r.data)

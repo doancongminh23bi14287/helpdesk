@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.models.ticket import Ticket
 from app.models.sla import SlaPolicy
+from app.core.constants import SLA_GREEN_THRESHOLD, SLA_AMBER_THRESHOLD
 
 
 def compute_sla_timestamps(ticket: Ticket, db: Session) -> None:
@@ -81,9 +82,9 @@ def get_sla_status(ticket: Ticket) -> dict:
 
     if remaining_seconds <= 0:
         state = "breached"
-    elif percent_remaining <= 20:
+    elif percent_remaining <= SLA_AMBER_THRESHOLD:
         state = "red"
-    elif percent_remaining <= 50:
+    elif percent_remaining <= SLA_GREEN_THRESHOLD:
         state = "amber"
     else:
         state = "green"

@@ -85,6 +85,9 @@ def create_user(
     data["password_hash"] = hash_password(data.pop("password"))
     data["must_change_password"] = True  # always force password change on creation
     new_user = User(**data)
+    # NOTE: Email verification on registration is not implemented.
+    # In production, a confirmation link should be sent before activation.
+    # Documented as a known limitation (see thesis Limitations section).
     db.add(new_user)
     db.commit()
     db.refresh(new_user)

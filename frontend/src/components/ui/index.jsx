@@ -1,4 +1,5 @@
 export { ToastContainer } from './Toast'
+export { StatusBadge } from '@/components/StatusBadge'
 export { default as Pagination } from './Pagination'
 export { default as AttachmentList } from './AttachmentList'
 export { UserAvatar } from './UserAvatar'

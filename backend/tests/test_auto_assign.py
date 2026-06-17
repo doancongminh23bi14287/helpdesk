@@ -22,16 +22,17 @@ def _create_ticket_via_api(client, token, org_id, service_id, subject="Test tick
 # ── test_auto_assign_picks_lowest_workload ────────────────────────────────────
 
 def test_auto_assign_picks_lowest_workload(
-    client, db, admin_token, customer_token,
+    client, db, admin_token, admin_user, customer_token,
     provider_org, client_org, staff_user, staff_assignment, service,
 ):
     """
-    staff_user (staff1) has 3 open tickets; staff2 has 0.
+    staff_user (staff1) has 3 active project tasks; staff2 has 0.
     New ticket via API should be auto-assigned to staff2.
     """
     from app.models.user import User
     from app.models.team import StaffOrgAssignment
-    from app.models.ticket import Ticket, TicketActivity
+    from app.models.ticket import TicketActivity
+    from app.models.project import Project, ProjectTask
     from app.core.security import hash_password
 
     # Create second staff user
@@ -52,17 +53,30 @@ def test_auto_assign_picks_lowest_workload(
     db.add(assn2)
     db.commit()
 
-    # Give staff_user (staff1) 3 open tickets directly in DB
+    # Give staff_user 3 active project tasks (new workload metric)
+    project = Project(
+        org_id=client_org.id,
+        name="Workload Test Project",
+        project_type="seo",
+        status="open",
+        visibility="customer_visible",
+        created_by=admin_user.id,
+        progress_percent=0,
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
     for i in range(3):
-        t = Ticket(
-            org_id=client_org.id,
-            service_id=service.id,
-            subject=f"Open ticket {i}",
-            status="Open",
+        db.add(ProjectTask(
+            project_id=project.id,
+            title=f"Task {i}",
+            task_type="other",
             assignee_id=staff_user.id,
-            source="portal",
-        )
-        db.add(t)
+            status="open",
+            priority="medium",
+            is_client_visible=False,
+            created_by=admin_user.id,
+        ))
     db.commit()
 
     # Create a new ticket via API (customer creates it)
@@ -76,12 +90,13 @@ def test_auto_assign_picks_lowest_workload(
     )
 
     # Verify auto_assigned activity exists
+    from app.models.ticket import TicketActivity as TA
     new_ticket_id = data["id"]
     activity = (
-        db.query(TicketActivity)
+        db.query(TA)
         .filter(
-            TicketActivity.ticket_id == new_ticket_id,
-            TicketActivity.action == "auto_assigned",
+            TA.ticket_id == new_ticket_id,
+            TA.action == "auto_assigned",
         )
         .first()
     )

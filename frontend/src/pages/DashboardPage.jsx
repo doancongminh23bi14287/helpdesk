@@ -32,16 +32,16 @@ import { useTranslation } from '@/lib/i18n'
 // Status palette mirrors the brief: active/running → cyan,
 // warning/expiring → amber, danger/breached → red, neutral → slate.
 const TICKET_STATUS_STYLES = {
-  Open:          'bg-amber-50 text-amber-700',
-  'In Progress': 'bg-cyan-50 text-cyan-700',
-  Waiting:       'bg-slate-100 text-slate-600',
-  Resolved:      'bg-slate-100 text-slate-600',
-  Closed:        'bg-slate-100 text-slate-500',
+  Open:          'bg-blue-50 text-blue-700',
+  'In Progress': 'bg-amber-50 text-amber-700',
+  Waiting:       'bg-purple-50 text-purple-700',
+  Resolved:      'bg-green-50 text-green-700',
+  Closed:        'bg-gray-100 text-gray-500',
 }
 
 const PRIORITY_STYLES = {
-  Low:    'bg-slate-100 text-slate-600',
-  Medium: 'bg-amber-50 text-amber-700',
+  Low:    'bg-gray-100 text-gray-500',
+  Medium: 'bg-yellow-50 text-yellow-700',
   High:   'bg-orange-50 text-orange-700',
   Urgent: 'bg-red-50 text-red-700',
 }
@@ -56,19 +56,20 @@ function PriorityBadge({ label }) {
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
 }
 
-function StatCard({ icon: Icon, label, value, color, loading }) {
+function StatCard({ icon: Icon, label, value, color, hint, loading }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-start gap-4">
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
-        <Icon className="w-5 h-5" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">{label}</p>
+    <div className="bg-white rounded-xl border border-gray-100 p-5 flex items-start justify-between hover:border-gray-200 transition-colors">
+      <div>
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">{label}</p>
         {loading ? (
-          <div className="h-7 w-10 bg-gray-100 rounded animate-pulse mt-1" />
+          <div className="h-8 w-14 bg-gray-100 rounded animate-pulse" />
         ) : (
-          <p className="text-2xl font-bold text-gray-900 leading-tight mt-0.5">{value}</p>
+          <p className="text-3xl font-semibold text-gray-900">{value}</p>
         )}
+        {hint && <p className="text-sm text-gray-400 mt-1">{hint}</p>}
+      </div>
+      <div className={`p-2 rounded-lg flex-shrink-0 ${color}`}>
+        <Icon className="w-5 h-5" />
       </div>
     </div>
   )
@@ -172,7 +173,7 @@ const fmtVND = formatVND
 
 // ─── Admin Stats ─────────────────────────────────────────────────────────────
 
-function AdminStats() {
+function AdminStats({ activeProjects = null, projectsLoading = false }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const { t } = useTranslation()
@@ -212,52 +213,60 @@ function AdminStats() {
   // ring inside the chip, and an optional value/hint accent. This avoids
   // the "all four look identical" problem without resorting to full
   // colour-tinted card backgrounds.
-  const AdminMetricCard = ({ icon: Icon, label, value, hint, chipCls, valueCls, hintCls }) => (
-    <div className="bg-card border border-border rounded-xl p-4 transition-colors hover:border-slate-300">
-      <div className="flex items-center gap-3 mb-2">
-        <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ring-1 ring-inset ${chipCls}`}>
-          <Icon className="w-4 h-4" aria-hidden="true" />
-        </span>
-        <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">{label}</p>
+  const AdminMetricCard = ({ icon: Icon, label, value, hint, chipCls }) => (
+    <div className="bg-white rounded-xl border border-gray-100 p-5 flex items-start justify-between hover:border-gray-200 transition-colors">
+      <div>
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">{label}</p>
+        {loading ? (
+          <div className={skeletonCls} />
+        ) : (
+          <p className="text-3xl font-semibold text-gray-900">{value}</p>
+        )}
+        <p className="text-sm text-gray-400 mt-1">{hint}</p>
       </div>
-      {loading ? (
-        <div className={skeletonCls} />
-      ) : (
-        <p className={`text-2xl font-bold ${valueCls ?? 'text-foreground'}`}>{value}</p>
-      )}
-      <p className={`text-xs mt-0.5 ${hintCls ?? 'text-muted-foreground'}`}>{hint}</p>
+      <div className={`p-2 rounded-lg flex-shrink-0 ${chipCls}`}>
+        <Icon className="w-5 h-5" aria-hidden="true" />
+      </div>
     </div>
   )
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
       <AdminMetricCard
         icon={UsersIcon}
         label={t('dashboard.metric.users')}
         value={stats?.totalUsers ?? '—'}
         hint={loading ? t('dashboard.metric.inactiveSuffix') : `${stats.inactiveUsers} ${t('dashboard.metric.inactiveSuffix')}`}
-        chipCls="bg-amber-100 text-amber-700 ring-amber-200"
+        chipCls="bg-blue-50 text-blue-500"
       />
       <AdminMetricCard
         icon={BuildingOfficeIcon}
         label={t('dashboard.metric.organizations')}
         value={stats?.totalOrgs ?? '—'}
         hint={t('dashboard.metric.registered')}
-        chipCls="bg-orange-100 text-orange-600 ring-orange-200"
+        chipCls="bg-purple-50 text-purple-500"
       />
       <AdminMetricCard
         icon={TicketIcon}
         label={t('dashboard.metric.openTickets')}
         value={stats?.openTickets ?? '—'}
         hint={t('dashboard.metric.awaiting')}
-        chipCls="bg-orange-50 text-orange-600 ring-orange-200"
+        chipCls="bg-blue-50 text-blue-500"
       />
       <AdminMetricCard
         icon={DocumentTextIcon}
         label={t('dashboard.metric.outstanding')}
         value={fmtVND(stats?.outstandingTotal)}
         hint={t('dashboard.metric.outstandingHint')}
-        chipCls="bg-red-50 text-red-600 ring-red-200"
+        chipCls="bg-amber-50 text-amber-600"
+      />
+      {/* 5th card: Active SEO Projects — pulled up from secondary grid */}
+      <AdminMetricCard
+        icon={ClipboardDocumentListIcon}
+        label={t('dashboard.metric.activeSeoProjects')}
+        value={projectsLoading ? '—' : (activeProjects ?? 0)}
+        hint="in progress"
+        chipCls="bg-amber-50 text-amber-600"
       />
     </div>
   )
@@ -271,50 +280,26 @@ function AdminStats() {
 // Wizard) so they no longer read as "default white".
 
 function AdminQuickActions() {
-  const base =
-    'inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold ' +
-    'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
+  const actions = [
+    { label: 'Organizations', icon: BuildingOfficeIcon, href: '/admin/organizations' },
+    { label: 'Users',         icon: UsersIcon,          href: '/admin/users' },
+    { label: 'Invoices',      icon: DocumentTextIcon,   href: '/admin/invoices' },
+    { label: 'Setup',         icon: CogIcon,            href: '/admin/setup' },
+  ]
   return (
-    <div className="flex flex-wrap gap-3 mb-6">
-      {/* 1. Organizations — filled amber, dark slate ink for AA contrast. */}
-      <Link
-        to="/admin/organizations"
-        className={`${base} bg-[#F59E0B] text-[#111827] shadow-sm hover:bg-[#D97706] focus-visible:ring-amber-500`}
-      >
-        <BuildingOfficeIcon className="w-4 h-4 text-[#111827]" aria-hidden="true" />
-        Organizations
-      </Link>
-
-      {/* 2. Users — filled orange, white ink. */}
-      <Link
-        to="/admin/users"
-        className={`${base} bg-[#F97316] text-white shadow-sm hover:bg-[#EA580C] focus-visible:ring-orange-500`}
-      >
-        <UsersIcon className="w-4 h-4 text-white" aria-hidden="true" />
-        Users
-      </Link>
-
-      {/* 3. Invoices — soft amber fill instead of the previous white
-          outline. Black text stays as requested. The lighter fill keeps
-          the secondary feel next to the strong amber Organizations. */}
-      <Link
-        to="/admin/invoices"
-        className={`${base} bg-[#FEF3C7] text-[#111827] border border-[#FDE68A] hover:bg-[#FDE68A] focus-visible:ring-amber-500`}
-      >
-        <DocumentTextIcon className="w-4 h-4 text-[#111827]" aria-hidden="true" />
-        Invoices
-      </Link>
-
-      {/* 4. Setup Wizard — soft sky fill. Black text. The cool tone
-          separates it from the warm amber/orange trio so all four read
-          as distinct buttons. */}
-      <Link
-        to="/admin/setup"
-        className={`${base} bg-[#E0F2FE] text-[#111827] border border-[#BAE6FD] hover:bg-[#BAE6FD] focus-visible:ring-sky-500`}
-      >
-        <CogIcon className="w-4 h-4 text-[#111827]" aria-hidden="true" />
-        Setup Wizard
-      </Link>
+    <div className="flex flex-wrap gap-2 mb-6">
+      {actions.map(({ label, icon: Icon, href }) => (
+        <Link
+          key={label}
+          to={href}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200
+                     bg-white text-sm text-gray-600 hover:bg-gray-50 hover:border-gray-300
+                     transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        >
+          <Icon className="w-4 h-4" aria-hidden="true" />
+          {label}
+        </Link>
+      ))}
     </div>
   )
 }
@@ -356,65 +341,36 @@ function AdminHealthPanel() {
     health.celery_workers === 'running'
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-800">System Health</h2>
-      </div>
-      <div className="px-5 py-3.5">
-        {loading ? (
-          <div className="flex items-center gap-4">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="h-4 w-28 bg-gray-100 rounded animate-pulse" />
-            ))}
-          </div>
-        ) : !health ? (
-          <p className="text-sm text-gray-400">Health data unavailable</p>
-        ) : allClear ? (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-cyan-50 text-cyan-700">
-            All systems operational
+    <div className="flex flex-wrap items-center gap-6 px-5 py-3 bg-white rounded-xl border border-gray-100 text-sm overflow-x-auto">
+      {loading ? (
+        <>
+          {[0, 1, 2].map(i => (
+            <div key={i} className="h-4 w-32 bg-gray-100 rounded animate-pulse" />
+          ))}
+        </>
+      ) : !health ? (
+        <span className="text-gray-400">Health data unavailable</span>
+      ) : (
+        <>
+          <span className="text-gray-400 font-medium">System status</span>
+          <span className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${(health.overdue_invoices ?? 0) > 0 ? 'bg-amber-400' : 'bg-green-400'}`} />
+            <span className="text-gray-600">Overdue invoices: {health.overdue_invoices ?? 0}</span>
           </span>
-        ) : (
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            {/* Overdue invoices — neutral when 0, amber when >0. */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-gray-500">Overdue invoices:</span>
-              {(health.overdue_invoices ?? 0) > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-50 text-amber-700">
-                  {health.overdue_invoices}
-                </span>
-              ) : (
-                <span className="text-xs text-gray-400">0</span>
-              )}
-            </div>
-            <span className="text-gray-200 select-none">|</span>
-            {/* SLA breached stays red. */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-gray-500">SLA breached:</span>
-              {(health.sla_breached_tickets ?? 0) > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-700">
-                  {health.sla_breached_tickets}
-                </span>
-              ) : (
-                <span className="text-xs text-gray-400">0</span>
-              )}
-            </div>
-            <span className="text-gray-200 select-none">|</span>
-            {/* Workers — cyan running per the theme spec (no green primary). */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-gray-500">Workers:</span>
-              {health.celery_workers === 'running' ? (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-cyan-50 text-cyan-700">
-                  running
-                </span>
-              ) : (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-50 text-amber-700">
-                  {health.celery_workers ?? 'unknown'}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+          <span className="flex items-center gap-1.5">
+            {(health.sla_breached_tickets ?? 0) > 0
+              ? <span className="w-2 h-2 rounded-full flex-shrink-0 bg-red-400 animate-pulse" />
+              : <span className="w-2 h-2 rounded-full flex-shrink-0 bg-green-400" />}
+            <span className="text-gray-600">SLA breached: {health.sla_breached_tickets ?? 0}</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            {health.celery_workers === 'running'
+              ? <span className="w-2 h-2 rounded-full flex-shrink-0 bg-green-400" />
+              : <span className="w-2 h-2 rounded-full flex-shrink-0 bg-amber-400" />}
+            <span className="text-gray-600">Workers: {health.celery_workers === 'running' ? 'running' : 'stopped'}</span>
+          </span>
+        </>
+      )}
     </div>
   )
 }
@@ -469,12 +425,13 @@ export default function DashboardPage() {
     .slice(0, 5)
 
   const isCustomer = user?.role === 'customer'
+  const isAdmin = user?.role === 'admin'
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Page header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 className="font-semibold text-lg text-gray-900">{t('dashboard.title')}</h1>
+        <h1 className="page-title">{t('dashboard.title')}</h1>
         <p className="text-xs text-gray-400 mt-0.5">{t('dashboard.overview')}</p>
       </div>
 
@@ -482,56 +439,79 @@ export default function DashboardPage() {
         {/* Admin-only: quick stats + actions */}
         {user?.role === 'admin' && (
           <>
-            <AdminStats />
+            <AdminStats activeProjects={activeProjects} projectsLoading={projectsLoading} />
             <AdminQuickActions />
             <AdminHealthPanel />
           </>
         )}
 
-        {/* Stat cards — amber accent for primary surfaces, orange for warnings,
-            red for danger, slate for neutral. */}
+        {/* Secondary stat cards — customers see their own open tickets here;
+            admins skip it (AdminStats row already shows system-wide count).
+            Zero-value noise cards are hidden to keep the view clean. */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatCard
-            icon={TicketIcon}
-            label={isCustomer ? t('dashboard.metric.myOpenTickets') : t('dashboard.metric.openTickets')}
-            value={openTickets}
-            color="bg-amber-100 text-amber-700"
-            loading={ticketsLoading}
-          />
-          <StatCard
-            icon={ClipboardDocumentListIcon}
-            label={t('dashboard.metric.activeSeoProjects')}
-            value={activeProjects}
-            color="bg-amber-100 text-amber-700"
-            loading={projectsLoading}
-          />
-          <StatCard
-            icon={ServerStackIcon}
-            label={isCustomer ? t('dashboard.metric.myActiveServices') : t('dashboard.metric.activeServices')}
-            value={activeServices}
-            color="bg-slate-100 text-slate-600"
-            loading={servicesLoading}
-          />
-          <StatCard
-            icon={ExclamationTriangleIcon}
-            label={t('dashboard.metric.expiringSoon')}
-            value={expiringSoon}
-            color="bg-orange-100 text-orange-600"
-            loading={servicesLoading}
-          />
-          <StatCard
-            icon={CalendarDaysIcon}
-            label={t('dashboard.metric.projectsDueSoon')}
-            value={projectsDueSoon}
-            color="bg-red-100 text-red-600"
-            loading={projectsLoading}
-          />
-          {!isCustomer && (
+          {/* Open Tickets: customer only — admin sees it in KPI row above */}
+          {isCustomer && (
+            <StatCard
+              icon={TicketIcon}
+              label={t('dashboard.metric.myOpenTickets')}
+              value={openTickets}
+              color="bg-blue-50 text-blue-500"
+              hint="awaiting response"
+              loading={ticketsLoading}
+            />
+          )}
+          {/* Active SEO Projects: admin already sees it in the KPI row above */}
+          {!isAdmin && (activeProjects > 0 || projectsLoading) && (
+            <StatCard
+              icon={ClipboardDocumentListIcon}
+              label={t('dashboard.metric.activeSeoProjects')}
+              value={activeProjects}
+              color="bg-amber-50 text-amber-600"
+              hint="in progress"
+              loading={projectsLoading}
+            />
+          )}
+          {/* Active Services: hide when 0 */}
+          {(activeServices > 0 || servicesLoading) && (
+            <StatCard
+              icon={ServerStackIcon}
+              label={isCustomer ? t('dashboard.metric.myActiveServices') : t('dashboard.metric.activeServices')}
+              value={activeServices}
+              color="bg-slate-100 text-slate-500"
+              hint="running"
+              loading={servicesLoading}
+            />
+          )}
+          {/* Expiring soon: hide when 0 */}
+          {expiringSoon > 0 && (
+            <StatCard
+              icon={ExclamationTriangleIcon}
+              label={t('dashboard.metric.expiringSoon')}
+              value={expiringSoon}
+              color="bg-orange-50 text-orange-500"
+              hint="within 30 days"
+              loading={servicesLoading}
+            />
+          )}
+          {/* Projects due soon: hide when 0 */}
+          {projectsDueSoon > 0 && (
+            <StatCard
+              icon={CalendarDaysIcon}
+              label={t('dashboard.metric.projectsDueSoon')}
+              value={projectsDueSoon}
+              color="bg-red-50 text-red-500"
+              hint="within 14 days"
+              loading={projectsLoading}
+            />
+          )}
+          {/* Resolved: non-admin only, hide when 0 */}
+          {!isAdmin && resolvedTickets > 0 && (
             <StatCard
               icon={CheckCircleIcon}
               label={t('dashboard.metric.resolvedTickets')}
               value={resolvedTickets}
-              color="bg-slate-100 text-slate-600"
+              color="bg-green-50 text-green-500"
+              hint="this session"
               loading={ticketsLoading}
             />
           )}
@@ -565,11 +545,11 @@ export default function DashboardPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-5 py-2.5 w-32">#</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5">{t('dashboard.subjectCol')}</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5 w-28">{t('dashboard.statusCol')}</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 py-2.5 w-24">{t('dashboard.priorityCol')}</th>
-                  <th className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-5 py-2.5 w-36">{t('dashboard.updatedCol')}</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2.5 w-32">#</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5">{t('dashboard.subjectCol')}</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5 w-28">{t('dashboard.statusCol')}</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2.5 w-24">{t('dashboard.priorityCol')}</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2.5 w-36">{t('dashboard.updatedCol')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">

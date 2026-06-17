@@ -39,9 +39,9 @@ export async function getTicket(id, { signal } = {}) {
 }
 
 /**
- * Update a ticket's status, priority, or assignee.
+ * Update a ticket's status, priority, or assignee(s).
  * @param {string|number} id
- * @param {{ status?, priority?, assignee_id? }} data
+ * @param {{ status?, priority?, assignee_id?, assignee_ids?, assignment_mode? }} data
  * @returns {Promise<Object>} updated ticket
  */
 export async function updateTicket(id, data) {
@@ -55,6 +55,11 @@ export async function updateTicket(id, data) {
  */
 export async function deleteTicket(id) {
   const res = await client.delete(`/tickets/${id}`)
+  return res.data
+}
+
+export async function deleteTicketPermanent(id) {
+  const res = await client.delete(`/tickets/${id}/permanent`)
   return res.data
 }
 
@@ -133,11 +138,18 @@ export async function replyToTicket(ticketId, content, isInternal = false) {
  */
 export async function getServiceCategories() {
   return [
-    { name: 'Incident' },
-    { name: 'Bug' },
     { name: 'Question' },
-    { name: 'Service Request' },
-    { name: 'Unspecified' },
+    { name: 'Bug' },
+    { name: 'Incident' },
+    { name: 'Task Request' },
+    { name: 'Change Request' },
+    { name: 'Feature Request' },
+    { name: 'Content Request' },
+    { name: 'SEO Request' },
+    { name: 'Approval Required' },
+    { name: 'Complaint' },
+    { name: 'Renewal' },
+    { name: 'Other' },
   ]
 }
 
@@ -147,6 +159,37 @@ export async function getServiceCategories() {
  */
 export async function getPortalSummary() {
   return null
+}
+
+/**
+ * Create a project from this ticket's data (admin only).
+ * @param {string|number} ticketId
+ * @returns {Promise<{id, name, status, org_id, created_at}>}
+ */
+export async function createProjectFromTicket(ticketId) {
+  const res = await client.post(`/tickets/${ticketId}/create-project`)
+  return res.data
+}
+
+/**
+ * Link an existing project to this ticket.
+ * @param {string|number} ticketId
+ * @param {number} projectId
+ * @returns {Promise<{ticket_id, project_id, project_name}>}
+ */
+export async function linkProject(ticketId, projectId) {
+  const res = await client.post(`/tickets/${ticketId}/link-project`, { project_id: projectId })
+  return res.data
+}
+
+/**
+ * Remove the project link from this ticket (admin only).
+ * @param {string|number} ticketId
+ * @returns {Promise<{message, ticket_id}>}
+ */
+export async function unlinkProject(ticketId) {
+  const res = await client.delete(`/tickets/${ticketId}/unlink-project`)
+  return res.data
 }
 
 export const getTransferRequest = (ticketId) =>

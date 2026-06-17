@@ -5,21 +5,10 @@ import { Spinner } from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
 import { listItems, createItem, updateItem } from '@/api/items'
 import { formatCurrencyVND as fmtVND } from '@/lib/utils'
+import { TYPE_COLORS, ITEM_STATUS_COLORS } from '@/lib/statusColors'
+import { SEARCH_DEBOUNCE_MS, PAGE_SIZE } from '@/lib/constants'
 
-const PER_PAGE = 20
-
-const TYPE_COLORS = {
-  saas:    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  hosting: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  domain:  'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  support: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  other:   'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
-}
-
-const STATUS_COLORS = {
-  true:  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  false: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-}
+const PER_PAGE = PAGE_SIZE
 
 const EMPTY_FORM = { code: '', name: '', type: 'saas', unit_price: '', unit: 'month', description: '', is_active: true }
 
@@ -193,7 +182,7 @@ export default function ItemsPage() {
 
   // Debounce search input
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    const t = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [search])
 
@@ -517,7 +506,7 @@ export default function ItemsPage() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{item.unit}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[String(item.is_active)] ?? 'bg-muted text-muted-foreground'}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ITEM_STATUS_COLORS[String(item.is_active)] ?? 'bg-muted text-muted-foreground'}`}>
                       {item.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </td>

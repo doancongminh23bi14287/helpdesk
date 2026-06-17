@@ -49,3 +49,4 @@ class ServiceOut(BaseModel):
     expiry_date: Optional[date] = None
     disk_usage: Optional[str] = None
     monthly_cost: Optional[float] = None
+    subscription_id: Optional[int] = None

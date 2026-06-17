@@ -2,7 +2,7 @@ from io import BytesIO
 from typing import List, Optional
 from math import ceil
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -488,13 +488,14 @@ def list_payments(
 @router.put("/{invoice_id}/cancel", response_model=InvoiceOut)
 def cancel_invoice_endpoint(
     invoice_id: int,
-    payload: CancelPayload,
+    payload: Optional[CancelPayload] = Body(None),
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Cancel an invoice (admin only). cancel_reason is required."""
+    """Cancel a draft or sent invoice (admin only). cancel_reason is optional."""
     try:
-        inv = cancel_invoice(invoice_id=invoice_id, db=db, cancel_reason=payload.cancel_reason)
+        reason = payload.cancel_reason if payload else None
+        inv = cancel_invoice(invoice_id=invoice_id, db=db, cancel_reason=reason)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _enrich_invoice(inv, db)
@@ -506,12 +507,12 @@ def delete_invoice_endpoint(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Delete a cancelled invoice permanently (admin only)."""
+    """Delete a draft or cancelled invoice permanently (admin only)."""
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    if inv.status != "cancelled":
-        raise HTTPException(status_code=400, detail="Only cancelled invoices can be deleted")
+    if inv.status not in ("draft", "cancelled"):
+        raise HTTPException(status_code=400, detail="Only draft or cancelled invoices can be deleted")
     db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice_id).delete()
     db.delete(inv)
     db.commit()

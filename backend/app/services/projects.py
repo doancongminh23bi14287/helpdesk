@@ -12,7 +12,8 @@ from app.schemas.project import ProjectCreate, ProjectTaskCreate, ProjectTaskUpd
 ALLOWED_TASK_TRANSITIONS = {
     "open": {"working", "review", "completed", "cancelled"},
     "working": {"review", "completed", "open", "cancelled"},
-    "review": {"working", "completed", "cancelled"},
+    "review": {"working", "approved", "completed", "cancelled"},
+    "approved": {"completed", "working", "cancelled"},
     "completed": {"working"},
     "cancelled": set(),
 }

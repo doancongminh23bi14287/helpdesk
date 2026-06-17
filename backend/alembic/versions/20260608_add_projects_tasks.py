@@ -106,18 +106,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_project_tasks_is_client_visible"), table_name="project_tasks")
-    op.drop_index(op.f("ix_project_tasks_due_date"), table_name="project_tasks")
-    op.drop_index(op.f("ix_project_tasks_priority"), table_name="project_tasks")
-    op.drop_index(op.f("ix_project_tasks_status"), table_name="project_tasks")
-    op.drop_index(op.f("ix_project_tasks_assignee_id"), table_name="project_tasks")
-    op.drop_index(op.f("ix_project_tasks_project_id"), table_name="project_tasks")
     op.drop_table("project_tasks")
-    op.drop_index(op.f("ix_projects_project_manager_id"), table_name="projects")
-    op.drop_index(op.f("ix_projects_due_date"), table_name="projects")
-    op.drop_index(op.f("ix_projects_project_type"), table_name="projects")
-    op.drop_index(op.f("ix_projects_status"), table_name="projects")
-    op.drop_index(op.f("ix_projects_subscription_id"), table_name="projects")
-    op.drop_index(op.f("ix_projects_service_id"), table_name="projects")
-    op.drop_index(op.f("ix_projects_org_id"), table_name="projects")
     op.drop_table("projects")

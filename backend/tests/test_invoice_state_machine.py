@@ -103,15 +103,18 @@ def test_cannot_edit_cancelled_invoice(db, client, client_org, admin_token):
 
 # ── cancel with reason ────────────────────────────────────────────────────────
 
-def test_cancel_requires_reason(db, client, client_org, admin_token):
-    """PUT /{id}/cancel without a body returns 422 (missing cancel_reason)."""
+def test_cancel_draft_no_body_succeeds(db, client, client_org, admin_token):
+    """PUT /{id}/cancel without a body now works — defaults cancel_reason to 'Cancelled by admin'."""
     inv = _make_invoice(db, client_org.id, status="draft")
 
     r = client.put(
         f"/api/invoices/{inv.id}/cancel",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    assert r.status_code == 422, r.text
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "cancelled"
+    assert body["cancel_reason"] == "Cancelled by admin"
 
 
 def test_cancel_with_reason_succeeds(db, client, client_org, admin_token):

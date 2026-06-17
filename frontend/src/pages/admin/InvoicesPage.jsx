@@ -8,16 +8,10 @@ import {
   generateFromSubscriptions, listInvoicePayments, addInvoicePayment, downloadInvoicePdf,
 } from '@/api/invoices'
 import { formatCurrencyVND as fmtVND, formatDate as fmtDate } from '@/lib/utils'
+import { STATUS_COLORS } from '@/lib/statusColors'
+import { PAGE_SIZE } from '@/lib/constants'
 
-const PER_PAGE = 20
-
-const STATUS_COLORS = {
-  draft:     'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  sent:      'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  paid:      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  overdue:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  cancelled: 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500',
-}
+const PER_PAGE = PAGE_SIZE
 
 function StatusBadge({ status }) {
   const cls = STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-500'
@@ -549,11 +543,11 @@ export default function AdminInvoicesPage() {
                             Cancel
                           </button>
                         )}
-                        {inv.status === 'cancelled' && (
+                        {(inv.status === 'draft' || inv.status === 'cancelled') && (
                           <button
                             onClick={() => setDeleteTarget(inv)}
                             disabled={isActioning}
-                            title="Delete invoice"
+                            title="Delete invoice permanently"
                             className="p-1.5 rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
                           >
                             <TrashIcon className="w-3.5 h-3.5" />

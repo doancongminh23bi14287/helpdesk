@@ -7,23 +7,18 @@ import { motion } from 'framer-motion'
 import { formatDate, daysUntil } from '@/lib/utils'
 import {
   ServerStackIcon, SparklesIcon, ExclamationTriangleIcon,
-  ArrowPathIcon, CubeIcon, DocumentTextIcon,
+  ArrowPathIcon, CubeIcon, DocumentTextIcon, GlobeAltIcon, WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
+import { StatusBadge } from '@/components/StatusBadge'
+import { TypeBadge } from '@/components/TypeBadge'
 
-// Type badges use the slate/cyan palette — no violet under the new theme.
 const TYPE_CONFIG = {
-  saas:    { label: 'SaaS',    icon: SparklesIcon,    color: 'bg-amber-100 text-amber-700' },
-  hosting: { label: 'Hosting', icon: ServerStackIcon,  color: 'bg-cyan-100 text-cyan-700' },
-  other:   { label: 'Other',   icon: CubeIcon,         color: 'bg-slate-100 text-slate-600' },
-}
-
-// Active status uses cyan rather than green per the new theme spec.
-const STATUS_STYLES = {
-  active:    'bg-cyan-100 text-cyan-700',
-  inactive:  'bg-slate-100 text-slate-500',
-  cancelled: 'bg-red-100 text-red-600',
-  past_due:  'bg-amber-100 text-amber-700',
+  saas:    { label: 'SaaS',    icon: SparklesIcon,           color: 'bg-amber-100 text-amber-700' },
+  hosting: { label: 'Hosting', icon: ServerStackIcon,        color: 'bg-cyan-100 text-cyan-700' },
+  domain:  { label: 'Domain',  icon: GlobeAltIcon,           color: 'bg-purple-100 text-purple-700' },
+  support: { label: 'Support', icon: WrenchScrewdriverIcon,  color: 'bg-orange-100 text-orange-700' },
+  other:   { label: 'Other',   icon: CubeIcon,               color: 'bg-slate-100 text-slate-600' },
 }
 
 function ExpiryChip({ dateStr }) {
@@ -57,7 +52,6 @@ function DiskBar({ usage }) {
 function ServiceCard({ service, onRenewal }) {
   const cfg = TYPE_CONFIG[service.type] ?? TYPE_CONFIG.other
   const Icon = cfg.icon
-  const statusCls = STATUS_STYLES[service.status] ?? 'bg-gray-100 text-gray-500'
 
   return (
     <motion.div
@@ -73,13 +67,9 @@ function ServiceCard({ service, onRenewal }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <p className="font-semibold text-foreground truncate">{service.name}</p>
-              <span className={cn('text-xs font-semibold px-2 py-0.5 rounded flex-shrink-0', statusCls)}>
-                {service.status}
-              </span>
+              <StatusBadge status={service.status} className="flex-shrink-0" />
             </div>
-            <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold mt-1', cfg.color)}>
-              {cfg.label}
-            </span>
+            <TypeBadge type={service.type} className="mt-1" />
           </div>
         </div>
 

@@ -12,7 +12,7 @@ def _make_ticket(client, token, org_id, service_id, subject="Test Subject"):
             "service_id": service_id,
             "subject": subject,
             "priority": "Medium",
-            "ticket_type": "Unspecified",
+            "ticket_type": "Question",
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -46,7 +46,11 @@ def _get_notifications(client, token):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200, r.text
-    return r.json()
+    body = r.json()
+    # Support both the paginated shape {"items": [...], ...} and legacy list
+    if isinstance(body, dict) and "items" in body:
+        return body["items"]
+    return body
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
@@ -275,3 +279,82 @@ def test_notification_created_on_auto_assign(client, db, admin_token, admin_user
         Notification.ref_ticket_id == ticket_id,
     ).first()
     assert notif is not None
+
+
+def test_notifications_paginated(
+    client, db,
+    admin_token, admin_user,
+    staff_user, staff_token,
+    staff_assignment,
+    client_org, service,
+    customer_user, customer_token,
+):
+    """list_notifications returns paginated shape with correct structure."""
+    # Create 3 assignment notifications for staff_user
+    for i in range(3):
+        ticket = _make_ticket(
+            client, customer_token, client_org.id, service.id, f"Paginate Test {i}"
+        )
+        _assign_ticket(client, admin_token, ticket["id"], staff_user.id)
+
+    r = client.get(
+        "/api/notifications?per_page=2&page=1",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "items" in body, f"Expected paginated shape, got: {body}"
+    assert "total" in body
+    assert "page" in body
+    assert "per_page" in body
+    assert "pages" in body
+    assert len(body["items"]) == 2
+    assert body["total"] >= 3
+    assert body["pages"] >= 2
+    assert body["page"] == 1
+    assert body["per_page"] == 2
+
+
+def test_unread_count_endpoint(
+    client, db,
+    admin_token, admin_user,
+    staff_user, staff_token,
+    staff_assignment,
+    client_org, service,
+    customer_user, customer_token,
+):
+    """unread-count returns correct integer for current user."""
+    # Create 2 unread assignment notifications
+    for i in range(2):
+        ticket = _make_ticket(
+            client, customer_token, client_org.id, service.id, f"Unread Count {i}"
+        )
+        _assign_ticket(client, admin_token, ticket["id"], staff_user.id)
+
+    # Mark 1 as read via the read-all endpoint (we'll use individual mark-read)
+    # First get notifications to find one id
+    r = client.get(
+        "/api/notifications?per_page=100",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assignment_notifs = [n for n in items if n["type"] == "assignment"]
+    assert len(assignment_notifs) >= 2
+
+    # Mark exactly 1 as read
+    r = client.put(
+        f"/api/notifications/{assignment_notifs[0]['id']}/read",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 200
+
+    # Check unread count — should be at least 1 (the other assignment notif)
+    r = client.get(
+        "/api/notifications/unread-count",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "unread" in body
+    assert body["unread"] >= 1

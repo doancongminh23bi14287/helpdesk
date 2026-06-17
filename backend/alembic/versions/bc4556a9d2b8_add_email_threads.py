@@ -37,7 +37,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f('ix_email_threads_ticket_id'), table_name='email_threads')
-    op.drop_index(op.f('ix_email_threads_message_id'), table_name='email_threads')
-    op.drop_index(op.f('ix_email_threads_in_reply_to'), table_name='email_threads')
     op.drop_table('email_threads')

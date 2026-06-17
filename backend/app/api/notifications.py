@@ -1,7 +1,8 @@
 # backend/app/api/notifications.py
+from math import ceil
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -14,15 +15,39 @@ from app.schemas.notification import NotificationOut
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
-@router.get("", response_model=List[NotificationOut])
+@router.get("")
 def list_notifications(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Return current user's notifications, unread first then by created_at desc."""
+    """Return current user's notifications paginated, unread first."""
     q = db.query(Notification)
     q = scope_notifications(q, user, db)
-    return q.order_by(Notification.is_read.asc(), Notification.created_at.desc()).all()
+    q = q.order_by(Notification.is_read.asc(), Notification.created_at.desc())
+    total = q.count()
+    items = q.offset((page - 1) * per_page).limit(per_page).all()
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": ceil(total / per_page) if total > 0 else 1,
+    }
+
+
+@router.get("/unread-count")
+def unread_count(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return count of unread notifications for current user."""
+    count = db.query(Notification).filter(
+        Notification.user_id == user.id,
+        Notification.is_read == False,  # noqa: E712
+    ).count()
+    return {"unread": count}
 
 
 @router.put("/read-all")

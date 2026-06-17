@@ -10,8 +10,9 @@ import magic
 from fastapi import HTTPException
 
 from app.services.storage import get_storage_backend
+from app.core.constants import MAX_FILE_SIZE_BYTES, MAGIC_BYTE_READ_SIZE
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_FILE_SIZE = MAX_FILE_SIZE_BYTES
 
 ALLOWED_MIME_PREFIXES = (
     "image/",
@@ -62,7 +63,7 @@ def validate_magic_bytes(file_data: bytes, declared_mime: str) -> str:
     Raises ValueError if detected type is not in whitelist or
     does not match the declared type's top-level family.
     """
-    detected_mime = magic.from_buffer(file_data[:2048], mime=True)
+    detected_mime = magic.from_buffer(file_data[:MAGIC_BYTE_READ_SIZE], mime=True)
 
     if detected_mime not in MIME_MAGIC_WHITELIST:
         raise ValueError(

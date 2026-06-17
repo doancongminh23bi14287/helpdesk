@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.models.subscription import Subscription
 from app.models.item import Item
 from app.models.organization import Organization
+from app.core.constants import (
+    QUARTERLY_MONTHS, ANNUAL_MONTHS,
+    QUARTERLY_DISCOUNT, ANNUAL_DISCOUNT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +64,9 @@ def create_subscription(
     monthly_price = Decimal(str(item.unit_price))
 
     if effective_cycle == "quarterly":
-        unit_price = round(monthly_price * 3 * Decimal("0.95"), 2)
+        unit_price = round(monthly_price * QUARTERLY_MONTHS * Decimal(QUARTERLY_DISCOUNT), 2)
     elif effective_cycle == "yearly":
-        unit_price = round(monthly_price * 12 * Decimal("0.8"), 2)
+        unit_price = round(monthly_price * ANNUAL_MONTHS * Decimal(ANNUAL_DISCOUNT), 2)
     else:
         unit_price = monthly_price
 
@@ -87,6 +91,9 @@ def create_subscription(
     db.add(sub)
     db.commit()
     db.refresh(sub)
+
+    from app.services.service_sync import sync_service_from_subscription
+    sync_service_from_subscription(db, sub, create_if_missing=True)
 
     try:
         from app.services.invoice_service import create_invoice_from_subscription

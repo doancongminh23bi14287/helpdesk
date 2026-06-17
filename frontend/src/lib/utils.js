@@ -5,24 +5,46 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs))
 }
 
+// Backend returns UTC timestamps without 'Z'. Safe with string | Date | number | null.
+function parseUTCStr(value) {
+  if (value == null) return null
+  if (value instanceof Date) return value
+  if (typeof value === 'number') return new Date(value)
+  if (typeof value !== 'string') return new Date(value)
+  const s = value.trim()
+  if (!s) return null
+  // ISO string without timezone → treat as UTC
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)
+  const iso = hasTz ? s : s.replace(' ', 'T') + 'Z'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? null : d
+}
+
 export function formatDate(dateStr) {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleDateString('en-US', {
+  if (!dateStr && dateStr !== 0) return '—'
+  const d = parseUTCStr(dateStr)
+  if (!d) return '—'
+  return d.toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
+    timeZone: 'Asia/Ho_Chi_Minh',
   })
 }
 
 export function formatDateTime(dateStr) {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleString('en-US', {
+  if (!dateStr && dateStr !== 0) return '—'
+  const d = parseUTCStr(dateStr)
+  if (!d) return '—'
+  return d.toLocaleString('en-US', {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Asia/Ho_Chi_Minh',
   })
 }
 
 export function daysUntil(dateStr) {
-  if (!dateStr) return null
-  const diff = new Date(dateStr) - new Date()
-  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+  if (!dateStr && dateStr !== 0) return null
+  const d = parseUTCStr(dateStr)
+  if (!d) return null
+  return Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24))
 }
 
 // Canonical VND money formatter — money displays go through here.

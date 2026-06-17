@@ -49,8 +49,8 @@ function ImageThumb({ attachment }) {
       <button
         type="button"
         onClick={() => blobUrl && setLightbox(true)}
-        className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center"
-        style={{ width: 96, height: 72 }}
+        className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center cursor-pointer"
+        style={{ width: 160, height: 120 }}
         title={attachment.file_name}
       >
         {blobUrl ? (
@@ -62,9 +62,6 @@ function ImageThumb({ attachment }) {
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors" />
         )}
       </button>
-      <p className="text-[10px] text-gray-400 mt-0.5 truncate" style={{ maxWidth: 96 }}>
-        {attachment.file_name}
-      </p>
 
       {/* Lightbox */}
       {lightbox && blobUrl && (

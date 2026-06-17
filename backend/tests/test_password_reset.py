@@ -197,3 +197,44 @@ def test_expired_otp_rejected():
     finally:
         db.close()
         app.dependency_overrides.clear()
+
+
+def test_reset_token_rejected_after_otp_used():
+    """Using a reset_token a second time after the password was already reset → 400."""
+    db = TestingSessionLocal()
+    try:
+        user = _make_user(db, "double_reset@example.com")
+        otp_code = "112233"
+        otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+        otp_row = PasswordResetOTP(
+            user_id=user.id,
+            otp_hash=otp_hash,
+            expires_at=datetime.utcnow() + timedelta(minutes=10),
+        )
+        db.add(otp_row)
+        db.commit()
+
+        c = _get_client_with_db(db)
+
+        # Step 1: verify OTP → get reset_token
+        verify_res = c.post("/api/auth/verify-otp", json={"email": user.email, "otp": otp_code})
+        assert verify_res.status_code == 200
+        reset_token = verify_res.json()["reset_token"]
+
+        # Step 2: first reset → should succeed
+        first_reset = c.post("/api/auth/reset-password", json={
+            "reset_token": reset_token,
+            "new_password": "firstnewpass",
+        })
+        assert first_reset.status_code == 200
+
+        # Step 3: second reset with same token → should be rejected (OTP already used)
+        second_reset = c.post("/api/auth/reset-password", json={
+            "reset_token": reset_token,
+            "new_password": "secondnewpass",
+        })
+        assert second_reset.status_code == 400
+        assert "already used" in second_reset.json()["detail"] or "expired" in second_reset.json()["detail"]
+    finally:
+        db.close()
+        app.dependency_overrides.clear()

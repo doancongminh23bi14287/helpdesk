@@ -7,8 +7,9 @@ import { listUsers, createUser, updateUser, resetUserPassword, getUserLoginHisto
 import { listOrganizations } from '@/api/organizations'
 import { formatDateTime } from '@/lib/utils'
 import { useNotificationStore } from '@/hooks/useNotificationStore'
+import { SEARCH_DEBOUNCE_MS, PAGE_SIZE } from '@/lib/constants'
 
-const PER_PAGE = 20
+const PER_PAGE = PAGE_SIZE
 
 const ROLE_COLORS = {
   admin:    'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
@@ -267,7 +268,7 @@ export default function UsersPage() {
 
   // Debounce search input
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    const t = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [search])
 

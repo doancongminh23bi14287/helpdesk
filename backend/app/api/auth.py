@@ -31,6 +31,7 @@ from app.services.avatar_storage import (
     safe_delete_avatar,
     validate_and_save_avatar,
 )
+from app.core.constants import OTP_LENGTH, OTP_EXPIRY_MINUTES, OTP_MAX_ATTEMPTS
 
 
 # Hex-ish palette used for fallback initials background. Mirrors the
@@ -240,7 +241,9 @@ def update_me(
 
 
 @router.post("/me/avatar", response_model=MeResponse)
+@limiter.limit("10/minute")
 def upload_avatar(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -469,9 +472,9 @@ def forgot_password(request: Request, payload: dict = Body(...), db: Session = D
     ).update({"used_at": datetime.utcnow()})
 
     # Generate 6-digit OTP
-    otp = f"{secrets.randbelow(1000000):06d}"
+    otp = f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
     otp_hash = hashlib.sha256(otp.encode()).hexdigest()
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES)
 
     otp_row = PasswordResetOTP(
         user_id=user.id,
@@ -483,13 +486,13 @@ def forgot_password(request: Request, payload: dict = Body(...), db: Session = D
     # Queue email
     body_text = (
         f"Your CustomerHub password reset code is: {otp}. "
-        f"It expires in 10 minutes.\n\n"
-        f"Mã đặt lại mật khẩu của bạn là: {otp}, hết hạn sau 10 phút."
+        f"It expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
+        f"Mã đặt lại mật khẩu của bạn là: {otp}, hết hạn sau {OTP_EXPIRY_MINUTES} phút."
     )
     body_html = (
         f"<p>Your CustomerHub password reset code is: <strong>{otp}</strong>. "
-        f"It expires in 10 minutes.</p>"
-        f"<p>Mã đặt lại mật khẩu của bạn là: <strong>{otp}</strong>, hết hạn sau 10 phút.</p>"
+        f"It expires in {OTP_EXPIRY_MINUTES} minutes.</p>"
+        f"<p>Mã đặt lại mật khẩu của bạn là: <strong>{otp}</strong>, hết hạn sau {OTP_EXPIRY_MINUTES} phút.</p>"
     )
     email_row = EmailOutbox(
         email_type="password_reset",
@@ -531,7 +534,7 @@ def verify_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid or expired code")
 
     # Check attempt count before verifying
-    if otp_row.attempts >= 5:
+    if otp_row.attempts >= OTP_MAX_ATTEMPTS:
         otp_row.used_at = now  # invalidate
         db.commit()
         raise HTTPException(status_code=429, detail="Too many attempts. Request a new code.")
@@ -575,12 +578,18 @@ def reset_password_via_otp(payload: dict = Body(...), db: Session = Depends(get_
     if not user:
         raise HTTPException(status_code=400, detail="User not found")
 
-    # Mark the OTP as used (prevents reuse of the reset_token)
+    # Verify a live, unused OTP row still exists for this reset session
     now = datetime.utcnow()
-    db.query(PasswordResetOTP).filter(
+    otp_row = db.query(PasswordResetOTP).filter(
         PasswordResetOTP.user_id == user_id,
         PasswordResetOTP.used_at.is_(None),
-    ).update({"used_at": now})
+        PasswordResetOTP.expires_at > now,
+    ).order_by(PasswordResetOTP.created_at.desc()).first()
+    if not otp_row:
+        raise HTTPException(status_code=400, detail="Reset session expired or already used. Please start over.")
+
+    # Mark the OTP as used (prevents reuse of the reset_token)
+    otp_row.used_at = now
 
     user.password_hash = hash_password(new_password)
     user.must_change_password = False

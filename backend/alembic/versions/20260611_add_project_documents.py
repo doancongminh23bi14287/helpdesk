@@ -44,7 +44,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_project_documents_uploaded_by"), table_name="project_documents")
-    op.drop_index(op.f("ix_project_documents_is_client_visible"), table_name="project_documents")
-    op.drop_index(op.f("ix_project_documents_project_id"), table_name="project_documents")
     op.drop_table("project_documents")

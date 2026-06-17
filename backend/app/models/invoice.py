@@ -26,7 +26,7 @@ class Invoice(Base):
     issue_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)
     subtotal = Column(DECIMAL(15, 2), nullable=False)
-    tax_rate = Column(DECIMAL(5, 2), nullable=False, default="10.00", server_default="10.00")
+    tax_rate = Column(DECIMAL(5, 2), nullable=False, default="0.00", server_default="0.00")
     tax_amount = Column(DECIMAL(15, 2), nullable=False)
     total = Column(DECIMAL(15, 2), nullable=False)
     notes = Column(Text, nullable=True)

@@ -36,10 +36,16 @@ def list_assignments(
     _: User = Depends(require_admin),
 ):
     rows = db.query(StaffOrgAssignment).all()
+    if not rows:
+        return []
+    user_ids = [r.user_id for r in rows]
+    org_ids = [r.org_id for r in rows]
+    user_map = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+    org_map = {o.id: o for o in db.query(Organization).filter(Organization.id.in_(org_ids)).all()}
     result = []
     for row in rows:
-        user = db.query(User).filter(User.id == row.user_id).first()
-        org = db.query(Organization).filter(Organization.id == row.org_id).first()
+        user = user_map.get(row.user_id)
+        org = org_map.get(row.org_id)
         if user and org:
             result.append(AssignmentOut(
                 user_id=row.user_id,

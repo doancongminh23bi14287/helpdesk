@@ -133,28 +133,24 @@ function NavItem({ labelKey, href, icon: Icon, iconActive: ActiveIcon, onClose }
         cn(
           'flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-150',
           isActive
-            ? 'text-sidebar-accent-foreground'
-            : 'text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-[#18181B]',
+            ? 'text-white'
+            : 'text-white/65 hover:text-white/90 hover:bg-[#263554]',
         )
       }
       style={({ isActive }) => isActive
-        ? { background: '#1A1A1A', boxShadow: 'inset 3px 0 0 hsl(var(--sidebar-primary))' }
+        ? { background: 'rgba(245, 158, 11, 0.1)', boxShadow: 'inset 3px 0 0 #F59E0B' }
         : {}}
     >
       {({ isActive }) => (
         <>
-          <span
-            className="flex-shrink-0"
-            style={isActive ? { color: '#F59E0B' } : { color: '#737373' }}
-          >
+          <span className={cn('flex-shrink-0', isActive ? 'text-amber-400' : 'text-white/45')}>
             {isActive
               ? <ActiveIcon className="w-[18px] h-[18px]" />
               : <Icon className="w-[18px] h-[18px]" />}
           </span>
           <span className="flex-1">{label}</span>
           {isActive && (
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  style={{ background: 'hsl(var(--sidebar-primary))' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
           )}
         </>
       )}
@@ -185,25 +181,26 @@ function Sidebar({ onClose, onOpenSearch, width = 256 }) {
       <div className="px-5 pt-6 pb-5">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-               style={{ background: '#111111', border: '1px solid rgba(245, 158, 11, 0.55)' }}>
+               style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(245, 158, 11, 0.5)' }}>
             <svg className="w-4 h-4" style={{ color: 'hsl(var(--sidebar-primary))' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round"
                 d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
             </svg>
           </div>
           <div>
-            <p className="font-bold text-[15px] text-sidebar-accent-foreground leading-tight tracking-tight">
-              WorkDesk
+            <p className="font-bold text-[15px] text-white leading-tight tracking-tight"
+               style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              CustomerHub
             </p>
-            <p className="text-[10px]" style={{ color: '#A3A3A3' }}>
-              {t('sidebar.brand.subtitle')}
+            <p className="text-[10px] text-white/50">
+              OSD.vn
             </p>
           </div>
         </div>
       </div>
 
       {/* Divider */}
-      <div className="mx-4 h-px" style={{ background: 'hsl(var(--sidebar-border))' }} />
+      <div className="mx-4 h-px" style={{ background: 'rgba(255,255,255,0.1)' }} />
 
       {/* New Ticket CTA — amber-bordered dark button matches the reference. */}
       <div className="px-4 pt-4">
@@ -211,15 +208,11 @@ function Sidebar({ onClose, onOpenSearch, width = 256 }) {
           to="/tickets/new"
           onClick={onClose}
           className="group flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold transition-colors"
-          style={{
-            background: '#111111',
-            color: '#FAFAFA',
-            border: '1px solid rgba(245, 158, 11, 0.55)',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'hsl(var(--sidebar-primary) / 0.12)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#111111' }}
+          style={{ background: '#F59E0B', color: '#111827' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#D97706' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#F59E0B' }}
         >
-          <PlusCircleIcon className="w-4 h-4" style={{ color: 'hsl(var(--sidebar-primary))' }} aria-hidden="true" />
+          <PlusCircleIcon className="w-4 h-4 text-amber-900" aria-hidden="true" />
           {t('nav.newTicket')}
         </NavLink>
 
@@ -227,19 +220,20 @@ function Sidebar({ onClose, onOpenSearch, width = 256 }) {
         <button
           onClick={onOpenSearch}
           className="mx-0 mt-3 flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-colors border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-          style={{ background: '#111111', borderColor: '#262626', color: '#A3A3A3' }}
+          style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.45)' }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#18181B'
-            e.currentTarget.style.color = '#FAFAFA'
+            e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+            e.currentTarget.style.color = 'rgba(255,255,255,0.85)'
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = '#111111'
-            e.currentTarget.style.color = '#A3A3A3'
+            e.currentTarget.style.background = 'rgba(0,0,0,0.2)'
+            e.currentTarget.style.color = 'rgba(255,255,255,0.45)'
           }}
         >
           <MagnifyingGlassIcon className="w-4 h-4 flex-shrink-0" />
           <span className="flex-1 text-left">{t('nav.search')}</span>
-          <kbd className="text-[10px] px-1.5 py-0.5 rounded border" style={{ background: '#18181B', borderColor: '#262626', color: '#737373' }}>⌘K</kbd>
+          <kbd className="text-[10px] px-1.5 py-0.5 rounded border"
+               style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)' }}>⌘K</kbd>
         </button>
       </div>
 
@@ -247,8 +241,7 @@ function Sidebar({ onClose, onOpenSearch, width = 256 }) {
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-thin">
         {sections.map((section, idx) => (
           <div key={section.titleKey} className={idx === 0 ? '' : 'mt-3'}>
-            <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-widest"
-               style={{ color: '#737373' }}>
+            <p className="px-3 pb-2 pt-1 text-[11px] font-medium uppercase tracking-widest text-white/40">
               {t(section.titleKey)}
             </p>
             {section.items.map((item) => (
@@ -259,16 +252,16 @@ function Sidebar({ onClose, onOpenSearch, width = 256 }) {
       </nav>
 
       {/* Divider */}
-      <div className="mx-4 h-px" style={{ background: 'hsl(var(--sidebar-border))' }} />
+      <div className="mx-4 h-px" style={{ background: 'rgba(255,255,255,0.1)' }} />
 
       {/* User footer */}
       <div className="px-3 py-4">
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
-             style={{ background: '#111111', border: '1px solid #262626' }}>
+             style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)' }}>
           <UserAvatar user={user} size="md" />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-sidebar-accent-foreground truncate">{displayName}</p>
-            <p className="text-[11px] truncate" style={{ color: '#A3A3A3' }}>
+            <p className="text-[13px] font-semibold text-white truncate">{displayName}</p>
+            <p className="text-[11px] text-white/50 truncate">
               {email}
             </p>
           </div>
@@ -276,8 +269,7 @@ function Sidebar({ onClose, onOpenSearch, width = 256 }) {
             onClick={handleLogout}
             title="Sign out"
             aria-label="Sign out"
-            className="p-1.5 rounded-lg transition-colors hover:bg-amber-500/10 hover:text-amber-500 flex-shrink-0"
-            style={{ color: '#737373' }}
+            className="p-1.5 rounded-lg transition-colors hover:bg-amber-500/10 hover:text-amber-400 flex-shrink-0 text-white/40"
           >
             <ArrowRightStartOnRectangleIcon className="w-4 h-4" aria-hidden="true" />
           </button>

@@ -8,24 +8,50 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from app.database import get_db
-from app.models.ticket import Ticket, TicketActivity, TicketReply
+from app.models.ticket import Ticket, TicketAssignee, TicketActivity, TicketReply
 from app.models.attachment import TicketAttachment
 from app.models.organization import Organization
 from app.models.service import Service
+from app.models.notification import EmailLog
+from app.models.email_thread import EmailThread
+from app.models.project import ProjectDocument
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
 from app.core.scoping import get_ticket_in_scope, scope_tickets
 from app.core.limiter import limiter
 from app import config
-from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload, AttachmentOut
+from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload, AttachmentOut, LinkProjectPayload
 from app.services.auto_assign import find_best_assignee, score_breakdown
+from app.services.assignment import set_ticket_assignees, load_assignees_for_tickets
 from app.services.notify import create_notification
 from app.services.sla_monitor import compute_sla_timestamps, get_sla_status
-from app.services.file_storage import save_attachment
+from app.services.file_storage import save_attachment, delete_attachment
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
 VALID_TICKET_SORT_FIELDS = {"created_at", "updated_at", "priority", "status"}
+
+
+def _resolve_reply_author(r, authors: dict) -> dict:
+    """Build a serializable dict for a TicketReply with author_name resolved from User records."""
+    if r.author_id and r.author_id in authors:
+        a = authors[r.author_id]
+        name = a.full_name or a.email.split('@')[0]
+    elif r.author_email:
+        name = r.author_email.split('@')[0]
+    else:
+        name = ''
+    return {
+        "id": r.id,
+        "ticket_id": r.ticket_id,
+        "author_id": r.author_id,
+        "author_email": r.author_email,
+        "author_name": name,
+        "content": r.content,
+        "is_internal": r.is_internal,
+        "source": r.source,
+        "created_at": r.created_at,
+    }
 
 
 def _enrich_tickets(tickets: list, db: Session):
@@ -43,6 +69,54 @@ def _enrich_tickets(tickets: list, db: Session):
         t.service_type = svc.type if svc else None
         t.service_status = svc.status if svc else None
     return tickets
+
+def _ticket_out_dict(ticket: Ticket, db: Session) -> dict:
+    """Build a TicketOut-compatible dict, including multi-assignee data."""
+    assignees_map = load_assignees_for_tickets(db, [ticket.id])
+    assignees = assignees_map.get(ticket.id, [])
+    primary = next((a for a in assignees if a["is_primary"]), None)
+    primary_user_id = primary["user_id"] if primary else ticket.assignee_id
+    # Resolve primary user info if not already from assignees list
+    if primary:
+        p_name = primary["full_name"]
+        p_email = primary["email"]
+    elif primary_user_id:
+        u = db.query(User).filter(User.id == primary_user_id).first()
+        p_name = u.full_name if u else None
+        p_email = u.email if u else None
+    else:
+        p_name = p_email = None
+
+    return {
+        "id": ticket.id,
+        "org_id": ticket.org_id,
+        "org_name": getattr(ticket, "org_name", None),
+        "org_code": getattr(ticket, "org_code", None),
+        "service_id": ticket.service_id,
+        "project_id": ticket.project_id,
+        "task_id": ticket.task_id,
+        "task_title": getattr(ticket, "task_title", None),
+        "service_name": getattr(ticket, "service_name", None),
+        "service_type": getattr(ticket, "service_type", None),
+        "service_status": getattr(ticket, "service_status", None),
+        "subject": ticket.subject,
+        "description": ticket.description,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "ticket_type": ticket.ticket_type,
+        "source": ticket.source,
+        "raised_by": ticket.raised_by,
+        "raised_by_email": ticket.raised_by_email,
+        "assignee_id": ticket.assignee_id,
+        "assignee_name": p_name,
+        "assignee_email": p_email,
+        "assignment_mode": ticket.assignment_mode,
+        "assignees": assignees,
+        "is_deleted": ticket.is_deleted,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+    }
+
 
 VALID_TRANSITIONS = {
     "Open": ["In Progress"],
@@ -86,19 +160,55 @@ def create_ticket(
         if not project or project.org_id != payload.org_id:
             raise HTTPException(status_code=422, detail="Project does not belong to the specified organization")
 
+    # Validate task_id and auto-set project_id if needed
+    eff_project_id = payload.project_id
+    if payload.task_id is not None:
+        from app.models.project import ProjectTask
+        task_obj = db.query(ProjectTask).filter(ProjectTask.id == payload.task_id).first()
+        if not task_obj:
+            raise HTTPException(status_code=422, detail="Task not found")
+        if eff_project_id is None:
+            eff_project_id = task_obj.project_id
+        elif task_obj.project_id != eff_project_id:
+            raise HTTPException(status_code=422, detail="Task does not belong to the specified project")
+
+    # Append requested-item note to description when customer picks a catalogue item
+    eff_description = payload.description
+    if payload.requested_item_id is not None:
+        from app.models.item import Item as CatalogueItem
+        req_item = db.query(CatalogueItem).filter(
+            CatalogueItem.id == payload.requested_item_id,
+            CatalogueItem.is_active == True,
+        ).first()
+        if not req_item:
+            raise HTTPException(status_code=422, detail="Requested item not found or inactive")
+        eff_description = (payload.description or "") + f"\n\n[Gói khách quan tâm: {req_item.name} ({req_item.code})]"
+
+    # Resolve effective assignee_ids and assignment_mode
+    eff_ids: list[int] = []
+    if payload.assignee_ids:
+        eff_ids = list(payload.assignee_ids)
+    elif payload.assignee_id is not None:
+        eff_ids = [payload.assignee_id]
+
+    eff_mode = payload.assignment_mode
+    if eff_mode is None:
+        eff_mode = "manual" if eff_ids else "auto"
+
     ticket = Ticket(
         org_id=payload.org_id,
         service_id=payload.service_id,
-        project_id=payload.project_id,
+        project_id=eff_project_id,
+        task_id=payload.task_id,
         subject=payload.subject,
-        description=payload.description,
+        description=eff_description,
         priority=payload.priority,
         ticket_type=payload.ticket_type,
-        assignee_id=payload.assignee_id,
         status="Open",
         source="portal",
         raised_by=user.id,
         raised_by_email=user.email,
+        assignment_mode=eff_mode,
     )
     db.add(ticket)
     db.flush()  # get ticket.id without committing
@@ -112,11 +222,24 @@ def create_ticket(
     )
     db.add(activity)
 
-    # Auto-assign if no explicit assignee
-    if ticket.assignee_id is None:
+    if eff_mode == "none":
+        pass  # intentionally unassigned
+    elif eff_mode == "manual" and eff_ids:
+        set_ticket_assignees(db, ticket, eff_ids, assigned_by=user.id)
+        if ticket.assignee_id:
+            create_notification(
+                db,
+                user_id=ticket.assignee_id,
+                title=f"Ticket #{ticket.id} assigned to you",
+                content=ticket.subject,
+                type="assignment",
+                ref_ticket_id=ticket.id,
+            )
+    else:
+        # Auto-assign
         best_id = find_best_assignee(ticket, db)
         if best_id:
-            ticket.assignee_id = best_id
+            set_ticket_assignees(db, ticket, [best_id], assigned_by=None)
             assign_activity = TicketActivity(
                 ticket_id=ticket.id,
                 actor_id=None,  # system
@@ -164,7 +287,7 @@ def create_ticket(
     except Exception:
         pass
 
-    return ticket
+    return _ticket_out_dict(ticket, db)
 
 
 # ── GET /api/tickets ──────────────────────────────────────────────────────────
@@ -215,8 +338,49 @@ def list_tickets(
     total = query.count()
     tickets = query.offset((page - 1) * per_page).limit(per_page).all()
     enriched = _enrich_tickets(tickets, db)
+
+    ticket_ids = [t.id for t in enriched]
+    assignees_by_id = load_assignees_for_tickets(db, ticket_ids)
+
+    items = []
+    for t in enriched:
+        assignees = assignees_by_id.get(t.id, [])
+        primary = next((a for a in assignees if a["is_primary"]), None)
+        items.append({
+            "id": t.id,
+            "org_id": t.org_id,
+            "org_name": getattr(t, "org_name", None),
+            "org_code": getattr(t, "org_code", None),
+            "service_id": t.service_id,
+            "project_id": t.project_id,
+            "service_name": getattr(t, "service_name", None),
+            "service_type": getattr(t, "service_type", None),
+            "service_status": getattr(t, "service_status", None),
+            "subject": t.subject,
+            "description": t.description,
+            "status": t.status,
+            "priority": t.priority,
+            "ticket_type": t.ticket_type,
+            "source": t.source,
+            "raised_by": t.raised_by,
+            "raised_by_email": t.raised_by_email,
+            "assignee_id": t.assignee_id,
+            "assignee_name": primary["full_name"] if primary else None,
+            "assignee_email": primary["email"] if primary else None,
+            "assignment_mode": t.assignment_mode,
+            "assignees": assignees,
+            "is_deleted": t.is_deleted,
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+            # Extra fields frontend may read
+            "sla_state": t.sla_state,
+            "response_by": t.response_by,
+            "resolution_by": t.resolution_by,
+            "team_id": t.team_id,
+        })
+
     return {
-        "items": enriched,
+        "items": items,
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -238,7 +402,10 @@ def get_ticket(
     replies_query = db.query(TicketReply).filter(TicketReply.ticket_id == ticket_id)
     if user.role == "customer":
         replies_query = replies_query.filter(TicketReply.is_internal == False)  # noqa: E712
-    replies = replies_query.order_by(TicketReply.created_at.asc()).all()
+    replies_raw = replies_query.order_by(TicketReply.created_at.asc()).all()
+    reply_author_ids = {r.author_id for r in replies_raw if r.author_id is not None}
+    reply_authors = {u.id: u for u in db.query(User).filter(User.id.in_(reply_author_ids)).all()} if reply_author_ids else {}
+    replies = [_resolve_reply_author(r, reply_authors) for r in replies_raw]
 
     # Fetch activities
     activities = (
@@ -248,10 +415,31 @@ def get_ticket(
         .all()
     )
 
-    # Lookup org/service names
+    # Lookup org/service/project/task names and assignees
     org = db.query(Organization).filter(Organization.id == ticket.org_id).first()
     svc = db.query(Service).filter(Service.id == ticket.service_id).first() if ticket.service_id else None
-    assignee = db.query(User).filter(User.id == ticket.assignee_id).first() if ticket.assignee_id else None
+    project_name = None
+    if ticket.project_id:
+        from app.models.project import Project as _Project
+        proj = db.query(_Project).filter(_Project.id == ticket.project_id).first()
+        project_name = proj.name if proj else None
+    task_title = None
+    if ticket.task_id:
+        from app.models.project import ProjectTask as _PTask
+        ptask = db.query(_PTask).filter(_PTask.id == ticket.task_id).first()
+        task_title = ptask.title if ptask else None
+
+    assignees_map = load_assignees_for_tickets(db, [ticket.id])
+    assignees = assignees_map.get(ticket.id, [])
+    primary = next((a for a in assignees if a["is_primary"]), None)
+    if primary:
+        p_name, p_email = primary["full_name"], primary["email"]
+    elif ticket.assignee_id:
+        assignee = db.query(User).filter(User.id == ticket.assignee_id).first()
+        p_name = assignee.full_name if assignee else None
+        p_email = assignee.email if assignee else None
+    else:
+        p_name = p_email = None
 
     ticket_dict = {
         "id": ticket.id,
@@ -260,6 +448,9 @@ def get_ticket(
         "org_code": org.code if org else None,
         "service_id": ticket.service_id,
         "project_id": ticket.project_id,
+        "project_name": project_name,
+        "task_id": ticket.task_id,
+        "task_title": task_title,
         "service_name": svc.name if svc else None,
         "service_type": svc.type if svc else None,
         "service_status": svc.status if svc else None,
@@ -275,8 +466,10 @@ def get_ticket(
         "raised_by": ticket.raised_by,
         "raised_by_email": ticket.raised_by_email,
         "assignee_id": ticket.assignee_id,
-        "assignee_name": assignee.full_name if assignee else None,
-        "assignee_email": assignee.email if assignee else None,
+        "assignee_name": p_name,
+        "assignee_email": p_email,
+        "assignment_mode": ticket.assignment_mode,
+        "assignees": assignees,
         "is_deleted": ticket.is_deleted,
         "created_at": ticket.created_at,
         "updated_at": ticket.updated_at,
@@ -348,18 +541,38 @@ def update_ticket(
         db.add(activity)
         ticket.priority = new_priority
 
-    if "assignee_id" in changes:
+    # Resolve assignee_ids: new multi-assignee or legacy single
+    eff_ids: list[int] | None = None
+    if "assignee_ids" in changes and changes["assignee_ids"] is not None:
+        eff_ids = list(changes["assignee_ids"])
+    elif "assignee_id" in changes and changes["assignee_id"] is not None:
+        eff_ids = [changes["assignee_id"]]
+
+    if eff_ids is not None:
         old_assignee = str(ticket.assignee_id) if ticket.assignee_id else None
-        new_assignee = str(changes["assignee_id"]) if changes["assignee_id"] else None
+        set_ticket_assignees(db, ticket, eff_ids, assigned_by=user.id)
         activity = TicketActivity(
             ticket_id=ticket.id,
             actor_id=user.id,
             action="assigned",
             from_value=old_assignee,
-            to_value=new_assignee,
+            to_value=str(ticket.assignee_id) if ticket.assignee_id else None,
         )
         db.add(activity)
-        ticket.assignee_id = changes["assignee_id"]
+
+    if "assignment_mode" in changes and changes["assignment_mode"] is not None:
+        ticket.assignment_mode = changes["assignment_mode"]
+
+    if "task_id" in changes and changes["task_id"] is not None:
+        from app.models.project import ProjectTask as _PTask
+        t_obj = db.query(_PTask).filter(_PTask.id == changes["task_id"]).first()
+        if not t_obj:
+            raise HTTPException(status_code=422, detail="Task not found")
+        if ticket.project_id and t_obj.project_id != ticket.project_id:
+            raise HTTPException(status_code=422, detail="Task does not belong to the ticket's project")
+        ticket.task_id = changes["task_id"]
+        if ticket.project_id is None:
+            ticket.project_id = t_obj.project_id
 
     db.commit()
     db.refresh(ticket)
@@ -385,7 +598,7 @@ def update_ticket(
     # Socket.IO: notify affected users of ticket update
     try:
         from app.socketio_server import notify_user
-        event_data = {"ticket_id": ticket.id, "status": ticket.status, "priority": ticket.priority, "assignee_id": ticket.assignee_id}
+        event_data = {"ticket_id": ticket.id, "status": ticket.status, "priority": ticket.priority, "assignee_id": ticket.assignee_id}  # noqa: E501
         notified = set()
         if ticket.raised_by:
             background_tasks.add_task(notify_user, ticket.raised_by, "ticket_updated", event_data)
@@ -395,7 +608,7 @@ def update_ticket(
     except Exception:
         pass
 
-    return ticket
+    return _ticket_out_dict(ticket, db)
 
 
 # ── DELETE /api/tickets/{id} ──────────────────────────────────────────────────
@@ -421,6 +634,52 @@ def delete_ticket(
     db.add(activity)
     db.commit()
     return {"message": "Ticket deleted"}
+
+
+# ── DELETE /api/tickets/{id}/permanent ───────────────────────────────────────
+
+@router.delete("/{ticket_id}/permanent")
+def hard_delete_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if ticket.status not in ("Resolved", "Closed") and not ticket.is_deleted:
+        raise HTTPException(
+            status_code=400,
+            detail="Only Resolved/Closed or already-deleted tickets can be permanently deleted",
+        )
+
+    # 1. Collect attachments and delete physical files before any DB changes
+    attachments = db.query(TicketAttachment).filter(
+        TicketAttachment.ticket_id == ticket_id
+    ).all()
+    attachment_ids = [a.id for a in attachments]
+    freed = 0
+    for att in attachments:
+        if delete_attachment(att.file_path):
+            freed += 1
+
+    # 2. project_documents sourced from ticket_attachment → delete (SET NULL keeps upload-sourced ones)
+    if attachment_ids:
+        db.query(ProjectDocument).filter(
+            ProjectDocument.ticket_attachment_id.in_(attachment_ids),
+            ProjectDocument.source == "ticket_attachment",
+        ).delete(synchronize_session=False)
+
+    # 3. email_log and email_threads: no ondelete on their ticket_id FKs → must delete explicitly
+    db.query(EmailLog).filter(EmailLog.ticket_id == ticket_id).delete(synchronize_session=False)
+    db.query(EmailThread).filter(EmailThread.ticket_id == ticket_id).delete(synchronize_session=False)
+
+    # 4. Delete ticket — DB CASCADE handles ticket_assignees, ticket_replies,
+    #    ticket_activities, ticket_attachments, transfer_requests.
+    #    project_documents.ticket_attachment_id remaining rows → SET NULL (FK defined).
+    db.query(Ticket).filter(Ticket.id == ticket_id).delete(synchronize_session=False)
+    db.commit()
+    return {"deleted": True, "ticket_id": ticket_id, "freed_attachments": freed}
 
 
 # ── POST /api/tickets/{id}/replies ────────────────────────────────────────────
@@ -526,10 +785,21 @@ def add_reply(
     except Exception:
         pass
 
-    # Socket.IO: push new reply to the other party
+    # Socket.IO: push new reply to the other party with full data for realtime UI
     try:
         from app.socketio_server import notify_user
-        event_data = {"ticket_id": ticket_id, "reply_id": reply.id, "author_id": user.id}
+        event_data = {
+            "ticket_id": ticket_id,
+            "project_id": ticket.project_id,
+            "reply_id": reply.id,
+            "author_id": user.id,
+            "author_name": user.full_name or user.email.split("@")[0],
+            "author_role": user.role,
+            "content": reply.content,
+            "is_internal": reply.is_internal,
+            "created_at": reply.created_at.isoformat() if reply.created_at else None,
+            "ticket_subject": ticket.subject,
+        }
         if user.role == "customer" and ticket.assignee_id:
             background_tasks.add_task(notify_user, ticket.assignee_id, "new_reply", event_data)
         elif user.role != "customer" and ticket.raised_by:
@@ -556,7 +826,8 @@ def assign_ticket(
     if user.role == "staff" and payload.assignee_id != user.id:
         raise HTTPException(status_code=403, detail="Staff can only self-assign")
     old_assignee_id = ticket.assignee_id
-    ticket.assignee_id = payload.assignee_id
+    set_ticket_assignees(db, ticket, [payload.assignee_id], assigned_by=user.id)
+    ticket.assignment_mode = "manual"
     activity = TicketActivity(
         ticket_id=ticket.id,
         actor_id=user.id,
@@ -576,7 +847,7 @@ def assign_ticket(
         )
     db.commit()
     db.refresh(ticket)
-    return ticket
+    return _ticket_out_dict(ticket, db)
 
 
 # ── GET /api/tickets/{id}/assignment-score ────────────────────────────────────
@@ -616,7 +887,11 @@ def list_replies(
     query = db.query(TicketReply).filter(TicketReply.ticket_id == ticket_id)
     if user.role == "customer":
         query = query.filter(TicketReply.is_internal == False)  # noqa: E712
-    return query.order_by(TicketReply.created_at.asc()).all()
+    replies = query.order_by(TicketReply.created_at.asc()).all()
+
+    author_ids = {r.author_id for r in replies if r.author_id is not None}
+    authors = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
+    return [_resolve_reply_author(r, authors) for r in replies]
 
 
 # ── POST /api/tickets/{id}/attachments ────────────────────────────────────────
@@ -673,3 +948,119 @@ def list_attachments(
         .all()
     )
     return attachments
+
+
+# ── POST /api/tickets/{id}/create-project ─────────────────────────────────────
+
+@router.post("/{ticket_id}/create-project", status_code=201)
+def create_project_from_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+    if ticket.project_id:
+        raise HTTPException(status_code=409, detail="Ticket is already linked to a project")
+
+    from app.models.project import Project as _Project, ProjectDocument
+    from app.services.assignment import sync_project_members_from_ticket
+
+    project = _Project(
+        org_id=ticket.org_id,
+        name=ticket.subject[:255],
+        description=ticket.description,
+        project_type="other",
+        status="open",
+        visibility="customer_visible",
+        created_by=user.id,
+    )
+    db.add(project)
+    db.flush()
+
+    ticket.project_id = project.id
+
+    sync_project_members_from_ticket(db, ticket, project.id, added_by_id=user.id)
+
+    # Copy top-level ticket attachments (not reply attachments) as project doc references
+    atts = (
+        db.query(TicketAttachment)
+        .filter(TicketAttachment.ticket_id == ticket_id, TicketAttachment.reply_id.is_(None))
+        .all()
+    )
+    for att in atts:
+        doc = ProjectDocument(
+            project_id=project.id,
+            file_name=att.file_name,
+            file_path=att.file_path,
+            file_size=att.file_size,
+            mime_type=att.mime_type,
+            detected_mime=att.detected_mime,
+            sha256=att.sha256,
+            is_client_visible=False,
+            uploaded_by=user.id,
+            ticket_attachment_id=att.id,
+            source="ticket_attachment",
+        )
+        db.add(doc)
+
+    db.add(TicketActivity(ticket_id=ticket_id, actor_id=user.id, action="project_created", to_value=str(project.id)))
+    db.commit()
+    db.refresh(project)
+
+    return {
+        "id": project.id,
+        "name": project.name,
+        "status": project.status,
+        "org_id": project.org_id,
+        "created_at": project.created_at,
+    }
+
+
+# ── POST /api/tickets/{id}/link-project ──────────────────────────────────────
+
+@router.post("/{ticket_id}/link-project")
+def link_project_to_ticket(
+    ticket_id: int,
+    payload: LinkProjectPayload,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff_or_admin),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+
+    from app.models.project import Project as _Project
+    from app.services.assignment import sync_project_members_from_ticket
+
+    project = db.query(_Project).filter(_Project.id == payload.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.org_id != ticket.org_id:
+        raise HTTPException(status_code=404, detail="Project does not belong to the same organization")
+    if ticket.project_id and ticket.project_id != payload.project_id:
+        raise HTTPException(status_code=409, detail="Ticket is already linked to a different project")
+
+    ticket.project_id = project.id
+    sync_project_members_from_ticket(db, ticket, project.id, added_by_id=user.id)
+    db.add(TicketActivity(ticket_id=ticket_id, actor_id=user.id, action="project_linked", to_value=str(project.id)))
+    db.commit()
+
+    return {"ticket_id": ticket_id, "project_id": project.id, "project_name": project.name}
+
+
+# ── DELETE /api/tickets/{id}/unlink-project ───────────────────────────────────
+
+@router.delete("/{ticket_id}/unlink-project")
+def unlink_project_from_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+    if not ticket.project_id:
+        raise HTTPException(status_code=404, detail="Ticket is not linked to a project")
+
+    old_project_id = ticket.project_id
+    ticket.project_id = None
+    db.add(TicketActivity(ticket_id=ticket_id, actor_id=user.id, action="project_unlinked", from_value=str(old_project_id)))
+    db.commit()
+
+    return {"message": "Project unlinked", "ticket_id": ticket_id}

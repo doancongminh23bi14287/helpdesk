@@ -5,7 +5,7 @@ from app.models.user import User
 from app.models.team import Team, TeamMember, StaffOrgAssignment
 from app.models.service import ServiceCategory, Service
 from app.models.sla import SlaPolicy
-from app.models.ticket import Ticket, TicketReply, TicketActivity
+from app.models.ticket import Ticket, TicketAssignee, TicketReply, TicketActivity
 from app.models.notification import Notification, EmailLog
 from app.models.contact import Contact
 from app.models.address import Address
@@ -17,7 +17,7 @@ from app.models.email_thread import EmailThread
 from app.models.email_outbox import EmailOutbox
 from app.models.invoice_payment import InvoicePayment
 from app.models.user_session import UserSession
-from app.models.project import Project, ProjectTask, ProjectDocument
+from app.models.project import Project, ProjectTask, ProjectDocument, ProjectMember, TaskComment, TaskActivity, TaskAssignee, TaskApproval
 from app.models.password_reset import PasswordResetOTP
 
 __all__ = [
@@ -25,7 +25,7 @@ __all__ = [
     "Team", "TeamMember", "StaffOrgAssignment",
     "ServiceCategory", "Service",
     "SlaPolicy",
-    "Ticket", "TicketReply", "TicketActivity",
+    "Ticket", "TicketAssignee", "TicketReply", "TicketActivity",
     "Notification", "EmailLog",
     "Contact", "Address",
     "Item",
@@ -38,6 +38,7 @@ __all__ = [
     "EmailOutbox",
     "InvoicePayment",
     "UserSession",
-    "Project", "ProjectTask", "ProjectDocument",
+    "Project", "ProjectTask", "ProjectDocument", "ProjectMember",
+    "TaskComment", "TaskActivity", "TaskAssignee", "TaskApproval",
     "PasswordResetOTP",
 ]

@@ -1,139 +1,173 @@
-# WorkDesk
+# CustomerHub
 
-Client Support & Workload Management System for service delivery teams.
+Customer portal and helpdesk system for hosting providers. CustomerHub gives your clients a single place to open support tickets, track subscriptions and invoices, and follow project progress — while your staff gets a unified queue with auto-assignment, SLA monitoring, and email-to-ticket piping.
 
-## Features
-- Multi-organisation B2B ticket management with org-level isolation
-- Score-based auto-assignment (workload + skill + online status)
-- Four-state SLA monitoring with Redis-backed deduplication
-- Subscription billing with configurable tax rates
-- SEO project and task management with customer-visible progress
-- IMAP email-to-ticket piping with header threading
-- Real-time notifications via Socket.IO + Redis pub/sub
-- Role-aware React portal (Admin / Staff / Customer)
-- Profile management with avatar upload (JPG / PNG / WebP, max 2 MB),
-  fallback initials with selectable color, and local theme/language
-  preferences
+---
 
-## Profile & Avatar
-Users manage their own profile at `/profile` from the top-right avatar menu.
+## Tech Stack
 
-- `PATCH /api/auth/me` updates `full_name`, `phone`, `avatar_color` for the
-  logged-in user only. `email`, `role`, and `org_id` are blocked at the schema
-  layer so the endpoint cannot be used for privilege escalation.
-- `POST /api/auth/me/avatar` accepts `multipart/form-data` with a single
-  `file` field. Images are validated by declared MIME, magic bytes, and size
-  (2 MB hard cap); SVG and unrelated content types are rejected.
-- Files are stored under `FILES_ROOT/avatars/{user_id}/{uuid}.{ext}` — the
-  user table stores only metadata (path, mime, size, updated_at). No raw
-  bytes or base64 are persisted in the database.
-- `DELETE /api/auth/me/avatar` removes the file (best-effort) and clears the
-  metadata while preserving the user's chosen `avatar_color`.
+| Layer | Technology |
+|---|---|
+| API | FastAPI, SQLAlchemy, Alembic |
+| Database | MariaDB 10.11 |
+| Cache / Queue | Redis 7, Celery |
+| Real-time | Socket.IO |
+| Frontend | React 18, Vite, Zustand, Tailwind CSS, Radix UI |
+| Auth | JWT (access + refresh tokens), bcrypt |
 
-## Stack
-Backend: FastAPI · SQLAlchemy · Alembic · MariaDB · Redis · Celery
-Frontend: React 18 · Vite · Zustand · Tailwind · Radix UI
+---
 
 ## Quick Start (Development)
 
-### Prerequisites
-- Docker + Docker Compose
-- Python 3.12
-- Node.js 20
-
-### Start
-    cp .env.example .env
-    # Edit .env with your values
-    docker-compose up -d
-    cd backend && source venv/bin/activate
-    alembic upgrade head
-    uvicorn app.main:application --host 0.0.0.0 --port 8001 --reload &
-    cd ../frontend && npm install && npm run dev
-
-### Email delivery
-Outbound ticket emails are sent by the backend process. Invoice emails are queued
-in `email_outbox` and require the Celery worker and beat services from
-`docker-compose.yml`.
-
-For Docker development, copy `backend/.env.docker.example` to
-`backend/.env.docker` and set these values:
-
-    SMTP_HOST=mail.example.com
-    SMTP_PORT=465
-    SMTP_USE_SSL=true
-    SMTP_USER=support@example.com
-    SMTP_PASS=your-smtp-password
-    ADMIN_NOTIFICATION_EMAIL=admin@example.com
-
-Check `/ready`: it reports `smtp_config` errors and stale `email_outbox` rows.
-
-### Run Tests
-    cd backend && source venv/bin/activate
-    pytest tests/ -v
-
-    cd ../frontend
-    npm test
-    npm run build
-
-### CI
-GitHub Actions workflow: `.github/workflows/ci.yml`.
-It runs backend tests, Alembic upgrade, frontend tests/build, and backend Docker build.
-
-### Monitoring
-- `/health`: process liveness.
-- `/ready`: database, Redis, email outbox, and SMTP config readiness.
-- `/metrics`: Prometheus metrics.
-
-### SEO Project & Task Management
-- Admin/staff: `/projects` and `/projects/:id` manage SEO projects, tasks, assignment, status, internal notes, and customer visibility.
-- Customer: `/projects` is read-only and shows only customer-visible projects/tasks.
-- API endpoints:
-  - `GET/POST /api/projects`
-  - `GET/PATCH/DELETE /api/projects/{id}`
-  - `GET/POST /api/projects/{id}/tasks`
-  - `GET/PATCH/DELETE /api/project-tasks/{id}`
-  - `PATCH /api/project-tasks/{id}/status`
-- Progress rule: cancelled tasks are excluded; completed active tasks determine project progress.
-- Current limitations: no timesheet, Gantt chart, payroll, or accounting-grade project costing.
-
-### Operations Docs
-- `docs/ARCHITECTURE.md`
-- `docs/API_SCOPING.md`
-- `docs/SECURITY.md`
-- `docs/OPERATIONS.md`
-- `docs/BACKUP.md`
-
-## Production Deployment
-See docker-compose.prod.yml and nginx/nginx.conf.
-Set ENV=production in your .env — the app will refuse to
-start with insecure default secrets.
-Set `CORS_ORIGINS` to explicit trusted origins; wildcard CORS is rejected in production.
-
-## Demo Accounts (Development Only)
-
-> These credentials exist **only after running the seed script** against a local
-> database. They are local-only fixtures — not production secrets. If a login
-> fails it usually means the database has not been seeded yet.
-
-Seed the local database from the backend venv:
+**Prerequisites:** Docker, Docker Compose v2, Python 3.12, Node.js 20
 
 ```bash
-cd /home/acm/helpdesk-system/backend
-source venv/bin/activate
-python -m app.seed
+# 1. Clone and enter the repo
+git clone <repo-url> customerhub && cd customerhub
+
+# 2. Start database and Redis
+docker compose up -d
+
+# 3. Apply migrations
+cd backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+
+# 4. Seed development data
+python scripts/seed_base.py
+
+# 5. Start the API (hot-reload)
+uvicorn app.main:application --host 0.0.0.0 --port 8001 --reload &
+
+# 6. Start the frontend (new terminal)
+cd ../frontend
+npm install && npm run dev
 ```
 
-The script is idempotent — re-running it will not duplicate rows. It
-creates the provider organisation, a Vietnamese client organisation
-(Aloha Vietnam Travel), one admin, a few staff, two customer users, and
-sample services / subscriptions / invoices used by the SEO Client &
-Support Platform demo.
+Frontend: http://localhost:5173
+API docs: http://localhost:8001/docs
 
-| Role     | Email              | Password    | Notes                              |
-|----------|--------------------|-------------|------------------------------------|
-| Admin    | admin@osd.vn       | admin123    | Full access (admin sidebar)        |
-| Staff    | staff1@osd.vn      | staff123    | Assigned-org tickets and projects  |
-| Customer | tan@aloha-vn.vn    | customer123 | Aloha Vietnam Travel customer view |
+---
 
-⚠️ These passwords are **for local development only**. Change them before
-any production deployment and never commit real production secrets.
+## Environment Variables
+
+Copy `.env.prod.example` to `.env.prod` and fill in real values before deploying.
+
+Key variables:
+
+| Variable | Purpose |
+|---|---|
+| `ENV` | `development` or `production` |
+| `DB_URL` | SQLAlchemy connection string |
+| `JWT_SECRET` | Signing key — min 32 chars in production |
+| `REDIS_HOST` / `REDIS_PORT` | Redis connection |
+| `CORS_ORIGINS` | Comma-separated allowed origins (no `*` in production) |
+| `FRONTEND_URL` | Public URL of the React app |
+| `EMAIL_FEATURES_ENABLED` | Set `true` to enable IMAP polling and SMTP delivery |
+| `FILES_ROOT` | Absolute path for uploaded file storage |
+
+See [`.env.prod.example`](.env.prod.example) for the full list with comments.
+
+---
+
+## Production Deploy
+
+See [`scripts/deploy.sh`](scripts/deploy.sh) for the full automated deploy flow:
+
+1. `git pull`
+2. `npm ci && npm run build` — build frontend, copy to `/var/www/customerhub`
+3. `pip install -r requirements.txt` — sync Python deps
+4. `alembic upgrade head` — run any pending migrations
+5. `docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat`
+6. `nginx -s reload`
+
+Nginx config lives in [`nginx/nginx.conf`](nginx/nginx.conf) — HTTP with SSL block commented and ready for Let's Encrypt.
+
+```bash
+# First-time server setup
+cp .env.prod.example .env.prod
+# Edit .env.prod with real values, then:
+bash scripts/deploy.sh
+```
+
+---
+
+## Default Credentials (Development Only)
+
+These accounts are created by `python scripts/seed_base.py`. Do not use in production.
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | ticket@osd.vn | [YOUR_ADMIN_PASSWORD] |
+| Staff | staff1@osd.vn | staff123 |
+| Staff | staff2@osd.vn | staff123 |
+| Customer | acm12112005@gmail.com | customer123 |
+| Customer | minhdc.23bi14287@usth.edu.vn | [YOUR_ADMIN_PASSWORD] |
+
+---
+
+## API Docs
+
+Interactive Swagger UI: http://localhost:8001/docs
+
+Readiness check: http://localhost:8001/ready (reports DB, Redis, SMTP, email outbox status)
+
+---
+
+## Running Tests
+
+```bash
+# Backend
+cd backend
+source venv/bin/activate
+pytest tests/ -v
+
+# Frontend
+cd frontend
+npm test
+npm run build
+```
+
+---
+
+## Project Structure
+
+```
+customerhub/
+├── backend/
+│   ├── app/
+│   │   ├── api/          # FastAPI route handlers
+│   │   ├── core/         # Security helpers
+│   │   ├── models/       # SQLAlchemy ORM models
+│   │   ├── schemas/      # Pydantic request/response schemas
+│   │   ├── services/     # Business logic
+│   │   ├── tasks/        # Celery tasks and beat schedule
+│   │   ├── config.py     # Environment variable loading
+│   │   ├── database.py   # Engine and session factory
+│   │   └── main.py       # FastAPI app entrypoint
+│   ├── alembic/          # Database migrations
+│   ├── scripts/          # seed_base.py, deploy.sh, backup helpers
+│   ├── tests/            # pytest test suite
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── api/          # Axios API client modules
+│   │   ├── components/   # Shared UI components
+│   │   ├── hooks/        # Custom React hooks
+│   │   ├── pages/        # Route-level page components
+│   │   └── main.jsx      # React entrypoint
+│   └── package.json
+├── nginx/
+│   └── nginx.conf        # Production Nginx config
+├── docker-compose.yml       # Development stack
+├── docker-compose.prod.yml  # Production stack (no dev mounts)
+├── .env.prod.example        # Production env template
+└── SCHEMA.sql               # Reference DDL (migrations are authoritative)
+```
+
+---
+
+## License
+
+MIT

@@ -63,7 +63,7 @@ class InvoiceUpdate(BaseModel):
 
 
 class CancelPayload(BaseModel):
-    cancel_reason: str
+    cancel_reason: Optional[str] = None
 
 
 class PaymentCreate(BaseModel):

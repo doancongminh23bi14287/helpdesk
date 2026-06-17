@@ -291,6 +291,7 @@ def revenue_analytics(
     user: User = Depends(require_admin),
 ):
     from datetime import date
+    target_year = None  # guard against UnboundLocalError in downstream references
 
     # Determine date range: year param takes precedence over from_date/to_date
     if year is not None or (from_date is None and to_date is None):

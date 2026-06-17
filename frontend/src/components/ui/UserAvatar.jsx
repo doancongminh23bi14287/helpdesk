@@ -31,6 +31,12 @@ const COLOR_CLASSES = {
   slate:  'bg-slate-200 text-slate-700',
 }
 
+const COLOR_KEYS = ['amber', 'blue', 'sky', 'orange', 'rose', 'slate']
+
+function colorFromId(id) {
+  return COLOR_KEYS[Math.abs(id ?? 0) % COLOR_KEYS.length]
+}
+
 const SIZE_CLASSES = {
   sm: 'h-7 w-7 text-[10px]',
   md: 'h-9 w-9 text-xs',
@@ -57,12 +63,11 @@ function getInitials(user) {
  *   on a colored circle. The color is driven by user.avatar_color, defaulting
  *   to blue, so the badge looks intentional rather than blank.
  */
-export function UserAvatar({ user, size = 'md', className }) {
+export function UserAvatar({ user, size = 'md', className, title }) {
   const [imageBroken, setImageBroken] = useState(false)
   const initials = getInitials(user)
-  // Falls back to amber so legacy values like "green"/"purple" still render
-  // an on-brand chip after the palette was tightened.
-  const color = COLOR_CLASSES[user?.avatar_color] ?? COLOR_CLASSES.amber
+  // avatar_color wins; fall back to deterministic hash of user.id; then amber.
+  const color = COLOR_CLASSES[user?.avatar_color] ?? COLOR_CLASSES[colorFromId(user?.id)] ?? COLOR_CLASSES.amber
   const sizeCls = SIZE_CLASSES[size] ?? SIZE_CLASSES.md
   const resolvedUrl = resolveAvatarUrl(user?.avatar_url)
   const showImage = Boolean(resolvedUrl) && !imageBroken
@@ -82,6 +87,7 @@ export function UserAvatar({ user, size = 'md', className }) {
         className,
       )}
       aria-hidden={false}
+      title={title}
     >
       {showImage ? (
         <img
