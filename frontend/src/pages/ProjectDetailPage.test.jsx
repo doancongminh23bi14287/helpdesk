@@ -12,6 +12,7 @@ const updateProjectTaskStatusMock = vi.fn()
 const listProjectDocumentsMock = vi.fn()
 const uploadProjectDocumentMock = vi.fn()
 const downloadProjectDocumentMock = vi.fn()
+const listProjectMembersMock = vi.fn()
 const listUsersMock = vi.fn()
 const getProjectTicketsMock = vi.fn()
 
@@ -28,6 +29,7 @@ vi.mock('@/api/projects', () => ({
   uploadProjectDocument: (...args) => uploadProjectDocumentMock(...args),
   downloadProjectDocument: (...args) => downloadProjectDocumentMock(...args),
   getProjectTickets: (...args) => getProjectTicketsMock(...args),
+  listProjectMembers: (...args) => listProjectMembersMock(...args),
   cancelProject: vi.fn(),
   updateProjectTask: vi.fn(),
   cancelProjectTask: vi.fn(),
@@ -75,6 +77,9 @@ describe('ProjectDetailPage', () => {
     uploadProjectDocumentMock.mockResolvedValue({})
     downloadProjectDocumentMock.mockResolvedValue({})
     listUsersMock.mockResolvedValue({ items: [{ id: 2, full_name: 'Staff One', email: 'staff@example.com' }] })
+    listProjectMembersMock.mockResolvedValue([
+      { id: 1, user_id: 2, user_full_name: 'Staff One', user_email: 'staff@example.com' },
+    ])
     getProjectTicketsMock.mockResolvedValue([])
   })
 
@@ -82,13 +87,18 @@ describe('ProjectDetailPage', () => {
     renderDetail()
 
     expect(await screen.findByRole('heading', { level: 1, name: 'SEO Growth' })).toBeInTheDocument()
-    expect(screen.getByText('Start date')).toBeInTheDocument()
+
+    // Switch to Overview tab — start date and deadline live there
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    expect(await screen.findByText(/start date/i)).toBeInTheDocument()
     expect(screen.getAllByText('Deadline').length).toBeGreaterThan(0)
     expect(screen.queryByText(/add task/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/internal:/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/upload/i)).not.toBeInTheDocument()
-    expect(screen.getByText('Documents')).toBeInTheDocument()
-    expect(screen.getByText('seo-brief.pdf')).toBeInTheDocument()
+
+    // Switch to Files tab — customer can see files but not upload
+    fireEvent.click(screen.getByRole('button', { name: /^files/i }))
+    expect(await screen.findByText('seo-brief.pdf')).toBeInTheDocument()
+    expect(screen.queryByText(/upload file/i)).not.toBeInTheDocument()
   })
 
   it('admin detail shows add task controls', async () => {
@@ -108,12 +118,18 @@ describe('ProjectDetailPage', () => {
 
     renderDetail()
 
+    // Tasks tab (default) — add-task form and internal notes visible for admin
     expect((await screen.findAllByText('Add Task')).length).toBeGreaterThan(0)
     expect(screen.getByText(/internal: check crawl budget/i)).toBeInTheDocument()
     expect(screen.getAllByDisplayValue('open').length).toBeGreaterThan(0)
-    expect(screen.getByText('Team Members')).toBeInTheDocument()
-    expect(screen.getByText('Documents')).toBeInTheDocument()
-    expect(screen.getByText('Upload')).toBeInTheDocument()
+
+    // Switch to Overview tab — Team Members card visible when members exist
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    expect(await screen.findByText(/team members/i)).toBeInTheDocument()
+
+    // Switch to Files tab — admin sees the upload button
+    fireEvent.click(screen.getByRole('button', { name: /^files/i }))
+    expect(await screen.findByText(/upload file/i)).toBeInTheDocument()
   })
 
   it('staff status update calls API and refreshes tasks', async () => {

@@ -57,6 +57,15 @@ vi.mock('@/api/users', () => ({
 
 describe('TicketDetailPage', () => {
   beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation(query => ({
+        matches: false, media: query, onchange: null,
+        addListener: vi.fn(), removeListener: vi.fn(),
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    })
     mockUser = { id: 1, email: 'customer@example.com', role: 'customer' }
     mockRole = { isCustomer: true, isStaff: false, isAdmin: false }
   })

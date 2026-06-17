@@ -669,7 +669,7 @@ export default function TicketDetailPage() {
           {/* Description */}
           {ticket.description && (
             <SidebarSection title="Description" defaultOpen={true}>
-              <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
+              <p className="text-sm font-medium text-slate-800 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
             </SidebarSection>
           )}
 

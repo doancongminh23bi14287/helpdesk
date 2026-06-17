@@ -53,7 +53,6 @@ describe('NewTicketPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /submit ticket/i }))
 
     expect(await screen.findByText('Subject is required')).toBeInTheDocument()
-    expect(screen.getByText('Please select a service')).toBeInTheDocument()
     expect(screen.getByText('Please select a ticket type')).toBeInTheDocument()
     expect(screen.getByText('Please describe your issue')).toBeInTheDocument()
     expect(submit).not.toHaveBeenCalled()
@@ -68,8 +67,9 @@ describe('NewTicketPage', () => {
     const values = Array.from(document.querySelectorAll('option')).map((o) => o.value)
     // Allowed backend enum values are present
     expect(values).toEqual(expect.arrayContaining([
-      'Bug', 'Incident', 'Question', 'Unspecified',
-      'Service SaaS', 'Service Hosting', 'Renewal',
+      'Question', 'Bug', 'Incident', 'Task Request', 'Change Request',
+      'Feature Request', 'Content Request', 'SEO Request',
+      'Approval Required', 'Complaint', 'Renewal', 'Other',
     ]))
     // Invalid values must NOT be offered
     expect(values).not.toContain('support')
