@@ -141,6 +141,8 @@ def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = No
 
 def bg_notify_new_ticket(ticket_id: int, org_name: str, service_name: str) -> None:
     """Background-task wrapper — creates its own DB session."""
+    if not config.EMAIL_FEATURES_ENABLED:
+        return
     from app.database import SessionLocal
     from app.models.ticket import Ticket
     db = SessionLocal()
