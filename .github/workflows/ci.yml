@@ -62,9 +62,6 @@ jobs:
             -e "CREATE DATABASE IF NOT EXISTS helpdesk_db;"
           mysql -h 127.0.0.1 -P 3307 -u root -proot \
             -e "GRANT ALL PRIVILEGES ON helpdesk_db.* TO 'helpdesk'@'%';"
-          mysql -h 127.0.0.1 -P 3307 -u root -proot helpdesk_db \
-            < ../SCHEMA.sql
-          alembic stamp 0001
           alembic upgrade head
           alembic current
       - name: Build backend Docker image
