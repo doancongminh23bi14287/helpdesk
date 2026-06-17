@@ -99,6 +99,26 @@ def create_organization(
     return _enrich_org(org, db)
 
 
+def _check_org_access(org_id: int, user: User, db: Session) -> None:
+    """Raise 404 if the current user cannot view this org.
+
+    - customer: only their own org
+    - staff: only orgs they are explicitly assigned to via StaffOrgAssignment
+    - admin: unrestricted
+    Returns 404 (not 403) to avoid confirming org existence to unauthorised callers.
+    """
+    if user.role == "customer" and user.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if user.role == "staff":
+        from app.models.team import StaffOrgAssignment
+        assigned = db.query(StaffOrgAssignment).filter(
+            StaffOrgAssignment.user_id == user.id,
+            StaffOrgAssignment.org_id == org_id,
+        ).first()
+        if not assigned:
+            raise HTTPException(status_code=404, detail="Organization not found")
+
+
 @router.get("/{org_id}", response_model=OrganizationOut)
 def get_organization(
     org_id: int,
@@ -108,8 +128,7 @@ def get_organization(
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if user.role == "customer" and org.id != user.org_id:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    _check_org_access(org_id, user, db)
     return _enrich_org(org, db)
 
 
@@ -139,6 +158,5 @@ def get_org_services(
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if user.role == "customer" and org_id != user.org_id:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    _check_org_access(org_id, user, db)
     return db.query(Service).filter(Service.org_id == org_id).all()

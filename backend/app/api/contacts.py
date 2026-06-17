@@ -114,6 +114,11 @@ def link_user_to_contact(
         target_user = db.query(User).filter(User.id == payload.user_id).first()
         if not target_user:
             raise HTTPException(status_code=404, detail="User not found")
+        # Only enforce org check for customer users. Staff and admins belong to
+        # the provider org, so their org_id will never match the client org_id —
+        # blocking them here would prevent legitimate staff→contact links.
+        if target_user.role == "customer" and target_user.org_id != org_id:
+            raise HTTPException(status_code=400, detail="User does not belong to this organization")
         # Unlink this user_id from any other contact first
         db.query(Contact).filter(
             Contact.user_id == payload.user_id,

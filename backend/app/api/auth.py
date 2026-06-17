@@ -31,7 +31,7 @@ from app.services.avatar_storage import (
     safe_delete_avatar,
     validate_and_save_avatar,
 )
-from app.core.constants import OTP_LENGTH, OTP_EXPIRY_MINUTES, OTP_MAX_ATTEMPTS
+from app.core.constants import OTP_LENGTH, OTP_EXPIRY_MINUTES, OTP_MAX_ATTEMPTS, RESET_TOKEN_EXPIRE_MINUTES
 
 
 # Hex-ish palette used for fallback initials background. Mirrors the
@@ -520,6 +520,9 @@ def verify_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid or expired code")
 
     now = datetime.utcnow()
+    # with_for_update() emits SELECT ... FOR UPDATE — the row is locked for the
+    # duration of this transaction so concurrent requests cannot both read the
+    # same attempt count and bypass the brute-force limit.
     otp_row = (
         db.query(PasswordResetOTP)
         .filter(
@@ -528,6 +531,7 @@ def verify_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
             PasswordResetOTP.expires_at > now,
         )
         .order_by(PasswordResetOTP.created_at.desc())
+        .with_for_update()
         .first()
     )
     if not otp_row:
@@ -547,9 +551,12 @@ def verify_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
         db.commit()
         raise HTTPException(status_code=400, detail="Invalid or expired code")
 
-    # Correct — issue a short-lived reset token
-    reset_token, _ = create_access_token(user.id, "reset")
-    # Mark used when reset-password is called (otp_row guards single-use)
+    # Mark the OTP as consumed in the same transaction as token issuance.
+    # Without this, a second concurrent verify with the same correct OTP would also
+    # pass (it would find used_at=NULL after the FOR UPDATE lock releases) and get
+    # its own reset token — two valid tokens for one OTP.
+    otp_row.used_at = now
+    reset_token, _ = create_access_token(user.id, "reset", expire_minutes=RESET_TOKEN_EXPIRE_MINUTES)
     db.commit()
     return {"reset_token": reset_token}
 
@@ -578,13 +585,15 @@ def reset_password_via_otp(payload: dict = Body(...), db: Session = Depends(get_
     if not user:
         raise HTTPException(status_code=400, detail="User not found")
 
-    # Verify a live, unused OTP row still exists for this reset session
+    # Verify a live, unused OTP row still exists for this reset session.
+    # FOR UPDATE prevents two concurrent POST /reset-password requests with the
+    # same token from both reading used_at=NULL and both writing a new password.
     now = datetime.utcnow()
     otp_row = db.query(PasswordResetOTP).filter(
         PasswordResetOTP.user_id == user_id,
         PasswordResetOTP.used_at.is_(None),
         PasswordResetOTP.expires_at > now,
-    ).order_by(PasswordResetOTP.created_at.desc()).first()
+    ).order_by(PasswordResetOTP.created_at.desc()).with_for_update().first()
     if not otp_row:
         raise HTTPException(status_code=400, detail="Reset session expired or already used. Please start over.")
 

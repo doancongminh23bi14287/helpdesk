@@ -23,15 +23,22 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create_access_token(user_id: int, role: str) -> tuple[str, str]:
-    """Return (encoded_jwt, jti). jti is a UUID4 string identifying this specific token."""
+def create_access_token(user_id: int, role: str, expire_minutes: int | None = None) -> tuple[str, str]:
+    """Return (encoded_jwt, jti). jti is a UUID4 string identifying this specific token.
+
+    expire_minutes overrides the global ACCESS_TOKEN_EXPIRE_MINUTES when set.
+    Use this for short-lived tokens such as password-reset tokens.
+    """
+    if expire_minutes is not None and expire_minutes <= 0:
+        raise ValueError(f"expire_minutes must be positive, got {expire_minutes}")
     jti = str(uuid.uuid4())
+    ttl = expire_minutes if expire_minutes is not None else ACCESS_TOKEN_EXPIRE_MINUTES
     payload = {
         "sub": str(user_id),
         "role": role,
         "jti": jti,
         "type": "access",
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ttl),
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
     return token, jti

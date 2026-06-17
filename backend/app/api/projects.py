@@ -474,6 +474,22 @@ def download_project_document(
     )
 
 
+def _assert_customer_project_member(project: Project, user: User, db: Session) -> None:
+    """Raise 404 if a customer user is not an explicit ProjectMember.
+
+    Non-customer callers pass through immediately — org-level access has already
+    been verified by assert_project_task_access / scope_project_tasks at that point.
+    """
+    if user.role != "customer":
+        return
+    is_member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project.id,
+        ProjectMember.user_id == user.id,
+    ).first()
+    if not is_member:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+
 def _member_dict(member: ProjectMember, db: Session) -> dict:
     user = db.query(User).filter(User.id == member.user_id).first()
     return {
@@ -593,6 +609,8 @@ def get_project_task(
     user: User = Depends(get_current_user),
 ):
     task = assert_project_task_access(task_id, user, db)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    _assert_customer_project_member(project, user, db)
     return _task_detail_dict(task, db, user)
 
 
@@ -649,7 +667,8 @@ def update_project_task_status_endpoint(
         raise HTTPException(status_code=404, detail="Project task not found")
     if user.role != "admin":
         org_ids = get_accessible_org_ids(user, db) or []
-        if project.org_id not in org_ids and task.assignee_id != user.id:
+        # Being assigned to a task does NOT grant access to orgs outside the staff's assignment list.
+        if project.org_id not in org_ids:
             raise HTTPException(status_code=404, detail="Project task not found")
     task = update_project_task_status(db, task, payload.status)
     db.commit()
@@ -682,6 +701,8 @@ def add_task_comment(
     user: User = Depends(get_current_user),
 ):
     task = assert_project_task_access(task_id, user, db)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    _assert_customer_project_member(project, user, db)
     # Customers can only comment on client-visible tasks, never internal
     if user.role == "customer":
         if not task.is_client_visible:
@@ -722,6 +743,8 @@ def list_task_comments(
     user: User = Depends(get_current_user),
 ):
     task = assert_project_task_access(task_id, user, db)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    _assert_customer_project_member(project, user, db)
     if user.role == "customer" and not task.is_client_visible:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -756,6 +779,8 @@ def list_task_activities(
     user: User = Depends(get_current_user),
 ):
     task = assert_project_task_access(task_id, user, db)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    _assert_customer_project_member(project, user, db)
     if user.role == "customer" and not task.is_client_visible:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -989,6 +1014,13 @@ def submit_task_approval(
             raise HTTPException(status_code=404, detail="Task not found")
         if not task.is_client_visible:
             raise HTTPException(status_code=403, detail="Task not visible to customers")
+        # Customer must be an explicit ProjectMember — org membership alone is not enough
+        is_member = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project.id,
+            ProjectMember.user_id == user.id,
+        ).first()
+        if not is_member:
+            raise HTTPException(status_code=404, detail="Task not found")
     else:
         task = assert_project_task_access(task_id, user, db)
 
@@ -1092,6 +1124,12 @@ def list_task_approvals(
             raise HTTPException(status_code=404, detail="Task not found")
         if not task.is_client_visible:
             raise HTTPException(status_code=403, detail="Task not visible to customers")
+        is_member = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project.id,
+            ProjectMember.user_id == user.id,
+        ).first()
+        if not is_member:
+            raise HTTPException(status_code=404, detail="Task not found")
     else:
         task = assert_project_task_access(task_id, user, db)
 

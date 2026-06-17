@@ -41,9 +41,10 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024   # 10 MB
 MAGIC_BYTE_READ_SIZE = 2048              # bytes fed to libmagic for MIME detection
 
 # ── OTP / password reset ──────────────────────────────────────────────────────
-OTP_LENGTH = 6            # digits
+OTP_LENGTH = 6                 # digits
 OTP_EXPIRY_MINUTES = 10
-OTP_MAX_ATTEMPTS = 5      # failed attempts before OTP is locked
+OTP_MAX_ATTEMPTS = 5           # failed attempts before OTP is locked
+RESET_TOKEN_EXPIRE_MINUTES = 15  # reset token must be shorter than a normal session
 
 # ── Pagination ────────────────────────────────────────────────────────────────
 DEFAULT_PAGE_SIZE = 20
