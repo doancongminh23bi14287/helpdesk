@@ -8,7 +8,9 @@ from app.database import get_db
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.models.transfer_request import TicketTransferRequest
+from app.models.team import StaffOrgAssignment
 from app.core.deps import get_current_user
+from app.core.scoping import get_ticket_in_scope
 from app.services.notify import create_notification
 
 router = APIRouter(prefix="/api/tickets", tags=["transfer-requests"])
@@ -48,6 +50,12 @@ def create_transfer_request(
     target = db.query(User).filter(User.id == payload.to_staff_id, User.role == "staff").first()
     if not target:
         raise HTTPException(404, "Target staff not found")
+    assigned = db.query(StaffOrgAssignment).filter(
+        StaffOrgAssignment.user_id == target.id,
+        StaffOrgAssignment.org_id == ticket.org_id,
+    ).first()
+    if not assigned:
+        raise HTTPException(400, "Target staff is not assigned to this organization")
     if payload.to_staff_id == user.id:
         raise HTTPException(400, "Cannot transfer to yourself")
     # Cancel any existing pending request
@@ -81,6 +89,7 @@ def get_transfer_request(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    get_ticket_in_scope(ticket_id, user, db)  # raises 404 if out of scope
     req = db.query(TicketTransferRequest).filter(
         TicketTransferRequest.ticket_id == ticket_id,
         TicketTransferRequest.status == "pending",

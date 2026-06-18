@@ -5,6 +5,7 @@ billing fields.  Called from billing.py (create) and api/subscriptions.py (cance
 # Call sync_service_from_subscription() here if a future endpoint updates
 # subscription fields (unit_price, billing_cycle, etc.).
 """
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.service import Service
@@ -56,7 +57,12 @@ def sync_service_from_subscription(
     monthly_cost = float(subscription.unit_price) if subscription.unit_price is not None else None
     expiry_date = subscription.current_period_end
 
-    svc = db.query(Service).filter(Service.subscription_id == subscription.id).first()
+    svc = (
+        db.query(Service)
+        .filter(Service.subscription_id == subscription.id)
+        .with_for_update()
+        .first()
+    )
 
     if svc is None:
         if not create_if_missing:
@@ -76,6 +82,13 @@ def sync_service_from_subscription(
             disk_usage=None,
         )
         db.add(svc)
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            svc = db.query(Service).filter(Service.subscription_id == subscription.id).first()
+            if svc is None:
+                raise
     else:
         svc.name = name
         svc.type = svc_type

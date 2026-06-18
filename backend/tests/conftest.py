@@ -35,7 +35,7 @@ def reset_rate_limiter():
     # These bleed across test sessions because TRUNCATE resets autoincrement,
     # causing new test records to get the same IDs as previous-session records.
     from app.core.redis_client import redis_client
-    for pattern in ("blacklist:user:*", "expiry_notif:*", "sla:*"):
+    for pattern in ("blacklist:user:*", "expiry_notif:*", "sla:*", "reset_jti:*"):
         for key in redis_client.scan_iter(pattern):
             redis_client.delete(key)
     yield

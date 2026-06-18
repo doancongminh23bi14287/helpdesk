@@ -30,12 +30,15 @@ def list_items(
     user: User = Depends(get_current_user),
 ):
     q = db.query(Item)
-    if not paginated and search is None and type is None and is_active is None:
-        return q.filter(Item.is_active.is_(True)).all()
-    if is_active is not None:
-        q = q.filter(Item.is_active == is_active)
-    elif not paginated:
+    if user.role == "customer":
         q = q.filter(Item.is_active.is_(True))
+    else:
+        if not paginated and search is None and type is None and is_active is None:
+            return q.filter(Item.is_active.is_(True)).all()
+        if is_active is not None:
+            q = q.filter(Item.is_active == is_active)
+        elif not paginated:
+            q = q.filter(Item.is_active.is_(True))
     if type:
         q = q.filter(Item.type == type)
     if search:
@@ -64,6 +67,8 @@ def get_item(
 ):
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if user.role == "customer" and not item.is_active:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 

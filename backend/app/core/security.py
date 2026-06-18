@@ -66,3 +66,12 @@ def is_user_blacklisted(user_id: int, redis_client) -> bool:
 
 def remove_user_from_blacklist(user_id: int, redis_client) -> None:
     redis_client.delete(f"blacklist:user:{user_id}")
+
+
+def mark_reset_token_used(jti: str, redis_client, ttl_minutes: int) -> None:
+    """Record a password-reset JWT JTI so it cannot be used a second time."""
+    redis_client.set(f"reset_jti:{jti}", "1", ex=ttl_minutes * 60)
+
+
+def is_reset_token_used(jti: str, redis_client) -> bool:
+    return redis_client.exists(f"reset_jti:{jti}") > 0

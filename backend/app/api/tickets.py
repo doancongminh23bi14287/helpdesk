@@ -491,7 +491,7 @@ def update_ticket(
 ):
     ticket = _get_ticket_in_scope(ticket_id, user, db)
 
-    changes = payload.model_dump(exclude_none=True)
+    changes = payload.model_dump(exclude_unset=True)
 
     if "status" in changes:
         new_status = changes["status"]
@@ -541,12 +541,15 @@ def update_ticket(
         db.add(activity)
         ticket.priority = new_priority
 
-    # Resolve assignee_ids: new multi-assignee or legacy single
+    # Resolve assignee_ids: new multi-assignee or legacy single.
+    # None means "field not sent — no change". [] means "explicitly clear all".
     eff_ids: list[int] | None = None
-    if "assignee_ids" in changes and changes["assignee_ids"] is not None:
-        eff_ids = list(changes["assignee_ids"])
-    elif "assignee_id" in changes and changes["assignee_id"] is not None:
-        eff_ids = [changes["assignee_id"]]
+    if "assignee_ids" in changes:
+        raw = changes["assignee_ids"]
+        eff_ids = list(raw) if raw else []   # None/[] → clear all
+    elif "assignee_id" in changes:
+        raw = changes["assignee_id"]
+        eff_ids = [raw] if raw is not None else []  # None → clear
 
     if eff_ids is not None:
         old_assignee = str(ticket.assignee_id) if ticket.assignee_id else None
@@ -560,19 +563,22 @@ def update_ticket(
         )
         db.add(activity)
 
-    if "assignment_mode" in changes and changes["assignment_mode"] is not None:
+    if "assignment_mode" in changes:
         ticket.assignment_mode = changes["assignment_mode"]
 
-    if "task_id" in changes and changes["task_id"] is not None:
-        from app.models.project import ProjectTask as _PTask
-        t_obj = db.query(_PTask).filter(_PTask.id == changes["task_id"]).first()
-        if not t_obj:
-            raise HTTPException(status_code=422, detail="Task not found")
-        if ticket.project_id and t_obj.project_id != ticket.project_id:
-            raise HTTPException(status_code=422, detail="Task does not belong to the ticket's project")
-        ticket.task_id = changes["task_id"]
-        if ticket.project_id is None:
-            ticket.project_id = t_obj.project_id
+    if "task_id" in changes:
+        if changes["task_id"] is not None:
+            from app.models.project import ProjectTask as _PTask
+            t_obj = db.query(_PTask).filter(_PTask.id == changes["task_id"]).first()
+            if not t_obj:
+                raise HTTPException(status_code=422, detail="Task not found")
+            if ticket.project_id and t_obj.project_id != ticket.project_id:
+                raise HTTPException(status_code=422, detail="Task does not belong to the ticket's project")
+            ticket.task_id = changes["task_id"]
+            if ticket.project_id is None:
+                ticket.project_id = t_obj.project_id
+        else:
+            ticket.task_id = None
 
     db.commit()
     db.refresh(ticket)
@@ -619,12 +625,7 @@ def delete_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    ticket = db.query(Ticket).filter(
-        Ticket.id == ticket_id,
-        Ticket.is_deleted == False,  # noqa: E712
-    ).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
     ticket.is_deleted = True
     activity = TicketActivity(
         ticket_id=ticket.id,
@@ -644,7 +645,9 @@ def hard_delete_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    ticket = scope_tickets(
+        db.query(Ticket).filter(Ticket.id == ticket_id), user, db
+    ).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     if ticket.status not in ("Resolved", "Closed") and not ticket.is_deleted:

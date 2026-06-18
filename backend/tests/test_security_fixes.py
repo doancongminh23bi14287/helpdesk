@@ -507,9 +507,9 @@ def test_link_same_org_user_to_contact_succeeds(client, db, admin_token):
 def test_link_staff_user_to_contact_succeeds(client, db, admin_token, provider_org):
     """Admin link staff user (provider org) to client org contact → 200.
 
-    Sprint 2 MEDIUM 4: the Sprint 1 check `target_user.org_id != org_id` blocked
-    this because staff.org_id == provider_org.id ≠ client_org.id.
-    Fix: only enforce the check for customer-role users.
+    Sprint 2 MEDIUM 4: allow staff (provider org) to be linked cross-org since
+    staff.org_id != client_org.id is expected. Sprint 3 H1 tightens this further:
+    staff must also have a StaffOrgAssignment for the target org.
     """
     client_org = _make_org(db, "Client Org Staff Link")
     from app.models.contact import Contact
@@ -520,13 +520,18 @@ def test_link_staff_user_to_contact_succeeds(client, db, admin_token, provider_o
 
     staff = _make_user(db, provider_org.id, "staff_link_contact@test.com", role="staff")
 
+    # Sprint 3 H1: staff must be assigned to the target org
+    from app.models.team import StaffOrgAssignment
+    db.add(StaffOrgAssignment(user_id=staff.id, org_id=client_org.id))
+    db.commit()
+
     r = client.put(
         f"/api/organizations/{client_org.id}/contacts/{contact.id}/link-user",
         json={"user_id": staff.id},
         headers=_h(admin_token),
     )
     assert r.status_code == 200, (
-        f"Staff (provider org) should be linkable to client contact: {r.status_code}: {r.text}"
+        f"Staff assigned to org should be linkable to its contact: {r.status_code}: {r.text}"
     )
     assert r.json()["user_id"] == staff.id
 

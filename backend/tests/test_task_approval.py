@@ -207,7 +207,7 @@ def test_wrong_status_for_action_returns_422(
 def test_customer_cannot_approve_invisible_task(
     client, db, admin_user, customer_token, customer_user, client_org
 ):
-    """Customer cannot approve a task with is_client_visible=False → 403."""
+    """Customer cannot approve a task with is_client_visible=False → 404 (existence leak fix)."""
     project = _make_project(db, client_org.id, admin_user.id)
     _add_member(db, project.id, customer_user.id, "customer", admin_user.id)
     task = _make_task(db, project.id, admin_user.id, status="review", is_client_visible=False)
@@ -217,13 +217,13 @@ def test_customer_cannot_approve_invisible_task(
         json={"action": "approved"},
         headers=_auth(customer_token),
     )
-    assert r.status_code == 403
+    assert r.status_code == 404
 
 
 def test_get_approvals_customer_blocked_on_invisible_task(
     client, db, admin_user, customer_token, customer_user, client_org
 ):
-    """Customer cannot GET approvals for a non-client-visible task → 403."""
+    """Customer cannot GET approvals for a non-client-visible task → 404 (existence leak fix)."""
     project = _make_project(db, client_org.id, admin_user.id)
     _add_member(db, project.id, customer_user.id, "customer", admin_user.id)
     task = _make_task(db, project.id, admin_user.id, status="review", is_client_visible=False)
@@ -232,7 +232,7 @@ def test_get_approvals_customer_blocked_on_invisible_task(
         f"/api/project-tasks/{task.id}/approvals",
         headers=_auth(customer_token),
     )
-    assert r.status_code == 403
+    assert r.status_code == 404
 
 
 def test_approval_history_newest_first(

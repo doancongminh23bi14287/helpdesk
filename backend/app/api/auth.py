@@ -16,6 +16,7 @@ from app.core.security import (
     verify_password, create_access_token, create_refresh_token,
     decode_token, hash_password, hash_token,
     blacklist_user_tokens, is_user_blacklisted, remove_user_from_blacklist,
+    mark_reset_token_used, is_reset_token_used,
 )
 from app.core.deps import get_current_user, oauth2_scheme
 from app.core.redis_client import redis_client
@@ -138,7 +139,7 @@ def refresh(request: Request, payload: RefreshRequest, db: Session = Depends(get
     token_hash = hash_token(payload.refresh_token)
     session = db.query(UserSession).filter(
         UserSession.refresh_token_hash == token_hash,
-    ).first()
+    ).with_for_update().first()
 
     if not session:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
@@ -581,24 +582,15 @@ def reset_password_via_otp(payload: dict = Body(...), db: Session = Depends(get_
     if len(new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
+    jti = claims.get("jti", "")
+    if not jti or is_reset_token_used(jti, redis_client):
+        raise HTTPException(status_code=400, detail="Reset token already used or expired. Please start over.")
+
     user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if not user:
         raise HTTPException(status_code=400, detail="User not found")
 
-    # Verify a live, unused OTP row still exists for this reset session.
-    # FOR UPDATE prevents two concurrent POST /reset-password requests with the
-    # same token from both reading used_at=NULL and both writing a new password.
-    now = datetime.utcnow()
-    otp_row = db.query(PasswordResetOTP).filter(
-        PasswordResetOTP.user_id == user_id,
-        PasswordResetOTP.used_at.is_(None),
-        PasswordResetOTP.expires_at > now,
-    ).order_by(PasswordResetOTP.created_at.desc()).with_for_update().first()
-    if not otp_row:
-        raise HTTPException(status_code=400, detail="Reset session expired or already used. Please start over.")
-
-    # Mark the OTP as used (prevents reuse of the reset_token)
-    otp_row.used_at = now
+    mark_reset_token_used(jti, redis_client, RESET_TOKEN_EXPIRE_MINUTES)
 
     user.password_hash = hash_password(new_password)
     user.must_change_password = False

@@ -511,9 +511,7 @@ def list_project_members(
     user: User = Depends(get_current_user),
 ):
     project = assert_project_access(project_id, user, db)
-    # Customers may only view members of their own org's projects
-    if user.role == "customer" and project.org_id != user.org_id:
-        raise HTTPException(status_code=404, detail="Project not found")
+    _assert_customer_project_member(project, user, db)
     members = (
         db.query(ProjectMember)
         .filter(ProjectMember.project_id == project.id)
@@ -659,17 +657,7 @@ def update_project_task_status_endpoint(
     user: User = Depends(get_current_user),
 ):
     _require_internal(user)
-    task = db.query(ProjectTask).filter(ProjectTask.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Project task not found")
-    project = db.query(Project).filter(Project.id == task.project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project task not found")
-    if user.role != "admin":
-        org_ids = get_accessible_org_ids(user, db) or []
-        # Being assigned to a task does NOT grant access to orgs outside the staff's assignment list.
-        if project.org_id not in org_ids:
-            raise HTTPException(status_code=404, detail="Project task not found")
+    task = assert_project_task_access(task_id, user, db)
     task = update_project_task_status(db, task, payload.status)
     db.commit()
     db.refresh(task)
@@ -1013,7 +1001,7 @@ def submit_task_approval(
         if not project or project.org_id != user.org_id or project.visibility != "customer_visible":
             raise HTTPException(status_code=404, detail="Task not found")
         if not task.is_client_visible:
-            raise HTTPException(status_code=403, detail="Task not visible to customers")
+            raise HTTPException(status_code=404, detail="Task not found")
         # Customer must be an explicit ProjectMember — org membership alone is not enough
         is_member = db.query(ProjectMember).filter(
             ProjectMember.project_id == project.id,
@@ -1123,7 +1111,7 @@ def list_task_approvals(
         if not project or project.org_id != user.org_id or project.visibility != "customer_visible":
             raise HTTPException(status_code=404, detail="Task not found")
         if not task.is_client_visible:
-            raise HTTPException(status_code=403, detail="Task not visible to customers")
+            raise HTTPException(status_code=404, detail="Task not found")
         is_member = db.query(ProjectMember).filter(
             ProjectMember.project_id == project.id,
             ProjectMember.user_id == user.id,

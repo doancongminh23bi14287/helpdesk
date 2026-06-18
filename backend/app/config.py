@@ -1,6 +1,7 @@
 # backend/app/config.py
 import os
 import pathlib
+import sys
 import types
 from dotenv import load_dotenv
 
@@ -26,6 +27,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
+# True when running under pytest (in-process only — does not affect subprocesses)
+TESTING: bool = "pytest" in sys.modules or _env_bool("TESTING", False)
 
 CORS_ORIGINS: list[str] = _split_csv(
     os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:8001")
@@ -95,19 +99,24 @@ settings = types.SimpleNamespace(
 
 
 def validate_production_config() -> None:
-    """Raise ValueError at process startup if production env has insecure or missing config."""
-    if ENV != "production":
+    """Raise ValueError at process startup if env has insecure or missing config."""
+    if TESTING:
         return
-    if not JWT_SECRET or JWT_SECRET in {"changeme", "dev-secret-change-in-production"}:
+    _insecure_defaults = {"changeme", "dev-secret-change-in-production"}
+    if not JWT_SECRET or JWT_SECRET in _insecure_defaults:
         raise ValueError(
-            "FATAL: JWT_SECRET must be set to a secure value "
-            "in production. Current value is missing or an insecure default."
+            "FATAL: JWT_SECRET must be set to a secure value. "
+            "Current value is missing or an insecure default. "
+            "Set TESTING=true to bypass this check in test environments."
         )
     if len(JWT_SECRET) < 32:
         raise ValueError(
-            "FATAL: JWT_SECRET must be at least 32 characters "
-            f"in production. Current length: {len(JWT_SECRET)}"
+            "FATAL: JWT_SECRET must be at least 32 characters. "
+            f"Current length: {len(JWT_SECRET)}. "
+            "Set TESTING=true to bypass this check in test environments."
         )
+    if ENV != "production":
+        return
     if not os.getenv("DATABASE_URL") and not os.getenv("DB_URL"):
         raise ValueError("FATAL: DATABASE_URL or DB_URL must be set in production.")
     if "REDIS_URL" not in os.environ and (

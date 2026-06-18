@@ -26,6 +26,6 @@ class Service(Base):
     disk_usage = Column(String(50))
     monthly_cost = Column(DECIMAL(15, 2), default=0)
     billing_cycle = Column(Enum("monthly", "quarterly", "yearly"), default="monthly")
-    subscription_id = Column(BigInteger, ForeignKey("subscriptions.id"), nullable=True)
+    subscription_id = Column(BigInteger, ForeignKey("subscriptions.id"), nullable=True, unique=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())

@@ -239,6 +239,10 @@ def test_customer_cannot_see_internal_comments(
     """Customer cannot see internal comments even on client_visible tasks."""
     project = _make_project(db, client_org.id, admin_user.id)
     task = _make_task(db, project.id, admin_user.id, is_client_visible=True)
+    # Sprint 2: _assert_customer_project_member requires explicit membership
+    from app.models.project import ProjectMember
+    db.add(ProjectMember(project_id=project.id, user_id=customer_user.id, role="customer", added_by=admin_user.id))
+    db.commit()
 
     # Admin posts internal comment
     client.post(
@@ -267,6 +271,10 @@ def test_customer_cannot_post_internal_comment(
     """Customer trying to post is_internal=True gets 403."""
     project = _make_project(db, client_org.id, admin_user.id)
     task = _make_task(db, project.id, admin_user.id, is_client_visible=True)
+    # Sprint 2: _assert_customer_project_member requires explicit membership
+    from app.models.project import ProjectMember
+    db.add(ProjectMember(project_id=project.id, user_id=customer_user.id, role="customer", added_by=admin_user.id))
+    db.commit()
 
     r = client.post(
         f"/api/project-tasks/{task.id}/comments",
