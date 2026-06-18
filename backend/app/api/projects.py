@@ -15,6 +15,7 @@ from app.core.scoping import (
     get_accessible_org_ids,
     scope_project_tasks,
     scope_projects,
+    scope_tickets,
 )
 from app.database import get_db
 from app.models.organization import Organization
@@ -343,8 +344,7 @@ def list_project_tickets(
         Ticket.project_id == project.id,
         Ticket.is_deleted == False,  # noqa: E712
     )
-    if user.role == "customer":
-        query = query.filter(Ticket.org_id == user.org_id)
+    query = scope_tickets(query, user, db)
     tickets = query.order_by(Ticket.created_at.desc()).limit(50).all()
     return [
         {
@@ -813,8 +813,7 @@ def get_project_discussion(
         Ticket.project_id == project.id,
         Ticket.is_deleted == False,  # noqa: E712
     )
-    if user.role == "customer":
-        ticket_query = ticket_query.filter(Ticket.org_id == user.org_id)
+    ticket_query = scope_tickets(ticket_query, user, db)
     tickets = ticket_query.all()
 
     if not tickets:
@@ -886,8 +885,7 @@ def post_project_discussion(
         Ticket.is_deleted == False,  # noqa: E712
         ~Ticket.status.in_(["Closed", "Resolved"]),
     )
-    if user.role == "customer":
-        ticket_query = ticket_query.filter(Ticket.org_id == user.org_id)
+    ticket_query = scope_tickets(ticket_query, user, db)
     primary_ticket = ticket_query.order_by(Ticket.created_at.asc()).first()
 
     if not primary_ticket:

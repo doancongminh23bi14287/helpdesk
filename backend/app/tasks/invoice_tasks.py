@@ -72,29 +72,38 @@ def auto_generate_invoices():
         ).all()
 
         for sub in renewal_subs:
+            # skip_locked=True: if another worker already holds this row's lock,
+            # skip rather than wait — prevents two workers creating invoices for
+            # the same subscription in a concurrent Celery execution.
+            sub_locked = db.query(Subscription).filter(
+                Subscription.id == sub.id,
+            ).with_for_update(skip_locked=True).first()
+            if sub_locked is None:
+                continue
+
             # Idempotency: skip if a non-cancelled invoice already exists for this
             # billing period (issue_date >= next_billing_date catches same-day re-runs).
             existing = db.query(Invoice).filter(
-                Invoice.subscription_id == sub.id,
-                Invoice.issue_date >= sub.next_billing_date,
+                Invoice.subscription_id == sub_locked.id,
+                Invoice.issue_date >= sub_locked.next_billing_date,
                 Invoice.status != "cancelled",
             ).first()
             if existing:
-                handled_ids.add(sub.id)
+                handled_ids.add(sub_locked.id)
                 continue
 
-            create_invoice_from_subscription(sub.id, db)
+            create_invoice_from_subscription(sub_locked.id, db)
 
-            new_period_start = sub.next_billing_date
-            cycle = getattr(sub, "billing_cycle", None) or "monthly"
+            new_period_start = sub_locked.next_billing_date
+            cycle = getattr(sub_locked, "billing_cycle", None) or "monthly"
             new_period_end = compute_period_end(new_period_start, cycle)
             new_next_billing = compute_next_billing_date(new_period_end)
 
-            sub.current_period_start = new_period_start
-            sub.current_period_end = new_period_end
-            sub.next_billing_date = new_next_billing
+            sub_locked.current_period_start = new_period_start
+            sub_locked.current_period_end = new_period_end
+            sub_locked.next_billing_date = new_next_billing
 
-            handled_ids.add(sub.id)
+            handled_ids.add(sub_locked.id)
             count += 1
 
         # --- Pass 2: initial invoices for subscriptions that have none yet ---

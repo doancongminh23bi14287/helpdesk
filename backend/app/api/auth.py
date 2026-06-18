@@ -512,7 +512,8 @@ def forgot_password(request: Request, payload: dict = Body(...), db: Session = D
 
 
 @router.post("/verify-otp")
-def verify_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
+@limiter.limit(config.RATE_LIMIT_OTP_VERIFY)
+def verify_otp(request: Request, payload: dict = Body(...), db: Session = Depends(get_db)):
     email = (payload.get("email") or "").strip().lower()
     otp_input = str(payload.get("otp") or "").strip()
 
@@ -563,7 +564,8 @@ def verify_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
 
 
 @router.post("/reset-password")
-def reset_password_via_otp(payload: dict = Body(...), db: Session = Depends(get_db)):
+@limiter.limit(config.RATE_LIMIT_OTP_RESET)
+def reset_password_via_otp(request: Request, payload: dict = Body(...), db: Session = Depends(get_db)):
     reset_token = payload.get("reset_token") or ""
     new_password = payload.get("new_password") or ""
 

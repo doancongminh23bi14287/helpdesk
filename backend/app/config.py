@@ -65,6 +65,8 @@ RATE_LIMIT_CHANGE_PASSWORD: str = os.getenv("RATE_LIMIT_CHANGE_PASSWORD", "5/min
 RATE_LIMIT_TICKET_CREATE: str = os.getenv("RATE_LIMIT_TICKET_CREATE", "20/minute")
 RATE_LIMIT_FILE_UPLOAD: str = os.getenv("RATE_LIMIT_FILE_UPLOAD", "10/minute")
 RATE_LIMIT_ADMIN_EMAIL_POLL: str = os.getenv("RATE_LIMIT_ADMIN_EMAIL_POLL", "3/minute")
+RATE_LIMIT_OTP_VERIFY: str = os.getenv("RATE_LIMIT_OTP_VERIFY", "5/minute")
+RATE_LIMIT_OTP_RESET: str = os.getenv("RATE_LIMIT_OTP_RESET", "5/minute")
 
 # Convenience object for callers that prefer attribute-style access.
 settings = types.SimpleNamespace(
@@ -95,6 +97,8 @@ settings = types.SimpleNamespace(
     RATE_LIMIT_TICKET_CREATE=RATE_LIMIT_TICKET_CREATE,
     RATE_LIMIT_FILE_UPLOAD=RATE_LIMIT_FILE_UPLOAD,
     RATE_LIMIT_ADMIN_EMAIL_POLL=RATE_LIMIT_ADMIN_EMAIL_POLL,
+    RATE_LIMIT_OTP_VERIFY=RATE_LIMIT_OTP_VERIFY,
+    RATE_LIMIT_OTP_RESET=RATE_LIMIT_OTP_RESET,
 )
 
 

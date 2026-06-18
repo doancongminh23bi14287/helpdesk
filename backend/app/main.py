@@ -199,15 +199,15 @@ async def ready(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
         checks["database"] = "ok"
-    except Exception as e:
-        checks["database"] = f"error: {e}"
+    except Exception:
+        checks["database"] = "error"
         overall = "degraded"
 
     try:
         redis_client.ping()
         checks["redis"] = "ok"
-    except Exception as e:
-        checks["redis"] = f"error: {e}"
+    except Exception:
+        checks["redis"] = "error"
         overall = "degraded"
 
     try:
@@ -236,9 +236,9 @@ async def ready(db: Session = Depends(get_db)):
         overall = "degraded"
 
     if settings.SMTP_PASS:
-        checks["smtp_config"] = f"ok ({settings.SMTP_USER}@{settings.SMTP_HOST}:{settings.SMTP_PORT})"
+        checks["smtp_config"] = "ok"
     else:
-        checks["smtp_config"] = "error: SMTP_PASS is not configured"
+        checks["smtp_config"] = "error"
         overall = "degraded"
 
     return JSONResponse(
