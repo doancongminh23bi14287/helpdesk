@@ -28,8 +28,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-# True when running under pytest (in-process only — does not affect subprocesses)
-TESTING: bool = "pytest" in sys.modules or _env_bool("TESTING", False)
+# True when running under pytest (in-process detection only — not overridable via env var).
+# Do NOT add _env_bool("TESTING") here: that would allow a production deploy to bypass
+# validate_production_config() by setting TESTING=true in the environment.
+TESTING: bool = "pytest" in sys.modules
 
 CORS_ORIGINS: list[str] = _split_csv(
     os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:8001")
@@ -110,14 +112,12 @@ def validate_production_config() -> None:
     if not JWT_SECRET or JWT_SECRET in _insecure_defaults:
         raise ValueError(
             "FATAL: JWT_SECRET must be set to a secure value. "
-            "Current value is missing or an insecure default. "
-            "Set TESTING=true to bypass this check in test environments."
+            "Current value is missing or an insecure default."
         )
     if len(JWT_SECRET) < 32:
         raise ValueError(
             "FATAL: JWT_SECRET must be at least 32 characters. "
-            f"Current length: {len(JWT_SECRET)}. "
-            "Set TESTING=true to bypass this check in test environments."
+            f"Current length: {len(JWT_SECRET)}."
         )
     if ENV != "production":
         return

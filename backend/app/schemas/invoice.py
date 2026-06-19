@@ -13,6 +13,20 @@ class InvoiceLineIn(BaseModel):
     quantity: Decimal = Decimal("1")
     unit_price: Decimal
 
+    @field_validator("unit_price")
+    @classmethod
+    def validate_unit_price(cls, v: Decimal) -> Decimal:
+        if v <= Decimal("0"):
+            raise ValueError("unit_price must be positive")
+        return v
+
+    @field_validator("quantity")
+    @classmethod
+    def validate_quantity(cls, v: Decimal) -> Decimal:
+        if v <= Decimal("0"):
+            raise ValueError("quantity must be positive")
+        return v
+
 
 class InvoiceCreate(BaseModel):
     org_id: int

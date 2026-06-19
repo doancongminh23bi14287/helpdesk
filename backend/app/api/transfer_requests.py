@@ -11,6 +11,7 @@ from app.models.transfer_request import TicketTransferRequest
 from app.models.team import StaffOrgAssignment
 from app.core.deps import get_current_user
 from app.core.scoping import get_ticket_in_scope
+from app.services.assignment import set_ticket_assignees
 from app.services.notify import create_notification
 
 router = APIRouter(prefix="/api/tickets", tags=["transfer-requests"])
@@ -114,19 +115,24 @@ def accept_transfer(
     if req.to_staff_id != user.id:
         raise HTTPException(403, "Only the target staff can accept")
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    ticket.assignee_id = user.id
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+    # Capture scalar values before DB operations that expire the ORM object
+    new_assignee_id = user.id
+    new_assignee_name = user.full_name
+    set_ticket_assignees(db, ticket, [new_assignee_id], assigned_by=req.from_staff_id)
     req.status = "accepted"
     req.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     create_notification(
         db,
         user_id=req.from_staff_id,
         title=f"Transfer accepted — Ticket #{ticket_id}",
-        content=f"{user.full_name} accepted the transfer of '{ticket.subject}'",
+        content=f"{new_assignee_name} accepted the transfer of '{ticket.subject}'",
         type="assignment",
         ref_ticket_id=ticket_id,
     )
     db.commit()
-    return {"status": "accepted", "assignee_id": user.id}
+    return {"status": "accepted", "assignee_id": new_assignee_id}
 
 
 @router.put("/{ticket_id}/transfer-request/{req_id}/decline")
