@@ -813,18 +813,29 @@ def get_project_discussion(
         Ticket.project_id == project.id,
         Ticket.is_deleted == False,  # noqa: E712
     )
-    ticket_query = scope_tickets(ticket_query, user, db)
     tickets = ticket_query.all()
 
     if not tickets:
         return {"total": 0, "items": []}
 
-    ticket_ids = [t.id for t in tickets]
     ticket_map = {t.id: t for t in tickets}
+    ticket_ids = [t.id for t in tickets]
 
     reply_query = db.query(TicketReply).filter(TicketReply.ticket_id.in_(ticket_ids))
     if user.role == "customer":
-        reply_query = reply_query.filter(TicketReply.is_internal == False)  # noqa: E712
+        other_customer_ids = (
+            db.query(User.id)
+            .filter(User.role == "customer", User.id != user.id)
+            .scalar_subquery()
+        )
+        reply_query = (
+            reply_query
+            .join(Ticket, TicketReply.ticket_id == Ticket.id)
+            .filter(
+                TicketReply.is_internal.is_(False),
+                ~Ticket.raised_by.in_(other_customer_ids),
+            )
+        )
 
     total = reply_query.count()
     replies = (
