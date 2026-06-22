@@ -94,7 +94,7 @@ function InvoiceDetailModal({ invoice, onClose }) {
             <span className="tabular-nums">{fmtVND(invoice.subtotal)}</span>
           </div>
           <div className="flex justify-between text-muted-foreground">
-            <span>Tax ({(invoice.tax_rate ?? 0).toFixed(0)}%)</span>
+            <span>Tax ({Number(invoice.tax_rate ?? 0).toFixed(0)}%)</span>
             <span className="tabular-nums">{fmtVND(invoice.tax_amount)}</span>
           </div>
           <div className="flex justify-between font-bold text-foreground border-t border-border pt-2 mt-1">
