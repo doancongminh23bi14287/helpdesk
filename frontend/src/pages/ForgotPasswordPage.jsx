@@ -121,7 +121,7 @@ export default function ForgotPasswordPage() {
           <p className="text-sm text-gray-400 mt-1">Client Support & Workload Management System</p>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 shadow-sm">
           {/* Step indicator */}
           <div className="flex items-center gap-2 mb-6">
             {[1,2,3].map(n => (

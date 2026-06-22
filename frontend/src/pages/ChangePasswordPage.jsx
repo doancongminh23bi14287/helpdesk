@@ -49,7 +49,7 @@ export default function ChangePasswordPage() {
           )}
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">

@@ -735,7 +735,7 @@ function DocumentsPanel({ projectId, documents, loading, error, canUpload, onUpl
       ) : (
         <>
           {imageDocs.length > 0 && (
-            <div className="grid grid-cols-4 gap-2 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
               {imageDocs.slice(0, 4).map((doc, i) => (
                 <div key={doc.id} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 cursor-pointer hover:ring-2 hover:ring-amber-400 transition" onClick={() => setLightbox({ src: `/api/projects/${projectId}/documents/${doc.id}/download`, name: doc.file_name })}>
                   <img src={`/api/projects/${projectId}/documents/${doc.id}/download`} alt={doc.file_name} className="w-full h-full object-cover" />

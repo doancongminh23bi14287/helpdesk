@@ -600,7 +600,7 @@ export default function NewTicketPage() {
 
                 {/* Project + Task */}
                 {projects.length > 0 && (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Field label="Project" hint="Optional">
                       <StyledSelect
                         value={selectedProjectId ?? ''}
@@ -629,7 +629,7 @@ export default function NewTicketPage() {
                 )}
 
                 {/* Type + Priority */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Ticket Type" required={isCustomer} error={errors.ticket_type}>
                     <StyledSelect
                       value={form.ticket_type}

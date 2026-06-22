@@ -109,7 +109,7 @@ function PaymentSection({ invoice, onChanged }) {
       )}
 
       {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
-        <form onSubmit={submit} className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+        <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border">
           <input
             value={form.amount}
             onChange={(e) => setForm(f => ({ ...f, amount: e.target.value }))}
@@ -162,7 +162,7 @@ function InvoiceDetailModal({ invoice, onClose, onInvoiceChanged }) {
     <Modal open={!!invoice} onClose={onClose} title={`Invoice ${invoice.invoice_number}`}>
       <div className="space-y-5">
         {/* Header info */}
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-xs text-muted-foreground">Organisation</p>
             <p className="font-medium text-foreground mt-0.5">{invoice.org_name ?? invoice.org_id}</p>
@@ -200,7 +200,7 @@ function InvoiceDetailModal({ invoice, onClose, onInvoiceChanged }) {
 
         {/* Lines table */}
         {invoice.lines && invoice.lines.length > 0 && (
-          <div className="border border-border rounded-lg overflow-hidden">
+          <div className="border border-border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">

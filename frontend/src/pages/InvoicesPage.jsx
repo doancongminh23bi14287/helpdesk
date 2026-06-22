@@ -23,7 +23,7 @@ function InvoiceDetailModal({ invoice, onClose }) {
     <Modal open={!!invoice} onClose={onClose} title={`Invoice ${invoice.invoice_number}`}>
       <div className="space-y-5">
         {/* Header info */}
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-xs text-muted-foreground">Organisation</p>
             <p className="font-medium text-foreground mt-0.5">{invoice.org_name ?? invoice.org_id}</p>
@@ -62,6 +62,7 @@ function InvoiceDetailModal({ invoice, onClose }) {
         {/* Lines table */}
         {invoice.lines && invoice.lines.length > 0 && (
           <div className="border border-border rounded-lg overflow-hidden">
+            <div className="overflow-x-auto w-full">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
@@ -82,6 +83,7 @@ function InvoiceDetailModal({ invoice, onClose }) {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 

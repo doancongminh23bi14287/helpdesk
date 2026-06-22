@@ -171,7 +171,7 @@ function SubscriptionForm({ items, orgs, onSubmit, onCancel, loading }) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Tax Rate (%)</label>
           <input type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} className={SELECT_CLS} />

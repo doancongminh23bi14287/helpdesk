@@ -42,7 +42,7 @@ function OrgForm({ initial = EMPTY_ORG_FORM, onSubmit, onCancel, loading, isEdit
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">{error}</div>}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Name <span className="text-red-500">*</span></label>
           <input type="text" value={form.name} onChange={set('name')} placeholder="Company name"
@@ -54,7 +54,7 @@ function OrgForm({ initial = EMPTY_ORG_FORM, onSubmit, onCancel, loading, isEdit
             className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Contact Email</label>
           <input type="email" value={form.contact_email} onChange={set('contact_email')} placeholder="contact@company.com"
@@ -106,7 +106,7 @@ function ContactForm({ initial = EMPTY_CONTACT, onSubmit, onCancel, loading, isE
   return (
     <form onSubmit={handle} className="space-y-4">
       {error && <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{error}</div>}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Name <span className="text-red-500">*</span></label>
           <input type="text" value={form.name} onChange={set('name')} placeholder="Full name"
@@ -123,7 +123,7 @@ function ContactForm({ initial = EMPTY_CONTACT, onSubmit, onCancel, loading, isE
           </select>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
           <input type="email" value={form.email} onChange={set('email')} placeholder="name@company.com"
@@ -160,7 +160,7 @@ function AddressForm({ initial = EMPTY_ADDR, onSubmit, onCancel, loading }) {
   return (
     <form onSubmit={handle} className="space-y-4">
       {error && <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{error}</div>}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Label <span className="text-red-500">*</span></label>
           <input type="text" value={form.label} onChange={set('label')} placeholder="HQ"
@@ -177,7 +177,7 @@ function AddressForm({ initial = EMPTY_ADDR, onSubmit, onCancel, loading }) {
         <input type="text" value={form.street} onChange={set('street')} placeholder="123 Nguyen Hue"
           className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">City</label>
           <input type="text" value={form.city} onChange={set('city')} placeholder="Ho Chi Minh City"

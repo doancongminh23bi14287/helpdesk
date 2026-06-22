@@ -263,6 +263,7 @@ export default function SubscriptionDetail({ subscriptionName: nameProp, onBack 
               <p className="text-sm text-muted-foreground">No invoices for this subscription.</p>
             </div>
           ) : (
+            <div className="overflow-x-auto w-full">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
@@ -294,6 +295,7 @@ export default function SubscriptionDetail({ subscriptionName: nameProp, onBack 
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </motion.div>

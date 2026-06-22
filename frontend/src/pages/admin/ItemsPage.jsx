@@ -40,7 +40,7 @@ function ItemForm({ initial = EMPTY_FORM, onSubmit, onCancel, loading, isEdit })
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">
             Code <span className="text-red-500">*</span>
@@ -68,7 +68,7 @@ function ItemForm({ initial = EMPTY_FORM, onSubmit, onCancel, loading, isEdit })
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Type</label>
           <select

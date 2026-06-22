@@ -301,7 +301,7 @@ function Step2Organization({ onBack, onNext, onSkip }) {
       <ErrorBanner message={error} />
 
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">
               Name <span className="text-red-500">*</span>
@@ -409,7 +409,7 @@ function Step3Contact({ onBack, onNext, onSkip, organization }) {
       <ErrorBanner message={error} />
 
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">
               Name <span className="text-red-500">*</span>
@@ -434,7 +434,7 @@ function Step3Contact({ onBack, onNext, onSkip, organization }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">Phone</label>
             <input
@@ -518,7 +518,7 @@ function Step4User({ onBack, onNext, onSkip, organization }) {
       <ErrorBanner message={error} />
 
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">
               Email <span className="text-red-500">*</span>
@@ -545,7 +545,7 @@ function Step4User({ onBack, onNext, onSkip, organization }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">
               Password <span className="text-red-500">*</span>

@@ -104,7 +104,7 @@ function SlaBar({ sla }) {
   const barColor = sla.state === 'green' ? 'bg-green-500' : sla.state === 'amber' ? 'bg-amber-500' : 'bg-red-500'
   const textColor = sla.state === 'green' ? 'text-green-700' : sla.state === 'amber' ? 'text-amber-700' : 'text-red-700'
   return (
-    <div className="flex flex-col gap-1 min-w-[180px]">
+    <div className="flex flex-col gap-1 lg:min-w-[180px]">
       <div className="flex items-center justify-between text-[10px] font-medium text-gray-400 uppercase tracking-wide">
         <span>Resolution SLA</span>
         <span className={cn('font-semibold', textColor)}>

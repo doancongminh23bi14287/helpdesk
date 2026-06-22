@@ -43,7 +43,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 shadow-sm">
           <div className="mb-6">
             <h1 className="font-semibold text-xl text-gray-900">Sign in</h1>
             <p className="text-sm text-gray-400 mt-1">Enter your credentials to continue</p>
