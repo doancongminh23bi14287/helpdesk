@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useTicket } from '@/hooks/useTickets'
 import { useAuthStore } from '@/hooks/useAuth'
 import { useRole } from '@/hooks/useRole'
@@ -35,6 +36,8 @@ import {
   FolderIcon,
   GlobeAltIcon,
   WrenchScrewdriverIcon,
+  XMarkIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline'
 
 const STATUS_STYLES = {
@@ -255,9 +258,301 @@ function SidebarSection({ title, children, defaultOpen = true }) {
   )
 }
 
+function TicketInfoPanel({
+  ticket, sla, attachments, activities, isStaffOrAdmin, isAdmin, isStaff, user,
+  staffList, transferReq, assignUpdating, projectActionLoading,
+  setShowTransferModal, setShowLinkProjectModal,
+  handleAssign, handleAcceptTransfer, handleDeclineTransfer,
+  handleCreateProject, handleUnlinkProject,
+}) {
+  return (
+    <>
+      {ticket.description && (
+        <SidebarSection title="Description" defaultOpen={true}>
+          <p className="text-sm font-medium text-slate-800 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
+        </SidebarSection>
+      )}
+
+      {attachments.filter(a => !a.reply_id).length > 0 && (
+        <SidebarSection title={`Attachments (${attachments.filter(a => !a.reply_id).length})`} defaultOpen={false}>
+          <AttachmentList attachments={attachments.filter(a => !a.reply_id)} />
+        </SidebarSection>
+      )}
+
+      <SidebarSection title="Details">
+        <div className="space-y-0">
+          <DetailRow icon={TagIcon} label="Status" value={ticket.status} />
+          <DetailRow icon={SparklesIcon} label="Priority" value={ticket.priority} />
+          <DetailRow icon={TagIcon} label="Type" value={ticket.ticket_type} />
+          <DetailRow icon={TagIcon} label="Source" value={ticket.source} />
+          <DetailRow icon={CalendarDaysIcon} label="Created" value={formatDateTime(ticket.created_at)} />
+          <DetailRow icon={CalendarDaysIcon} label="Updated" value={formatDateTime(ticket.updated_at)} />
+          {sla && sla.state !== 'unknown' && (
+            <div className="pt-2 pb-1">
+              <SlaBar sla={sla} />
+            </div>
+          )}
+        </div>
+      </SidebarSection>
+
+      <SidebarSection title="Customer">
+        <div className="space-y-0">
+          {ticket.raised_by_name && (
+            <DetailRow icon={UserCircleIcon} label="Name" value={ticket.raised_by_name} />
+          )}
+          <DetailRow icon={UserCircleIcon} label="Email" value={ticket.raised_by_email} />
+        </div>
+      </SidebarSection>
+
+      {isStaffOrAdmin && (
+        <SidebarSection title="Assignment">
+          {ticket.assignees && ticket.assignees.length > 0 ? (
+            <div className="space-y-1 mb-3">
+              {ticket.assignees.map((a) => (
+                <div key={a.user_id} className="flex items-center gap-2">
+                  <UserCircleIcon className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <span className="text-xs text-gray-700 font-medium">
+                    {a.full_name ?? `Staff #${a.user_id}`}
+                  </span>
+                  {a.is_primary && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 ml-auto">Primary</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mb-3">
+              <UserCircleIcon className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className="text-xs text-gray-400 italic">Unassigned</span>
+            </div>
+          )}
+
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <select
+                value={ticket.assignee_id ?? ''}
+                onChange={e => handleAssign(e.target.value)}
+                disabled={assignUpdating}
+                className="flex-1 text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
+              >
+                <option value="">— Unassigned —</option>
+                {staffList.map(s => (
+                  <option key={s.id} value={s.id}>{s.full_name}</option>
+                ))}
+              </select>
+              {assignUpdating && <Spinner className="w-3.5 h-3.5 flex-shrink-0" />}
+            </div>
+          )}
+
+          {isStaff && (
+            <>
+              {transferReq && transferReq.to_staff_id === user.id && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-amber-800">Transfer Request</p>
+                  <p className="text-xs text-amber-700">
+                    <span className="font-medium">{transferReq.from_staff_name}</span> wants to hand this ticket to you.
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={handleAcceptTransfer}
+                      className="flex-1 px-2 py-1 text-xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+                      Accept
+                    </button>
+                    <button onClick={handleDeclineTransfer}
+                      className="flex-1 px-2 py-1 text-xs font-medium rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors">
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              )}
+              {transferReq && transferReq.from_staff_id === user.id && (
+                <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                  <p className="text-xs text-blue-700">
+                    Waiting for <span className="font-medium">{transferReq.to_staff_name}</span> to accept the transfer.
+                  </p>
+                </div>
+              )}
+              {!transferReq && ticket.assignee_id === user.id && (
+                <button onClick={() => setShowTransferModal(true)}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors">
+                  <UserPlusIcon className="w-3.5 h-3.5" />
+                  Request Transfer
+                </button>
+              )}
+            </>
+          )}
+        </SidebarSection>
+      )}
+
+      <SidebarSection title="Project" defaultOpen={!!ticket.project_id}>
+        {!ticket.project_id ? (
+          isAdmin ? (
+            <div className="flex gap-2">
+              <button
+                onClick={handleCreateProject}
+                disabled={projectActionLoading}
+                className="flex-1 text-xs px-2 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 transition-colors"
+              >
+                {projectActionLoading ? 'Creating…' : '+ Create'}
+              </button>
+              <button
+                onClick={() => setShowLinkProjectModal(true)}
+                disabled={projectActionLoading}
+                className="flex-1 text-xs px-2 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Link
+              </button>
+            </div>
+          ) : (
+            <span className="text-xs text-gray-400 italic">None</span>
+          )
+        ) : (
+          <div className="flex items-center justify-between gap-2">
+            <Link to={`/projects/${ticket.project_id}`} className="flex items-center gap-1.5 min-w-0">
+              <FolderIcon className="w-4 h-4 text-violet-500 flex-shrink-0" />
+              <span className="text-xs font-medium text-violet-700 hover:underline truncate">
+                {ticket.project_name ?? `Project #${ticket.project_id}`}
+              </span>
+            </Link>
+            {isAdmin && (
+              <button
+                onClick={handleUnlinkProject}
+                disabled={projectActionLoading}
+                className="text-[10px] text-red-400 hover:text-red-600 disabled:opacity-50 flex-shrink-0 transition-colors"
+              >
+                Unlink
+              </button>
+            )}
+          </div>
+        )}
+      </SidebarSection>
+
+      {ticket.task_id && (
+        <SidebarSection title="Task">
+          <Link
+            to={`/projects/${ticket.project_id}`}
+            className="flex items-center gap-1.5 min-w-0"
+            title={`Task #${ticket.task_id}`}
+          >
+            <CubeIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <span className="text-xs font-medium text-amber-700 hover:underline truncate">
+              {ticket.task_title ?? `Task #${ticket.task_id}`}
+            </span>
+          </Link>
+        </SidebarSection>
+      )}
+
+      {ticket.service_id && (
+        <SidebarSection title="Service Info">
+          <div className="space-y-3">
+            <div className="flex items-start gap-2.5">
+              <BuildingOffice2Icon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Organization</p>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-medium text-gray-800 truncate">
+                    {ticket.org_name ?? `Org #${ticket.org_id}`}
+                  </span>
+                  {ticket.org_code && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500 font-mono">
+                      {ticket.org_code}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <ServerStackIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Service</p>
+                <p className="text-xs font-medium text-gray-800 truncate mb-1">{ticket.service_name}</p>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {ticket.service_type && (() => {
+                    const cfg = SVC_TYPE_STYLES[ticket.service_type] ?? SVC_TYPE_STYLES.other
+                    return (
+                      <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-semibold', cfg.color)}>
+                        {cfg.label}
+                      </span>
+                    )
+                  })()}
+                  {ticket.service_status && (
+                    <span className={cn(
+                      'px-1.5 py-0.5 rounded text-[10px] font-semibold capitalize',
+                      SVC_STATUS_STYLES[ticket.service_status] ?? 'bg-gray-100 text-gray-500',
+                    )}>
+                      {ticket.service_status.replace('_', ' ')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {ticket.service_expiry_date && (
+              <div className="flex items-start gap-2.5">
+                <CalendarDaysIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Expiry</p>
+                  <ServiceExpiryChip dateStr={ticket.service_expiry_date} />
+                </div>
+              </div>
+            )}
+
+            {ticket.service_monthly_cost != null && ticket.service_monthly_cost > 0 && (
+              <div className="flex items-start gap-2.5">
+                <BanknotesIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Monthly Cost</p>
+                  <p className="text-xs font-semibold text-gray-800">
+                    {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(ticket.service_monthly_cost)}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {ticket.service_disk_usage && (
+              <div className="flex items-start gap-2.5">
+                <CircleStackIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">Disk Usage</p>
+                  <ServiceDiskBar usage={ticket.service_disk_usage} />
+                </div>
+              </div>
+            )}
+          </div>
+        </SidebarSection>
+      )}
+
+      {!ticket.service_id && (
+        <SidebarSection title="Organization" defaultOpen={false}>
+          <DetailRow icon={BuildingOffice2Icon} label="Organization" value={ticket.org_name ?? `Org #${ticket.org_id}`} />
+        </SidebarSection>
+      )}
+
+      {activities && activities.length > 0 && (
+        <SidebarSection title={`Activity (${activities.length})`} defaultOpen={false}>
+          <div className={activities.length > 8 ? 'max-h-64 overflow-y-auto space-y-0.5 pr-1' : 'space-y-0.5'}>
+            {activities.map((a) => (
+              <div key={a.id} className="flex gap-2 items-start py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0 mt-1.5" />
+                <span className="flex-1 text-xs text-gray-500">{activityLabel(a)}</span>
+                <span
+                  className="flex-shrink-0 text-[10px] text-gray-400"
+                  title={formatDateTime(a.created_at)}
+                >
+                  {formatDistanceToNow(parseUTC(a.created_at), { addSuffix: true })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </SidebarSection>
+      )}
+    </>
+  )
+}
+
 export default function TicketDetailPage() {
   const { id } = useParams()
-  const { ticket, comments: replies, activities, sla, loading, reply, refetch } = useTicket(id)
+  const { ticket, comments: replies, activities, sla, loading, reply, refetch, appendReply, silentRefetch } = useTicket(id)
   const { user } = useAuthStore()
   const { isStaff, isAdmin } = useRole()
   const isStaffOrAdmin = isStaff || isAdmin
@@ -279,6 +574,7 @@ export default function TicketDetailPage() {
   const [showLinkProjectModal, setShowLinkProjectModal] = useState(false)
   const [projectSearch, setProjectSearch] = useState('')
   const [projectSearchResults, setProjectSearchResults] = useState([])
+  const [infoDrawerOpen, setInfoDrawerOpen] = useState(false)
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem('ticket_sidebar_width'))
@@ -317,16 +613,15 @@ export default function TicketDetailPage() {
 
   useEffect(() => { loadTransferReq() }, [loadTransferReq])
 
-  // H.4B: realtime new_reply from socket
+  // H.4B: realtime new_reply from socket — silent background refresh, no loading flash
   useEffect(() => {
     const tid = Number(id)
     const handler = (data) => {
       if (data.ticket_id !== tid) return
-      // useTicket hook manages replies; trigger refetch
-      refetch()
+      silentRefetch()
     }
     return subscribeSocketEvent('new_reply', handler)
-  }, [id, refetch])
+  }, [id, silentRefetch])
 
   // Debounced project search when link modal is open
   useEffect(() => {
@@ -387,7 +682,7 @@ export default function TicketDetailPage() {
     setSending(true)
     try {
       const created = await reply(message.trim() || '', isInternal)
-      // Upload reply attachments linked to this specific reply
+      appendReply(created)
       if (replyFiles.length > 0) {
         const results = await Promise.allSettled(replyFiles.map((f) => uploadAttachment(id, f, created?.id)))
         const failed = results.find((result) => result.status === 'rejected')
@@ -396,7 +691,7 @@ export default function TicketDetailPage() {
       }
       setMessage('')
       setIsInternal(false)
-      // Refresh attachments
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
       getAttachments(id).then(setAttachments).catch(() => {})
     } finally {
       setSending(false)
@@ -540,6 +835,13 @@ export default function TicketDetailPage() {
             </div>
           </div>
 
+          <button
+            onClick={() => setInfoDrawerOpen(true)}
+            className="lg:hidden p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+            aria-label="Show ticket info"
+          >
+            <InformationCircleIcon className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -661,300 +963,89 @@ export default function TicketDetailPage() {
           <div className="w-full bg-gray-100 group-hover:bg-amber-400 transition-colors duration-150" />
         </div>
 
+        {/* Desktop static info panel */}
         <div
-          className="w-full lg:flex-shrink-0 border-t lg:border-t-0 border-gray-100 bg-white overflow-y-auto scrollbar-thin"
-          style={isLg ? { width: sidebarWidth } : undefined}
+          className="hidden lg:block lg:flex-shrink-0 bg-white overflow-y-auto scrollbar-thin"
+          style={{ width: sidebarWidth }}
         >
-
-          {/* Description */}
-          {ticket.description && (
-            <SidebarSection title="Description" defaultOpen={true}>
-              <p className="text-sm font-medium text-slate-800 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
-            </SidebarSection>
-          )}
-
-          {/* Attachments (created with ticket, reply_id IS NULL) */}
-          {attachments.filter(a => !a.reply_id).length > 0 && (
-            <SidebarSection title={`Attachments (${attachments.filter(a => !a.reply_id).length})`} defaultOpen={false}>
-              <AttachmentList attachments={attachments.filter(a => !a.reply_id)} />
-            </SidebarSection>
-          )}
-
-          {/* Details */}
-          <SidebarSection title="Details">
-            <div className="space-y-0">
-              <DetailRow icon={TagIcon} label="Status" value={ticket.status} />
-              <DetailRow icon={SparklesIcon} label="Priority" value={ticket.priority} />
-              <DetailRow icon={TagIcon} label="Type" value={ticket.ticket_type} />
-              <DetailRow icon={TagIcon} label="Source" value={ticket.source} />
-              <DetailRow icon={CalendarDaysIcon} label="Created" value={formatDateTime(ticket.created_at)} />
-              <DetailRow icon={CalendarDaysIcon} label="Updated" value={formatDateTime(ticket.updated_at)} />
-              {sla && sla.state !== 'unknown' && (
-                <div className="pt-2 pb-1">
-                  <SlaBar sla={sla} />
-                </div>
-              )}
-            </div>
-          </SidebarSection>
-
-          {/* Customer */}
-          <SidebarSection title="Customer">
-            <div className="space-y-0">
-              {ticket.raised_by_name && (
-                <DetailRow icon={UserCircleIcon} label="Name" value={ticket.raised_by_name} />
-              )}
-              <DetailRow icon={UserCircleIcon} label="Email" value={ticket.raised_by_email} />
-            </div>
-          </SidebarSection>
-
-          {/* Assignment */}
-          {isStaffOrAdmin && (
-            <SidebarSection title="Assignment">
-              {ticket.assignees && ticket.assignees.length > 0 ? (
-                <div className="space-y-1 mb-3">
-                  {ticket.assignees.map((a) => (
-                    <div key={a.user_id} className="flex items-center gap-2">
-                      <UserCircleIcon className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      <span className="text-xs text-gray-700 font-medium">
-                        {a.full_name ?? `Staff #${a.user_id}`}
-                      </span>
-                      {a.is_primary && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 ml-auto">Primary</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 mb-3">
-                  <UserCircleIcon className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span className="text-xs text-gray-400 italic">Unassigned</span>
-                </div>
-              )}
-
-              {isAdmin && (
-                <div className="flex items-center gap-2">
-                  <select
-                    value={ticket.assignee_id ?? ''}
-                    onChange={e => handleAssign(e.target.value)}
-                    disabled={assignUpdating}
-                    className="flex-1 text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
-                  >
-                    <option value="">— Unassigned —</option>
-                    {staffList.map(s => (
-                      <option key={s.id} value={s.id}>{s.full_name}</option>
-                    ))}
-                  </select>
-                  {assignUpdating && <Spinner className="w-3.5 h-3.5 flex-shrink-0" />}
-                </div>
-              )}
-
-              {isStaff && (
-                <>
-                  {transferReq && transferReq.to_staff_id === user.id && (
-                    <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-amber-800">Transfer Request</p>
-                      <p className="text-xs text-amber-700">
-                        <span className="font-medium">{transferReq.from_staff_name}</span> wants to hand this ticket to you.
-                      </p>
-                      <div className="flex gap-2">
-                        <button onClick={handleAcceptTransfer}
-                          className="flex-1 px-2 py-1 text-xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
-                          Accept
-                        </button>
-                        <button onClick={handleDeclineTransfer}
-                          className="flex-1 px-2 py-1 text-xs font-medium rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors">
-                          Decline
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {transferReq && transferReq.from_staff_id === user.id && (
-                    <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
-                      <p className="text-xs text-blue-700">
-                        Waiting for <span className="font-medium">{transferReq.to_staff_name}</span> to accept the transfer.
-                      </p>
-                    </div>
-                  )}
-                  {!transferReq && ticket.assignee_id === user.id && (
-                    <button onClick={() => setShowTransferModal(true)}
-                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors">
-                      <UserPlusIcon className="w-3.5 h-3.5" />
-                      Request Transfer
-                    </button>
-                  )}
-                </>
-              )}
-            </SidebarSection>
-          )}
-
-          {/* Project */}
-          <SidebarSection title="Project" defaultOpen={!!ticket.project_id}>
-            {!ticket.project_id ? (
-              isAdmin ? (
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCreateProject}
-                    disabled={projectActionLoading}
-                    className="flex-1 text-xs px-2 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 transition-colors"
-                  >
-                    {projectActionLoading ? 'Creating…' : '+ Create'}
-                  </button>
-                  <button
-                    onClick={() => setShowLinkProjectModal(true)}
-                    disabled={projectActionLoading}
-                    className="flex-1 text-xs px-2 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                  >
-                    Link
-                  </button>
-                </div>
-              ) : (
-                <span className="text-xs text-gray-400 italic">None</span>
-              )
-            ) : (
-              <div className="flex items-center justify-between gap-2">
-                <Link to={`/projects/${ticket.project_id}`} className="flex items-center gap-1.5 min-w-0">
-                  <FolderIcon className="w-4 h-4 text-violet-500 flex-shrink-0" />
-                  <span className="text-xs font-medium text-violet-700 hover:underline truncate">
-                    {ticket.project_name ?? `Project #${ticket.project_id}`}
-                  </span>
-                </Link>
-                {isAdmin && (
-                  <button
-                    onClick={handleUnlinkProject}
-                    disabled={projectActionLoading}
-                    className="text-[10px] text-red-400 hover:text-red-600 disabled:opacity-50 flex-shrink-0 transition-colors"
-                  >
-                    Unlink
-                  </button>
-                )}
-              </div>
-            )}
-          </SidebarSection>
-
-          {/* Task */}
-          {ticket.task_id && (
-            <SidebarSection title="Task">
-              <Link
-                to={`/projects/${ticket.project_id}`}
-                className="flex items-center gap-1.5 min-w-0"
-                title={`Task #${ticket.task_id}`}
-              >
-                <CubeIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                <span className="text-xs font-medium text-amber-700 hover:underline truncate">
-                  {ticket.task_title ?? `Task #${ticket.task_id}`}
-                </span>
-              </Link>
-            </SidebarSection>
-          )}
-
-          {/* Service Info */}
-          {ticket.service_id && (
-            <SidebarSection title="Service Info">
-              <div className="space-y-3">
-                <div className="flex items-start gap-2.5">
-                  <BuildingOffice2Icon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Organization</p>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-medium text-gray-800 truncate">
-                        {ticket.org_name ?? `Org #${ticket.org_id}`}
-                      </span>
-                      {ticket.org_code && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500 font-mono">
-                          {ticket.org_code}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2.5">
-                  <ServerStackIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Service</p>
-                    <p className="text-xs font-medium text-gray-800 truncate mb-1">{ticket.service_name}</p>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {ticket.service_type && (() => {
-                        const cfg = SVC_TYPE_STYLES[ticket.service_type] ?? SVC_TYPE_STYLES.other
-                        return (
-                          <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-semibold', cfg.color)}>
-                            {cfg.label}
-                          </span>
-                        )
-                      })()}
-                      {ticket.service_status && (
-                        <span className={cn(
-                          'px-1.5 py-0.5 rounded text-[10px] font-semibold capitalize',
-                          SVC_STATUS_STYLES[ticket.service_status] ?? 'bg-gray-100 text-gray-500',
-                        )}>
-                          {ticket.service_status.replace('_', ' ')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {ticket.service_expiry_date && (
-                  <div className="flex items-start gap-2.5">
-                    <CalendarDaysIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Expiry</p>
-                      <ServiceExpiryChip dateStr={ticket.service_expiry_date} />
-                    </div>
-                  </div>
-                )}
-
-                {ticket.service_monthly_cost != null && ticket.service_monthly_cost > 0 && (
-                  <div className="flex items-start gap-2.5">
-                    <BanknotesIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Monthly Cost</p>
-                      <p className="text-xs font-semibold text-gray-800">
-                        {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(ticket.service_monthly_cost)}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {ticket.service_disk_usage && (
-                  <div className="flex items-start gap-2.5">
-                    <CircleStackIcon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">Disk Usage</p>
-                      <ServiceDiskBar usage={ticket.service_disk_usage} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </SidebarSection>
-          )}
-
-          {!ticket.service_id && (
-            <SidebarSection title="Organization" defaultOpen={false}>
-              <DetailRow icon={BuildingOffice2Icon} label="Organization" value={ticket.org_name ?? `Org #${ticket.org_id}`} />
-            </SidebarSection>
-          )}
-
-          {activities && activities.length > 0 && (
-            <SidebarSection title={`Activity (${activities.length})`} defaultOpen={false}>
-              <div className={activities.length > 8 ? 'max-h-64 overflow-y-auto space-y-0.5 pr-1' : 'space-y-0.5'}>
-                {activities.map((a) => (
-                  <div key={a.id} className="flex gap-2 items-start py-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0 mt-1.5" />
-                    <span className="flex-1 text-xs text-gray-500">{activityLabel(a)}</span>
-                    <span
-                      className="flex-shrink-0 text-[10px] text-gray-400"
-                      title={formatDateTime(a.created_at)}
-                    >
-                      {formatDistanceToNow(parseUTC(a.created_at), { addSuffix: true })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </SidebarSection>
-          )}
+          <TicketInfoPanel
+            ticket={ticket}
+            sla={sla}
+            attachments={attachments}
+            activities={activities}
+            isStaffOrAdmin={isStaffOrAdmin}
+            isAdmin={isAdmin}
+            isStaff={isStaff}
+            user={user}
+            staffList={staffList}
+            transferReq={transferReq}
+            assignUpdating={assignUpdating}
+            projectActionLoading={projectActionLoading}
+            setShowTransferModal={setShowTransferModal}
+            setShowLinkProjectModal={setShowLinkProjectModal}
+            handleAssign={handleAssign}
+            handleAcceptTransfer={handleAcceptTransfer}
+            handleDeclineTransfer={handleDeclineTransfer}
+            handleCreateProject={handleCreateProject}
+            handleUnlinkProject={handleUnlinkProject}
+          />
         </div>
       </div>
+
+      {/* Mobile info drawer */}
+      <AnimatePresence>
+        {infoDrawerOpen && (
+          <div className="fixed inset-0 z-40 lg:hidden">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setInfoDrawerOpen(false)}
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="absolute right-0 top-0 h-full w-80 max-w-[85vw] bg-white overflow-y-auto shadow-xl flex flex-col"
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Ticket Info</span>
+                <button
+                  onClick={() => setInfoDrawerOpen(false)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <TicketInfoPanel
+                  ticket={ticket}
+                  sla={sla}
+                  attachments={attachments}
+                  activities={activities}
+                  isStaffOrAdmin={isStaffOrAdmin}
+                  isAdmin={isAdmin}
+                  isStaff={isStaff}
+                  user={user}
+                  staffList={staffList}
+                  transferReq={transferReq}
+                  assignUpdating={assignUpdating}
+                  projectActionLoading={projectActionLoading}
+                  setShowTransferModal={setShowTransferModal}
+                  setShowLinkProjectModal={setShowLinkProjectModal}
+                  handleAssign={handleAssign}
+                  handleAcceptTransfer={handleAcceptTransfer}
+                  handleDeclineTransfer={handleDeclineTransfer}
+                  handleCreateProject={handleCreateProject}
+                  handleUnlinkProject={handleUnlinkProject}
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Link Project Modal */}
       {showLinkProjectModal && (

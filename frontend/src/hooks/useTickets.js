@@ -81,13 +81,30 @@ export function useTicket(ticketId) {
 
   const refetch = useCallback(() => setRev(r => r + 1), [])
 
-  const reply = useCallback(async (content, isInternal = false) => {
-    const created = await replyToTicket(ticketId, content, isInternal)
-    refetch()
-    return created
-  }, [ticketId, refetch])
+  const appendReply = useCallback((newReply) => {
+    setComments(prev =>
+      prev.some(r => r.id === newReply.id) ? prev : [...prev, newReply]
+    )
+  }, [])
 
-  return { ticket, comments, activities, sla, loading, error, reply, refetch }
+  const silentRefetch = useCallback(() => {
+    if (!ticketId) return
+    Promise.all([
+      getTicket(ticketId),
+      getSla(ticketId).catch(() => null),
+    ]).then(([ticketData, slaData]) => {
+      setTicket(ticketData)
+      setComments(ticketData?.replies ?? [])
+      setActivities(ticketData?.activities ?? [])
+      if (slaData) setSla(slaData)
+    }).catch(() => {})
+  }, [ticketId])
+
+  const reply = useCallback(async (content, isInternal = false) => {
+    return await replyToTicket(ticketId, content, isInternal)
+  }, [ticketId])
+
+  return { ticket, comments, activities, sla, loading, error, reply, refetch, appendReply, silentRefetch }
 }
 
 /**
