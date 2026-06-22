@@ -9,7 +9,7 @@ function statusClass(value) {
 }
 
 function displayServiceName(value) {
-  if (!value || value === 'CustomerHub API') return 'WorkDesk API'
+  if (!value || value === 'CustomerHub API') return 'CustomerHub API'
   return value
 }
 

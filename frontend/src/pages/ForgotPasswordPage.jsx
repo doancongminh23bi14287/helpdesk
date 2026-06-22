@@ -117,7 +117,7 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <p className="font-bold text-2xl text-gray-900">WorkDesk</p>
+          <p className="font-bold text-2xl text-gray-900">CustomerHub</p>
           <p className="text-sm text-gray-400 mt-1">Client Support & Workload Management System</p>
         </div>
 

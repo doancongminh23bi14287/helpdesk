@@ -914,31 +914,39 @@ export default function TicketDetailPage() {
                     e.target.value = ''
                   }}
                 />
-                <div className="flex items-center gap-3">
-                  {isStaffOrAdmin && (
-                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={isInternal}
-                        onChange={(e) => setIsInternal(e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      <LockClosedIcon className="w-3.5 h-3.5" />
-                      Internal note (hidden from customer)
-                    </label>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="h-9 px-3 inline-flex items-center gap-1.5 text-sm font-medium rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
-                    title="Attach files"
-                  >
-                    <PaperClipIcon className="w-4 h-4" />
-                  </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Left cluster: internal toggle + attach */}
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {isStaffOrAdmin && (
+                      <label className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border cursor-pointer select-none transition-colors text-xs font-medium ${
+                        isInternal
+                          ? 'bg-amber-50 border-amber-300 text-amber-700'
+                          : 'border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={isInternal}
+                          onChange={(e) => setIsInternal(e.target.checked)}
+                          className="sr-only"
+                        />
+                        <LockClosedIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="whitespace-nowrap">Internal note</span>
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors flex-shrink-0"
+                      title="Attach files"
+                    >
+                      <PaperClipIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {/* Send button */}
                   <button
                     type="submit"
                     disabled={(!message.trim() && replyFiles.length === 0) || sending}
-                    className="ml-auto h-9 px-4 inline-flex items-center gap-1.5 text-sm font-medium rounded-lg bg-amber-400 text-amber-900 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="h-9 px-4 inline-flex items-center gap-1.5 text-sm font-medium rounded-lg bg-amber-400 text-amber-900 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                   >
                     {sending ? <Spinner className="w-4 h-4" /> : <PaperAirplaneIcon className="w-4 h-4" />}
                     Send

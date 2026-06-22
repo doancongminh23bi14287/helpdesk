@@ -24,7 +24,7 @@ describe('SystemStatusPage', () => {
     render(<SystemStatusPage />)
 
     expect(await screen.findByText('System Status')).toBeInTheDocument()
-    expect(await screen.findByText(/WorkDesk API/)).toBeInTheDocument()
+    expect(await screen.findByText(/CustomerHub API/)).toBeInTheDocument()
     expect(await screen.findByText('degraded')).toBeInTheDocument()
     expect(screen.getByText('error: Redis unreachable')).toBeInTheDocument()
     expect(screen.getByText('warn: 3 pending')).toBeInTheDocument()
