@@ -5,7 +5,7 @@ import {
   PlusCircleIcon, ChevronRightIcon,
   ClipboardDocumentListIcon, BuildingOffice2Icon, UserGroupIcon, ShieldCheckIcon,
   CubeIcon, TagIcon, CreditCardIcon, DocumentTextIcon,
-  MagnifyingGlassIcon, PresentationChartBarIcon,
+  MagnifyingGlassIcon, PresentationChartBarIcon, MagnifyingGlassCircleIcon,
 } from '@heroicons/react/24/outline'
 import {
   HomeIcon as HomeSolid,
@@ -21,6 +21,7 @@ import {
   CreditCardIcon as CreditCardSolid,
   DocumentTextIcon as DocumentTextSolid,
   PresentationChartBarIcon as PresentationChartBarSolid,
+  MagnifyingGlassCircleIcon as MagnifyingGlassCircleSolid,
 } from '@heroicons/react/24/solid'
 import { useState, useRef, useEffect } from 'react'
 import { useAuthStore } from '@/hooks/useAuth'
@@ -58,6 +59,7 @@ const NAV_ITEMS = {
   analytics:        { labelKey: 'nav.analytics',         href: '/admin/analytics',         icon: PresentationChartBarIcon,  iconActive: PresentationChartBarSolid },
   systemStatus:     { labelKey: 'nav.systemStatus',      href: '/admin/system',            icon: ServerStackIcon,           iconActive: ServerSolid },
   accountSecurity:  { labelKey: 'nav.accountSecurity',   href: '/account/security',        icon: ShieldCheckIcon,           iconActive: ShieldSolid },
+  seoDashboard:     { labelKey: 'nav.seoDashboard',      href: '/seo',                     icon: MagnifyingGlassCircleIcon, iconActive: MagnifyingGlassCircleSolid },
 }
 
 function navSectionsForRole(role) {
@@ -74,7 +76,7 @@ function navSectionsForRole(role) {
       { titleKey: 'sidebar.section.main',      items: [NAV_ITEMS.dashboard] },
       { titleKey: 'sidebar.section.delivery',  items: [NAV_ITEMS.seoProjects, NAV_ITEMS.services] },
       { titleKey: 'sidebar.section.support',   items: [NAV_ITEMS.allTickets, NAV_ITEMS.notifications] },
-      { titleKey: 'sidebar.section.reporting', items: [NAV_ITEMS.analytics] },
+      { titleKey: 'sidebar.section.reporting', items: [NAV_ITEMS.analytics, NAV_ITEMS.seoDashboard] },
       { titleKey: 'sidebar.section.account',   items: [NAV_ITEMS.accountSecurity] },
     ]
   }
@@ -85,7 +87,7 @@ function navSectionsForRole(role) {
     { titleKey: 'sidebar.section.delivery',         items: [NAV_ITEMS.seoProjects] },
     { titleKey: 'sidebar.section.support',          items: [NAV_ITEMS.allTickets, NAV_ITEMS.notifications, NAV_ITEMS.slaPolicies] },
     { titleKey: 'sidebar.section.billing',          items: [NAV_ITEMS.items, NAV_ITEMS.subscriptions, NAV_ITEMS.invoicesAdmin, NAV_ITEMS.emailOutbox] },
-    { titleKey: 'sidebar.section.reporting',        items: [NAV_ITEMS.analytics, NAV_ITEMS.systemStatus] },
+    { titleKey: 'sidebar.section.reporting',        items: [NAV_ITEMS.analytics, NAV_ITEMS.seoDashboard, NAV_ITEMS.systemStatus] },
     { titleKey: 'sidebar.section.account',          items: [NAV_ITEMS.accountSecurity] },
   ]
 }
@@ -109,6 +111,7 @@ const breadcrumbLabels = {
   'security':      'Security',
   'system':        'System Status',
   'email-outbox':  'Email Outbox',
+  'seo':           'SEO Dashboard',
 }
 
 function useBreadcrumbs() {

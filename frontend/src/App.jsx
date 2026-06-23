@@ -40,6 +40,7 @@ const StaffAssignmentsPage     = lazy(() => import('@/pages/admin/StaffAssignmen
 const AnalyticsDashboard       = lazy(() => import('@/pages/admin/AnalyticsDashboard'))
 const SystemStatusPage         = lazy(() => import('@/pages/admin/SystemStatusPage'))
 const EmailOutboxPage          = lazy(() => import('@/pages/admin/EmailOutboxPage'))
+const SeoDashboardPage         = lazy(() => import('@/pages/SeoDashboardPage'))
 
 function PageFallback() {
   return (
@@ -126,6 +127,11 @@ export default function App() {
           <Route path="/admin/staff-assignments" element={
             <ProtectedLayout>
               <AdminRoute><StaffAssignmentsPage /></AdminRoute>
+            </ProtectedLayout>
+          } />
+          <Route path="/seo" element={
+            <ProtectedLayout>
+              <StaffOrAdminRoute><SeoDashboardPage /></StaffOrAdminRoute>
             </ProtectedLayout>
           } />
           <Route path="/admin/analytics" element={
