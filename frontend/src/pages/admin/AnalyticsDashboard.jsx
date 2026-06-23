@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { subDays } from 'date-fns'
 import {
-  BarChart, Bar, PieChart, Pie, Cell,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import { Spinner } from '@/components/ui'
@@ -25,20 +25,29 @@ function todayISO() { return new Date().toISOString().slice(0, 10) }
 function daysAgoISO(n) { return subDays(new Date(), n).toISOString().slice(0, 10) }
 
 // Chart colour palette
-const CHART_COLORS = {
-  primary:    '#2563EB',  // blue-600
-  secondary:  '#0EA5E9',  // sky-500
-  tertiary:   '#10B981',  // emerald-500
-  quaternary: '#14B8A6',  // teal-500
-  accent:     '#6366F1',  // indigo-500
+const STATUS_COLORS = {
+  Open:        '#2563EB',
+  'In Progress': '#0EA5E9',
+  Waiting:     '#F59E0B',
+  Resolved:    '#10B981',
+  Closed:      '#6B7280',
 }
 
 const PRIORITY_COLORS = {
-  Low:    '#10B981',  // emerald — cool, calm
-  Medium: '#0EA5E9',  // sky
-  High:   '#2563EB',  // blue-600
-  Urgent: '#6366F1',  // indigo — distinct but not red
+  Low:    '#10B981',
+  Medium: '#0EA5E9',
+  High:   '#2563EB',
+  Urgent: '#6366F1',
 }
+
+const SLA_STATE_COLORS = {
+  green:    '#10B981',
+  amber:    '#F59E0B',
+  red:      '#EF4444',
+  breached: '#7C3AED',
+}
+
+const CHART_COLORS = ['#2563EB', '#0EA5E9', '#10B981', '#14B8A6', '#6366F1', '#F59E0B']
 
 // ── sub-components ─────────────────────────────────────────────────────────────
 
@@ -53,9 +62,7 @@ function StatCard({ label, value, sub, color = 'text-foreground' }) {
 }
 
 function SectionHeader({ title }) {
-  return (
-    <h2 className="text-base font-semibold text-foreground mb-4">{title}</h2>
-  )
+  return <h2 className="text-base font-semibold text-foreground mb-4">{title}</h2>
 }
 
 function LoadingSkeleton({ rows = 4 }) {
@@ -76,7 +83,20 @@ function ErrorBlock({ message }) {
   )
 }
 
-// ── SLA compliance colour ──────────────────────────────────────────────────────
+function EmptyState({ message = 'No data for this period' }) {
+  return (
+    <p className="text-sm text-muted-foreground text-center py-10">{message}</p>
+  )
+}
+
+const tooltipStyle = {
+  background: 'hsl(var(--card))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: '8px',
+  fontSize: '12px',
+}
+
+// ── SLA colour helper ──────────────────────────────────────────────────────────
 
 function slaColor(rate) {
   if (rate >= 80) return 'text-emerald-600'
@@ -87,11 +107,12 @@ function slaColor(rate) {
 // ── Sortable agent table ───────────────────────────────────────────────────────
 
 const AGENT_COLS = [
-  { key: 'name',                  label: 'Agent' },
-  { key: 'tickets_assigned',      label: 'Assigned' },
-  { key: 'tickets_resolved',      label: 'Resolved' },
-  { key: 'avg_resolution_hours',  label: 'Avg Res. (h)' },
-  { key: 'sla_compliance_rate',   label: 'SLA Rate' },
+  { key: 'name',                 label: 'Agent' },
+  { key: 'tickets_open',         label: 'Open' },
+  { key: 'tickets_assigned',     label: 'Assigned' },
+  { key: 'tickets_resolved',     label: 'Resolved' },
+  { key: 'avg_resolution_hours', label: 'Avg Res. (h)' },
+  { key: 'sla_compliance_rate',  label: 'SLA Rate' },
 ]
 
 function AgentTable({ agents }) {
@@ -122,9 +143,7 @@ function AgentTable({ agents }) {
                 className="px-4 py-3 text-left font-semibold text-muted-foreground cursor-pointer hover:text-foreground select-none whitespace-nowrap"
               >
                 {col.label}
-                {sortKey === col.key && (
-                  <span className="ml-1">{sortAsc ? '↑' : '↓'}</span>
-                )}
+                {sortKey === col.key && <span className="ml-1">{sortAsc ? '↑' : '↓'}</span>}
               </th>
             ))}
           </tr>
@@ -132,11 +151,12 @@ function AgentTable({ agents }) {
         <tbody className="divide-y divide-border">
           {sorted.map((a) => (
             <tr key={a.user_id} className="hover:bg-muted/30 transition-colors">
-              <td className="px-4 py-3 font-medium text-foreground">{a.name}</td>
+              <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{a.name}</td>
+              <td className="px-4 py-3 text-blue-600 font-medium">{a.tickets_open ?? 0}</td>
               <td className="px-4 py-3 text-muted-foreground">{a.tickets_assigned ?? 0}</td>
-              <td className="px-4 py-3 text-muted-foreground">{a.tickets_resolved ?? 0}</td>
+              <td className="px-4 py-3 text-emerald-600 font-medium">{a.tickets_resolved ?? 0}</td>
               <td className="px-4 py-3 text-muted-foreground">
-                {a.avg_resolution_hours != null ? a.avg_resolution_hours.toFixed(1) : '—'}
+                {a.avg_resolution_hours != null ? `${a.avg_resolution_hours.toFixed(1)}h` : '—'}
               </td>
               <td className={`px-4 py-3 font-semibold ${slaColor(a.sla_compliance_rate ?? 0)}`}>
                 {a.sla_compliance_rate != null ? `${a.sla_compliance_rate.toFixed(1)}%` : '—'}
@@ -154,99 +174,71 @@ function AgentTable({ agents }) {
 export default function AnalyticsDashboard() {
   const { isAdmin } = useRole()
 
-  // Date range — default last 30 days
   const [fromDate, setFromDate] = useState(daysAgoISO(29))
-  const [toDate, setToDate] = useState(todayISO())
-  const [orgId, setOrgId] = useState('')
+  const [toDate, setToDate]     = useState(todayISO())
+  const [orgId, setOrgId]       = useState('')
 
-  // Orgs for filter dropdown
-  const [orgs, setOrgs] = useState([])
+  const [orgs, setOrgs]         = useState([])
 
-  // Analytics data
-  const [ticketData, setTicketData] = useState(null)
-  const [slaData, setSlaData] = useState(null)
-  const [agentData, setAgentData] = useState(null)
+  const [ticketData,  setTicketData]  = useState(null)
+  const [slaData,     setSlaData]     = useState(null)
+  const [agentData,   setAgentData]   = useState(null)
   const [revenueData, setRevenueData] = useState(null)
 
-  // Loading/error states
-  const [loadingTickets, setLoadingTickets] = useState(false)
-  const [loadingSla, setLoadingSla] = useState(false)
-  const [loadingAgents, setLoadingAgents] = useState(false)
-  const [loadingRevenue, setLoadingRevenue] = useState(false)
+  const [loadingTickets, setLoadingTickets]   = useState(false)
+  const [loadingSla,     setLoadingSla]       = useState(false)
+  const [loadingAgents,  setLoadingAgents]    = useState(false)
+  const [loadingRevenue, setLoadingRevenue]   = useState(false)
 
   const [errorTickets, setErrorTickets] = useState('')
-  const [errorSla, setErrorSla] = useState('')
-  const [errorAgents, setErrorAgents] = useState('')
+  const [errorSla,     setErrorSla]     = useState('')
+  const [errorAgents,  setErrorAgents]  = useState('')
   const [errorRevenue, setErrorRevenue] = useState('')
 
-  // Revenue year picker
   const [revenueYear, setRevenueYear] = useState(new Date().getFullYear())
+  const [orgError,    setOrgError]    = useState(false)
 
-  // Org fetch error state
-  const [orgError, setOrgError] = useState(false)
-
-  // Load orgs on mount (admin only)
   useEffect(() => {
     if (!isAdmin) return
     listOrganizations({ per_page: 200 })
-      .then((data) => {
-        const items = Array.isArray(data) ? data : (data?.items ?? [])
-        setOrgs(items)
-      })
+      .then((data) => setOrgs(Array.isArray(data) ? data : (data?.items ?? [])))
       .catch(() => setOrgError(true))
   }, [isAdmin])
 
   const fetchAll = useCallback((signal) => {
     const params = {
       from_date: fromDate,
-      to_date: toDate,
+      to_date:   toDate,
       ...(orgId ? { org_id: orgId } : {}),
     }
 
-    // Ticket analytics
-    setLoadingTickets(true)
-    setErrorTickets('')
+    setLoadingTickets(true); setErrorTickets('')
     getTicketAnalytics(params, signal)
       .then((r) => setTicketData(r.data))
-      .catch((e) => {
-        if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorTickets(e.message || 'Failed to load ticket analytics')
-      })
+      .catch((e) => { if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorTickets(e.message || 'Failed to load ticket analytics') })
       .finally(() => setLoadingTickets(false))
 
-    // SLA analytics
-    setLoadingSla(true)
-    setErrorSla('')
+    setLoadingSla(true); setErrorSla('')
     getSLAAnalytics(params, signal)
       .then((r) => setSlaData(r.data))
-      .catch((e) => {
-        if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorSla(e.message || 'Failed to load SLA analytics')
-      })
+      .catch((e) => { if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorSla(e.message || 'Failed to load SLA analytics') })
       .finally(() => setLoadingSla(false))
 
     if (isAdmin) {
-      // Agent analytics
-      setLoadingAgents(true)
-      setErrorAgents('')
+      setLoadingAgents(true); setErrorAgents('')
       getAgentAnalytics(params, signal)
         .then((r) => setAgentData(r.data))
-        .catch((e) => {
-          if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorAgents(e.message || 'Failed to load agent analytics')
-        })
+        .catch((e) => { if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorAgents(e.message || 'Failed to load agent analytics') })
         .finally(() => setLoadingAgents(false))
 
-      // Revenue analytics
-      setLoadingRevenue(true)
-      setErrorRevenue('')
+      setLoadingRevenue(true); setErrorRevenue('')
       getRevenueAnalytics({ year: revenueYear, ...(orgId ? { org_id: orgId } : {}) }, signal)
         .then((r) => setRevenueData(r.data))
-        .catch((e) => {
-          if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorRevenue(e.message || 'Failed to load revenue analytics')
-        })
+        .catch((e) => { if (e.code !== 'ERR_CANCELED' && !e.__CANCEL__) setErrorRevenue(e.message || 'Failed to load revenue analytics') })
         .finally(() => setLoadingRevenue(false))
     }
   }, [fromDate, toDate, orgId, isAdmin, revenueYear])
 
-  // Fetch on mount and when filters change; abort stale requests
   useEffect(() => {
     const controller = new AbortController()
     fetchAll(controller.signal)
@@ -255,35 +247,39 @@ export default function AnalyticsDashboard() {
 
   // ── Derived data ──────────────────────────────────────────────────────────────
 
-  const byStatus = ticketData?.by_status ?? {}
+  // by_status keys are exact enum values: "Open", "In Progress", "Waiting", "Resolved", "Closed"
+  const byStatus   = ticketData?.by_status   ?? {}
   const byPriority = ticketData?.by_priority ?? {}
   const dailyTrend = ticketData?.daily_trend ?? []
 
-  // Pie chart data from by_priority
-  const priorityPieData = Object.entries(byPriority).map(([name, value]) => ({
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    value: value ?? 0,
-  }))
+  const statusBarData = Object.entries(byStatus).map(([name, value]) => ({ name, value }))
 
-  // Daily trend — format dates for display
-  const trendData = dailyTrend.map((d) => ({
-    ...d,
-    label: fmtDate(d.date),
-  }))
+  const priorityPieData = Object.entries(byPriority).map(([name, value]) => ({ name, value }))
 
-  // SLA by_priority rows
+  const trendData = dailyTrend.map((d) => ({ ...d, label: fmtDate(d.date) }))
+
+  // SLA state distribution
+  const byStateRaw = slaData?.by_sla_state ?? {}
+  const slaStateData = ['green', 'amber', 'red', 'breached']
+    .filter((s) => byStateRaw[s] != null)
+    .map((s) => ({ name: s.charAt(0).toUpperCase() + s.slice(1), value: byStateRaw[s], state: s }))
+
   const slaByPriority = Object.entries(slaData?.by_priority ?? {}).map(([priority, stats]) => ({
     priority: priority.charAt(0).toUpperCase() + priority.slice(1),
-    met: stats.met ?? 0,
+    met:      stats.met ?? 0,
     breached: stats.breached ?? 0,
-    rate: stats.rate ?? 0,
+    rate:     stats.rate ?? 0,
   }))
 
-  // Revenue monthly
   const revenueByMonth = (revenueData?.by_month ?? []).map((m) => ({
     ...m,
     label: m.month ? m.month.slice(0, 7) : '',
   }))
+
+  // Top KPI derived values
+  const activeAgents = agentData?.agents?.length ?? 0
+  const slaCompliance = slaData?.sla_state_compliance_rate ?? slaData?.compliance_rate ?? 0
+  const slaBreached   = slaData?.sla_state_breached ?? slaData?.sla_breached ?? 0
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -292,7 +288,7 @@ export default function AnalyticsDashboard() {
       {/* ── Page header ── */}
       <div>
         <h1 className="text-xl font-bold text-foreground">Analytics Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">View ticket, SLA, and performance metrics.</p>
+        <p className="text-sm text-muted-foreground mt-1">Ticket metrics, SLA compliance, and agent performance.</p>
       </div>
 
       {/* ── Filters ── */}
@@ -301,9 +297,7 @@ export default function AnalyticsDashboard() {
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">From</label>
             <input
-              type="date"
-              value={fromDate}
-              max={toDate}
+              type="date" value={fromDate} max={toDate}
               onChange={(e) => setFromDate(e.target.value)}
               className="px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
@@ -311,9 +305,7 @@ export default function AnalyticsDashboard() {
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">To</label>
             <input
-              type="date"
-              value={toDate}
-              min={fromDate}
+              type="date" value={toDate} min={fromDate}
               onChange={(e) => setToDate(e.target.value)}
               className="px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
@@ -322,23 +314,17 @@ export default function AnalyticsDashboard() {
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">Organization</label>
               <select
-                value={orgId}
-                onChange={(e) => setOrgId(e.target.value)}
+                value={orgId} onChange={(e) => setOrgId(e.target.value)}
                 className="px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="">All organizations</option>
-                {orgs.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
+                {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
               {orgError && <p className="text-xs text-red-500 mt-1">Failed to load organizations</p>}
             </div>
           )}
           <button
-            onClick={() => {
-              const controller = new AbortController()
-              fetchAll(controller.signal)
-            }}
+            onClick={() => { const c = new AbortController(); fetchAll(c.signal) }}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:brightness-110 transition-all"
           >
             Apply
@@ -351,132 +337,184 @@ export default function AnalyticsDashboard() {
         )}
       </div>
 
+      {/* ── Top KPI row ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCard
+          label="Total Tickets"
+          value={ticketData?.total ?? 0}
+        />
+        <StatCard
+          label="SLA Compliance"
+          value={slaData ? `${slaCompliance.toFixed(1)}%` : '—'}
+          color={slaColor(slaCompliance)}
+          sub="non-breached / total"
+        />
+        <StatCard
+          label="SLA Breached"
+          value={slaData ? slaBreached : '—'}
+          color={slaBreached > 0 ? 'text-red-600' : 'text-emerald-600'}
+        />
+        {isAdmin && (
+          <StatCard
+            label="Active Agents"
+            value={agentData ? activeAgents : '—'}
+            sub="with assigned tickets"
+          />
+        )}
+      </div>
+
       {/* ── Section 1: Ticket Overview ── */}
       <section>
         <SectionHeader title="Ticket Overview" />
 
-        {loadingTickets ? (
-          <LoadingSkeleton rows={3} />
-        ) : errorTickets ? (
-          <ErrorBlock message={errorTickets} />
-        ) : (
+        {loadingTickets ? <LoadingSkeleton rows={3} /> : errorTickets ? <ErrorBlock message={errorTickets} /> : (
           <>
-            {/* Stat cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-              <StatCard label="Total" value={ticketData?.total ?? 0} />
-              <StatCard label="Open" value={byStatus.open ?? 0} color="text-blue-600" />
-              <StatCard label="In Progress" value={byStatus.in_progress ?? 0} color="text-yellow-600" />
-              <StatCard label="Resolved" value={byStatus.resolved ?? 0} color="text-emerald-600" />
+            {/* Status + Priority stat cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+              <StatCard label="Open"        value={byStatus["Open"]          ?? 0} color="text-blue-600" />
+              <StatCard label="In Progress" value={byStatus["In Progress"]   ?? 0} color="text-sky-500" />
+              <StatCard label="Waiting"     value={byStatus["Waiting"]       ?? 0} color="text-yellow-500" />
+              <StatCard label="Resolved"    value={byStatus["Resolved"]      ?? 0} color="text-emerald-600" />
+              <StatCard label="Closed"      value={byStatus["Closed"]        ?? 0} color="text-muted-foreground" />
               <StatCard
                 label="Avg Resolution"
                 value={ticketData?.avg_resolution_hours != null
-                  ? `${ticketData.avg_resolution_hours.toFixed(1)}h`
-                  : '—'}
-                sub="hours"
+                  ? `${ticketData.avg_resolution_hours.toFixed(1)}h` : '—'}
+                sub="hours (resolved)"
               />
             </div>
 
             {/* Charts row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Bar chart: daily trend */}
+              {/* Line chart: daily trend */}
               <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
-                <p className="text-sm font-semibold text-foreground mb-4">Daily Ticket Trend</p>
-                {trendData.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-10">No data for this period</p>
-                ) : (
+                <p className="text-sm font-semibold text-foreground mb-4">Daily Ticket Trend (30 days)</p>
+                {trendData.length === 0 ? <EmptyState /> : (
                   <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={trendData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                    <LineChart data={trendData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fontSize: 10 }}
-                        interval="preserveStartEnd"
-                        stroke="hsl(var(--muted-foreground))"
-                      />
-                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <Tooltip
-                        contentStyle={{
-                          background: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                        }}
-                      />
-                      <Bar dataKey="count" fill={CHART_COLORS.primary} radius={[3, 3, 0, 0]} />
-                    </BarChart>
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" stroke="hsl(var(--muted-foreground))" />
+                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                      <Tooltip contentStyle={tooltipStyle} />
+                      <Line type="monotone" dataKey="count" stroke="#2563EB" strokeWidth={2} dot={false} name="Tickets" />
+                    </LineChart>
                   </ResponsiveContainer>
                 )}
               </div>
 
-              {/* Pie chart: by priority */}
+              {/* Bar chart: by status */}
               <div className="bg-card border border-border rounded-xl p-5">
-                <p className="text-sm font-semibold text-foreground mb-4">Tickets by Priority</p>
-                {priorityPieData.every((d) => d.value === 0) ? (
-                  <p className="text-sm text-muted-foreground text-center py-10">No data</p>
-                ) : (
+                <p className="text-sm font-semibold text-foreground mb-4">Tickets by Status</p>
+                {statusBarData.length === 0 ? <EmptyState /> : (
                   <ResponsiveContainer width="100%" height={250}>
-                    <PieChart>
-                      <Pie
-                        data={priorityPieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
-                        paddingAngle={2}
-                        dataKey="value"
-                        label={({ name, percent }) =>
-                          percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ''
-                        }
-                        labelLine={false}
-                      >
-                        {priorityPieData.map((entry) => (
-                          <Cell key={entry.name} fill={PRIORITY_COLORS[entry.name] ?? CHART_COLORS.primary} />
+                    <BarChart data={statusBarData} layout="vertical" margin={{ top: 0, right: 10, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                      <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={80} stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip contentStyle={tooltipStyle} />
+                      <Bar dataKey="value" name="Count" radius={[0, 3, 3, 0]}>
+                        {statusBarData.map((entry) => (
+                          <Cell key={entry.name} fill={STATUS_COLORS[entry.name] ?? '#6366F1'} />
                         ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          background: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    </PieChart>
+                      </Bar>
+                    </BarChart>
                   </ResponsiveContainer>
                 )}
               </div>
+            </div>
+
+            {/* Priority pie chart */}
+            <div className="mt-6 bg-card border border-border rounded-xl p-5">
+              <p className="text-sm font-semibold text-foreground mb-4">Tickets by Priority</p>
+              {priorityPieData.every((d) => d.value === 0) ? <EmptyState /> : (
+                <div className="flex justify-center">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={priorityPieData}
+                        cx="50%" cy="50%"
+                        innerRadius={55} outerRadius={80}
+                        paddingAngle={2} dataKey="value"
+                        label={({ name, percent }) => percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
+                        labelLine={false}
+                      >
+                        {priorityPieData.map((entry) => (
+                          <Cell key={entry.name} fill={PRIORITY_COLORS[entry.name] ?? '#6366F1'} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={tooltipStyle} />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </>
         )}
       </section>
 
-      {/* ── Section 2: SLA Compliance ── */}
+      {/* ── Section 2: SLA ── */}
       <section>
         <SectionHeader title="SLA Compliance" />
 
-        {loadingSla ? (
-          <LoadingSkeleton rows={3} />
-        ) : errorSla ? (
-          <ErrorBlock message={errorSla} />
-        ) : (
+        {loadingSla ? <LoadingSkeleton rows={3} /> : errorSla ? <ErrorBlock message={errorSla} /> : (
           <>
-            {/* Big compliance number */}
-            <div className="flex flex-wrap gap-6 items-center mb-6">
+            <div className="flex flex-wrap gap-4 items-start mb-6">
+              {/* Overall compliance */}
               <div className="bg-card border border-border rounded-xl p-6 text-center min-w-[160px]">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
                   Overall Compliance
                 </p>
-                <p className={`text-4xl font-bold ${slaColor(slaData?.compliance_rate ?? 0)}`}>
-                  {slaData?.compliance_rate != null
-                    ? `${slaData.compliance_rate.toFixed(1)}%`
-                    : '—'}
+                <p className={`text-4xl font-bold ${slaColor(slaData?.sla_state_compliance_rate ?? 0)}`}>
+                  {slaData?.sla_state_compliance_rate != null
+                    ? `${slaData.sla_state_compliance_rate.toFixed(1)}%` : '—'}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {slaData?.sla_met ?? 0} met / {slaData?.sla_breached ?? 0} breached
+                  {slaData?.sla_state_breached ?? 0} breached tickets
                 </p>
               </div>
+
+              {/* Deadline-based breakdown mini-cards */}
+              <div className="flex flex-col gap-2 justify-center">
+                <p className="text-xs text-muted-foreground font-medium">Deadline-based</p>
+                <div className="flex gap-4">
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-emerald-600">{slaData?.sla_met ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Met</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-red-600">{slaData?.sla_breached ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Breached</p>
+                  </div>
+                  <div className="text-center">
+                    <p className={`text-lg font-bold ${slaColor(slaData?.compliance_rate ?? 0)}`}>
+                      {slaData?.compliance_rate != null ? `${slaData.compliance_rate.toFixed(1)}%` : '—'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Rate</p>
+                  </div>
+                </div>
+              </div>
             </div>
+
+            {/* SLA state distribution bar chart */}
+            {slaStateData.length > 0 && (
+              <div className="bg-card border border-border rounded-xl p-5 mb-6">
+                <p className="text-sm font-semibold text-foreground mb-4">SLA State Distribution</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={slaStateData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Bar dataKey="value" name="Tickets" radius={[3, 3, 0, 0]}>
+                      {slaStateData.map((entry) => (
+                        <Cell key={entry.state} fill={SLA_STATE_COLORS[entry.state] ?? '#6366F1'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
 
             {/* SLA by priority table */}
             {slaByPriority.length > 0 && (
@@ -513,15 +551,10 @@ export default function AnalyticsDashboard() {
       {isAdmin && (
         <section>
           <SectionHeader title="Agent Performance" />
-
-          {loadingAgents ? (
-            <LoadingSkeleton rows={4} />
-          ) : errorAgents ? (
-            <ErrorBlock message={errorAgents} />
-          ) : !agentData?.agents?.length ? (
-            <p className="text-sm text-muted-foreground">No agent data available.</p>
-          ) : (
-            <AgentTable agents={agentData.agents} />
+          {loadingAgents ? <LoadingSkeleton rows={4} /> : errorAgents ? <ErrorBlock message={errorAgents} /> : (
+            !agentData?.agents?.length
+              ? <p className="text-sm text-muted-foreground">No agent data for this period.</p>
+              : <AgentTable agents={agentData.agents} />
           )}
         </section>
       )}
@@ -531,7 +564,7 @@ export default function AnalyticsDashboard() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-foreground">
-              Revenue — {revenueData?.year ?? new Date().getFullYear()}
+              Revenue — {revenueData?.year ?? revenueYear}
             </h2>
             <select
               value={revenueYear}
@@ -544,69 +577,32 @@ export default function AnalyticsDashboard() {
             </select>
           </div>
 
-          {loadingRevenue ? (
-            <LoadingSkeleton rows={3} />
-          ) : errorRevenue ? (
-            <ErrorBlock message={errorRevenue} />
-          ) : (
+          {loadingRevenue ? <LoadingSkeleton rows={3} /> : errorRevenue ? <ErrorBlock message={errorRevenue} /> : (
             <>
-              {/* Stat cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <StatCard
-                  label="Total Paid"
-                  value={fmtVND(revenueData?.total_paid)}
-                  color="text-emerald-600"
-                  sub="actual revenue received"
-                />
-                <StatCard
-                  label="Total Invoiced"
-                  value={fmtVND(revenueData?.total_invoiced)}
-                  color="text-blue-600"
-                  sub="all issued invoices"
-                />
-                <StatCard
-                  label="Overdue"
-                  value={fmtVND(revenueData?.total_overdue)}
-                  color="text-red-600"
-                  sub="unpaid past due"
-                />
+                <StatCard label="Total Paid"     value={fmtVND(revenueData?.total_paid)}     color="text-emerald-600" sub="actual revenue received" />
+                <StatCard label="Total Invoiced" value={fmtVND(revenueData?.total_invoiced)} color="text-blue-600"    sub="all issued invoices" />
+                <StatCard label="Overdue"        value={fmtVND(revenueData?.total_overdue)}  color="text-red-600"     sub="unpaid past due" />
               </div>
 
-              {/* Monthly revenue bar chart */}
               {revenueByMonth.length > 0 && (
                 <div className="bg-card border border-border rounded-xl p-5 mb-6">
                   <p className="text-sm font-semibold text-foreground mb-4">Monthly Revenue — {revenueData?.year ?? revenueYear}</p>
                   <ResponsiveContainer width="100%" height={250}>
                     <BarChart data={revenueByMonth} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fontSize: 10 }}
-                        stroke="hsl(var(--muted-foreground))"
-                      />
-                      <YAxis
-                        tick={{ fontSize: 10 }}
-                        stroke="hsl(var(--muted-foreground))"
-                        tickFormatter={(v) => new Intl.NumberFormat('vi-VN', { notation: 'compact' }).format(v)}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                        }}
-                        formatter={(value, name) => [fmtVND(value), name]}
-                      />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
+                        tickFormatter={(v) => new Intl.NumberFormat('vi-VN', { notation: 'compact' }).format(v)} />
+                      <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [fmtVND(value), name]} />
                       <Legend wrapperStyle={{ fontSize: '12px' }} />
-                      <Bar dataKey="invoiced" name="Invoiced" fill={CHART_COLORS.primary} radius={[3, 3, 0, 0]} />
-                      <Bar dataKey="paid" name="Paid" fill={CHART_COLORS.tertiary} radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="invoiced" name="Invoiced" fill="#2563EB" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="paid"     name="Paid"     fill="#10B981" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}
 
-              {/* Revenue by org table */}
               {(revenueData?.by_org ?? []).length > 0 && (
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full text-sm">

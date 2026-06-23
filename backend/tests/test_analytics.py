@@ -1,5 +1,5 @@
 # backend/tests/test_analytics.py
-"""Tests for Phase 6 analytics endpoints."""
+"""Tests for analytics endpoints — ticket metrics, SLA, agent performance, revenue."""
 import pytest
 from datetime import datetime, timedelta, timezone
 
@@ -274,3 +274,155 @@ def test_revenue_analytics_org_filter(client, admin_token, invoice_data, client_
     assert r.status_code == 200
     data = r.json()
     assert abs(data["total_invoiced"] - 1870000) < 1
+
+
+# ── New: exact-value and scoping tests ────────────────────────────────────────
+
+def test_ticket_by_status_exact_counts(client, admin_token, ticket_data):
+    """by_status uses Title Case enum values and counts are correct."""
+    r = client.get("/api/analytics/tickets", headers=auth(admin_token))
+    assert r.status_code == 200
+    by_status = r.json()["by_status"]
+    # ticket_data: 2 Open, 1 Resolved (exact enum strings from model)
+    assert by_status.get("Open", 0) == 2
+    assert by_status.get("Resolved", 0) == 1
+    assert "open" not in by_status      # key must NOT be lowercase
+    assert "resolved" not in by_status  # key must NOT be lowercase
+
+
+def test_ticket_by_priority_exact_counts(client, admin_token, ticket_data):
+    """by_priority counts match seeded data."""
+    r = client.get("/api/analytics/tickets", headers=auth(admin_token))
+    assert r.status_code == 200
+    by_priority = r.json()["by_priority"]
+    assert by_priority.get("High", 0) == 1
+    assert by_priority.get("Low", 0) == 1
+    assert by_priority.get("Urgent", 0) == 1
+
+
+def test_ticket_avg_resolution_correct(client, admin_token, ticket_data):
+    """avg_resolution_hours matches the seeded resolved ticket (2 days = 48 h)."""
+    r = client.get("/api/analytics/tickets", headers=auth(admin_token))
+    assert r.status_code == 200
+    avg = r.json()["avg_resolution_hours"]
+    assert avg is not None
+    # resolved ticket: created 10 days ago, resolved 8 days ago → 2 days = 48 h
+    assert abs(avg - 48.0) < 1.0  # allow 1 h tolerance for timing jitter
+
+
+def test_ticket_daily_trend_has_entries(client, admin_token, ticket_data):
+    """daily_trend returns list of {date, count} dicts."""
+    r = client.get("/api/analytics/tickets", headers=auth(admin_token))
+    assert r.status_code == 200
+    trend = r.json()["daily_trend"]
+    assert isinstance(trend, list)
+    assert len(trend) >= 1
+    assert all("date" in entry and "count" in entry for entry in trend)
+    total_from_trend = sum(e["count"] for e in trend)
+    assert total_from_trend == 3
+
+
+def test_sla_by_sla_state_returned(client, admin_token, ticket_data):
+    """SLA endpoint returns by_sla_state dict keyed by enum values."""
+    r = client.get("/api/analytics/sla", headers=auth(admin_token))
+    assert r.status_code == 200
+    data = r.json()
+    assert "by_sla_state" in data
+    assert "sla_state_compliance_rate" in data
+    assert "sla_state_breached" in data
+    # All test tickets default sla_state="green"
+    by_sla_state = data["by_sla_state"]
+    assert by_sla_state.get("green", 0) == 3
+    assert data["sla_state_breached"] == 0
+    assert data["sla_state_compliance_rate"] == 100.0
+
+
+def test_sla_by_sla_state_breached_ticket(client, admin_token, db, client_org, service):
+    """A ticket with sla_state='breached' is counted correctly."""
+    from app.models.ticket import Ticket
+
+    t = Ticket(
+        org_id=client_org.id,
+        service_id=service.id,
+        subject="SLA breached",
+        status="Open",
+        priority="Urgent",
+        ticket_type="Incident",
+        source="portal",
+        raised_by_email="b@test.com",
+        sla_state="breached",
+    )
+    db.add(t)
+    db.commit()
+
+    r = client.get("/api/analytics/sla", headers=auth(admin_token))
+    assert r.status_code == 200
+    data = r.json()
+    assert data["by_sla_state"].get("breached", 0) >= 1
+    assert data["sla_state_breached"] >= 1
+    assert data["sla_state_compliance_rate"] < 100.0
+
+
+def test_ticket_analytics_staff_cross_org_blocked(
+    client, staff_token, second_client_org, db, service
+):
+    """Staff not assigned to second_client_org cannot see its tickets."""
+    from app.models.ticket import Ticket
+
+    t = Ticket(
+        org_id=second_client_org.id,
+        service_id=service.id,
+        subject="Org2 ticket",
+        status="Open",
+        priority="Low",
+        ticket_type="Question",
+        source="portal",
+        raised_by_email="x@test.com",
+    )
+    db.add(t)
+    db.commit()
+
+    r = client.get("/api/analytics/tickets", headers=auth(staff_token))
+    assert r.status_code == 200
+    # staff_user has no assignment → sees 0 tickets (not 500, not 403)
+    assert r.json()["total"] == 0
+
+
+def test_ticket_analytics_empty_returns_zeros(client, admin_token):
+    """No tickets → total=0, by_status={}, daily_trend=[], avg=None. No 500."""
+    r = client.get(
+        "/api/analytics/tickets?from_date=2000-01-01&to_date=2000-01-02",
+        headers=auth(admin_token),
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 0
+    assert data["by_status"] == {}
+    assert data["daily_trend"] == []
+    assert data["avg_resolution_hours"] is None
+
+
+def test_sla_analytics_empty_returns_zeros(client, admin_token):
+    """No tickets with deadline → total_tickets=0, compliance_rate=0.0. No 500."""
+    r = client.get(
+        "/api/analytics/sla?from_date=2000-01-01&to_date=2000-01-02",
+        headers=auth(admin_token),
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total_tickets"] == 0
+    assert data["compliance_rate"] == 0.0
+    assert data["by_sla_state"] == {}
+    assert data["sla_state_compliance_rate"] == 0.0
+
+
+def test_agent_tickets_open_field(client, admin_token, ticket_data, staff_user):
+    """Agent entry includes tickets_open for open-status tickets."""
+    r = client.get("/api/analytics/agents", headers=auth(admin_token))
+    assert r.status_code == 200
+    agents = {a["user_id"]: a for a in r.json()["agents"]}
+    entry = agents[staff_user.id]
+    assert "tickets_open" in entry
+    # Breached ticket (status=Open) is assigned to staff_user → open=1
+    assert entry["tickets_open"] == 1
+    assert entry["tickets_resolved"] == 1
