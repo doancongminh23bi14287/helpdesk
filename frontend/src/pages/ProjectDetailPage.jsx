@@ -72,6 +72,16 @@ const TASK_TYPES = [
 
 const TASK_STATUSES = ['open', 'working', 'review', 'completed', 'cancelled']
 
+// Ordered columns for the Kanban board view — all 6 real task statuses
+const KANBAN_COLUMNS = [
+  { key: 'open',      label: 'Open',      dot: 'bg-slate-400',  colBg: 'bg-slate-100/60',  head: 'text-slate-600' },
+  { key: 'working',   label: 'Working',   dot: 'bg-amber-400',  colBg: 'bg-amber-50/60',   head: 'text-amber-700' },
+  { key: 'review',    label: 'Review',    dot: 'bg-cyan-400',   colBg: 'bg-cyan-50/60',    head: 'text-cyan-700'  },
+  { key: 'approved',  label: 'Approved',  dot: 'bg-green-400',  colBg: 'bg-green-50/60',   head: 'text-green-700' },
+  { key: 'completed', label: 'Completed', dot: 'bg-teal-500',   colBg: 'bg-teal-50/40',    head: 'text-teal-700'  },
+  { key: 'cancelled', label: 'Cancelled', dot: 'bg-slate-300',  colBg: 'bg-slate-50',      head: 'text-slate-400' },
+]
+
 const PRIORITY_CLASSES = {
   low: 'bg-slate-100 text-slate-600',
   medium: 'bg-amber-100 text-amber-700',
@@ -111,6 +121,44 @@ function TaskStatusBadge({ status }) {
     cancelled: 'bg-slate-100 text-slate-400 line-through',
   }
   return <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${classes[status] ?? classes.open}`}>{status}</span>
+}
+
+// TODO: add drag-and-drop between columns (e.g. @dnd-kit/core) when needed
+function KanbanCard({ task, onOpen }) {
+  const pastDue = isPastDeadline(task.due_date, task.status)
+  const typeLabel = TASK_TYPES.find(([v]) => v === task.task_type)?.[1] ?? task.task_type
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="bg-white rounded-lg border border-slate-200 p-3 cursor-pointer hover:shadow-sm hover:border-slate-300 transition-all select-none"
+      onClick={onOpen}
+      onKeyDown={e => e.key === 'Enter' && onOpen()}
+    >
+      <p className="text-sm font-medium text-slate-900 leading-snug">{task.title}</p>
+      {task.task_type && task.task_type !== 'other' && (
+        <p className="text-[11px] text-slate-400 mt-0.5">{typeLabel}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+        {task.priority && (
+          <span className={`px-1.5 py-0.5 rounded-full text-[11px] font-medium capitalize ${PRIORITY_CLASSES[task.priority] ?? PRIORITY_CLASSES.medium}`}>
+            {task.priority}
+          </span>
+        )}
+        {task.due_date && (
+          <span className={`inline-flex items-center gap-0.5 text-[11px] ${pastDue ? 'text-red-600 font-medium' : 'text-slate-400'}`}>
+            <CalendarDaysIcon className="w-3 h-3" />
+            {fmtDate(task.due_date)}
+          </span>
+        )}
+      </div>
+      {task.assignees?.length > 0 && (
+        <div className="mt-2">
+          <AssigneesPills assignees={task.assignees} />
+        </div>
+      )}
+    </div>
+  )
 }
 
 function AssigneesPills({ assignees = [] }) {
@@ -1206,6 +1254,7 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState('tasks')
   const [taskStatusFilter, setTaskStatusFilter] = useState('')
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('')
+  const [taskView, setTaskView] = useState('list')
   const [showMembersPanel, setShowMembersPanel] = useState(false)
   const [members, setMembers] = useState([])
   const membersPanelRef = useRef(null)
@@ -1585,25 +1634,28 @@ export default function ProjectDetailPage() {
             <div className="space-y-4">
               {/* Filter bar */}
               <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
-                  {['All', 'Open', 'Working', 'Review', 'Approved', 'Completed'].map(s => {
-                    const val = s === 'All' ? '' : s.toLowerCase()
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setTaskStatusFilter(val)}
-                        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                          taskStatusFilter === val
-                            ? 'bg-white shadow text-slate-900'
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                      >
-                        {s}
-                      </button>
-                    )
-                  })}
-                </div>
+                {/* Status pills — hidden in board mode (columns are the statuses) */}
+                {taskView === 'list' && (
+                  <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+                    {['All', 'Open', 'Working', 'Review', 'Approved', 'Completed'].map(s => {
+                      const val = s === 'All' ? '' : s.toLowerCase()
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setTaskStatusFilter(val)}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                            taskStatusFilter === val
+                              ? 'bg-white shadow text-slate-900'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
                 {taskAssignees.length > 0 && (
                   <select
                     value={taskAssigneeFilter}
@@ -1616,7 +1668,7 @@ export default function ProjectDetailPage() {
                     ))}
                   </select>
                 )}
-                {(taskStatusFilter || taskAssigneeFilter) && (
+                {taskView === 'list' && (taskStatusFilter || taskAssigneeFilter) && (
                   <button
                     type="button"
                     onClick={() => { setTaskStatusFilter(''); setTaskAssigneeFilter('') }}
@@ -1625,93 +1677,151 @@ export default function ProjectDetailPage() {
                     <XMarkIcon className="w-3 h-3" /> Clear filters
                   </button>
                 )}
-                {(taskStatusFilter || taskAssigneeFilter) && (
+                {taskView === 'list' && (taskStatusFilter || taskAssigneeFilter) && (
                   <span className="text-xs text-slate-400">{filteredTasks.length} of {tasks.length} tasks</span>
                 )}
+                {/* List / Board view toggle */}
+                <div className="flex gap-0.5 bg-slate-100 rounded-lg p-1 ml-auto">
+                  {[['list', 'List'], ['board', 'Board']].map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setTaskView(mode)}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        taskView === mode
+                          ? 'bg-white shadow text-slate-900'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {!isCustomer && <div ref={taskFormRef}><TaskCreateForm onCreate={addTask} /></div>}
 
-              <WorkspaceCard title="Task List" icon={CheckCircleIcon} action={<span className="text-xs text-slate-500">{filteredTasks.length} shown</span>}>
-                {filteredTasks.length === 0 ? (
-                  <EmptyPanel>
-                    {tasks.length === 0
-                      ? (isCustomer ? 'No customer-visible tasks are available yet.' : 'No tasks have been created yet.')
-                      : 'No tasks match the current filters.'}
-                  </EmptyPanel>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b border-slate-100 bg-slate-50">
-                        <tr>
-                          <th className="w-10 px-4 py-3" />
-                          <th className="text-left px-4 py-3 font-medium text-slate-500">Task</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-500">Assignee</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-500">Priority</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-500">Status</th>
-                          {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Client</th>}
-                          <th className="text-left px-4 py-3 font-medium text-slate-500">Deadline</th>
-                          {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Actions</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {filteredTasks.map(task => (
-                          <Fragment key={task.id}>
-                            <tr className="hover:bg-slate-50/70 cursor-pointer" onClick={() => setSelectedTaskId(task.id)}>
-                              <td className="px-4 py-3">
-                                <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${task.status === 'completed' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-slate-300 text-transparent'}`}>
-                                  <CheckCircleIcon className="h-4 w-4" aria-hidden="true" />
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 min-w-64">
-                                <p className="font-medium text-slate-900">{task.title}</p>
-                                {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
-                                <p className="mt-1 text-xs text-slate-400">{TASK_TYPES.find(([v]) => v === task.task_type)?.[1] ?? task.task_type}</p>
-                                {!isCustomer && task.internal_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 mt-2">Internal: {task.internal_note}</p>}
-                              </td>
-                              <td className="px-4 py-3"><AssigneesPills assignees={task.assignees} /></td>
-                              <td className="px-4 py-3">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${PRIORITY_CLASSES[task.priority] ?? PRIORITY_CLASSES.medium}`}>{task.priority}</span>
-                              </td>
-                              <td className="px-4 py-3"><TaskStatusBadge status={task.status} /></td>
-                              {!isCustomer && <td className="px-4 py-3 text-xs text-slate-500">{task.is_client_visible ? <span className="text-green-700">Visible</span> : 'Internal'}</td>}
-                              <td className="px-4 py-3 text-slate-500">
-                                <span className="inline-flex items-center gap-1 text-xs">
-                                  <CalendarDaysIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                                  {fmtDate(task.due_date)}
-                                </span>
-                              </td>
-                              {!isCustomer && (
-                                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                                  <div className="flex items-center gap-2">
-                                    <select
-                                      value={task.status}
-                                      disabled={updatingTask === task.id || task.status === 'cancelled'}
-                                      onChange={e => changeStatus(task.id, e.target.value)}
-                                      className="px-2 py-1 border border-slate-200 rounded bg-white text-xs"
-                                    >
-                                      {TASK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                    <button type="button" onClick={() => setEditingTaskId(task.id)} className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100" title="Edit task">
-                                      <PencilSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                                    </button>
-                                    <button type="button" onClick={() => cancelTask(task.id)} disabled={taskActionId === task.id || task.status === 'cancelled'} className="rounded border border-red-100 p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40" title="Cancel task">
-                                      <XMarkIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                                    </button>
-                                  </div>
+              {/* ── List view ── */}
+              {taskView === 'list' && (
+                <WorkspaceCard title="Task List" icon={CheckCircleIcon} action={<span className="text-xs text-slate-500">{filteredTasks.length} shown</span>}>
+                  {filteredTasks.length === 0 ? (
+                    <EmptyPanel>
+                      {tasks.length === 0
+                        ? (isCustomer ? 'No customer-visible tasks are available yet.' : 'No tasks have been created yet.')
+                        : 'No tasks match the current filters.'}
+                    </EmptyPanel>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="border-b border-slate-100 bg-slate-50">
+                          <tr>
+                            <th className="w-10 px-4 py-3" />
+                            <th className="text-left px-4 py-3 font-medium text-slate-500">Task</th>
+                            <th className="text-left px-4 py-3 font-medium text-slate-500">Assignee</th>
+                            <th className="text-left px-4 py-3 font-medium text-slate-500">Priority</th>
+                            <th className="text-left px-4 py-3 font-medium text-slate-500">Status</th>
+                            {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Client</th>}
+                            <th className="text-left px-4 py-3 font-medium text-slate-500">Deadline</th>
+                            {!isCustomer && <th className="text-left px-4 py-3 font-medium text-slate-500">Actions</th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredTasks.map(task => (
+                            <Fragment key={task.id}>
+                              <tr className="hover:bg-slate-50/70 cursor-pointer" onClick={() => setSelectedTaskId(task.id)}>
+                                <td className="px-4 py-3">
+                                  <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${task.status === 'completed' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-slate-300 text-transparent'}`}>
+                                    <CheckCircleIcon className="h-4 w-4" aria-hidden="true" />
+                                  </span>
                                 </td>
+                                <td className="px-4 py-3 min-w-64">
+                                  <p className="font-medium text-slate-900">{task.title}</p>
+                                  {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
+                                  <p className="mt-1 text-xs text-slate-400">{TASK_TYPES.find(([v]) => v === task.task_type)?.[1] ?? task.task_type}</p>
+                                  {!isCustomer && task.internal_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 mt-2">Internal: {task.internal_note}</p>}
+                                </td>
+                                <td className="px-4 py-3"><AssigneesPills assignees={task.assignees} /></td>
+                                <td className="px-4 py-3">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${PRIORITY_CLASSES[task.priority] ?? PRIORITY_CLASSES.medium}`}>{task.priority}</span>
+                                </td>
+                                <td className="px-4 py-3"><TaskStatusBadge status={task.status} /></td>
+                                {!isCustomer && <td className="px-4 py-3 text-xs text-slate-500">{task.is_client_visible ? <span className="text-green-700">Visible</span> : 'Internal'}</td>}
+                                <td className="px-4 py-3 text-slate-500">
+                                  <span className="inline-flex items-center gap-1 text-xs">
+                                    <CalendarDaysIcon className="w-3.5 h-3.5" aria-hidden="true" />
+                                    {fmtDate(task.due_date)}
+                                  </span>
+                                </td>
+                                {!isCustomer && (
+                                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                                    <div className="flex items-center gap-2">
+                                      <select
+                                        value={task.status}
+                                        disabled={updatingTask === task.id || task.status === 'cancelled'}
+                                        onChange={e => changeStatus(task.id, e.target.value)}
+                                        className="px-2 py-1 border border-slate-200 rounded bg-white text-xs"
+                                      >
+                                        {TASK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                      </select>
+                                      <button type="button" onClick={() => setEditingTaskId(task.id)} className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100" title="Edit task">
+                                        <PencilSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                      </button>
+                                      <button type="button" onClick={() => cancelTask(task.id)} disabled={taskActionId === task.id || task.status === 'cancelled'} className="rounded border border-red-100 p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40" title="Cancel task">
+                                        <XMarkIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                )}
+                              </tr>
+                              {!isCustomer && editingTaskId === task.id && (
+                                <TaskEditRow key={`${task.id}-edit`} task={task} onCancel={() => setEditingTaskId(null)} onSave={(payload) => saveTask(task.id, payload)} />
                               )}
-                            </tr>
-                            {!isCustomer && editingTaskId === task.id && (
-                              <TaskEditRow key={`${task.id}-edit`} task={task} onCancel={() => setEditingTaskId(null)} onSave={(payload) => saveTask(task.id, payload)} />
+                            </Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </WorkspaceCard>
+              )}
+
+              {/* ── Board view ── */}
+              {taskView === 'board' && (
+                <div className="overflow-x-auto pb-3 -mx-1 px-1">
+                  <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
+                    {KANBAN_COLUMNS.map(col => {
+                      const colTasks = filteredTasks.filter(t => t.status === col.key)
+                      return (
+                        <div key={col.key} className="w-60 flex-shrink-0 flex flex-col">
+                          {/* Column header */}
+                          <div className="flex items-center gap-2 mb-2 px-1">
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
+                            <span className={`text-xs font-semibold uppercase tracking-wider ${col.head}`}>{col.label}</span>
+                            <span className="ml-auto text-xs text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded-full font-medium">
+                              {colTasks.length}
+                            </span>
+                          </div>
+                          {/* Column body */}
+                          <div className={`flex-1 rounded-xl p-2 space-y-2 min-h-28 ${col.colBg}`}>
+                            {colTasks.map(task => (
+                              <KanbanCard
+                                key={task.id}
+                                task={task}
+                                onOpen={() => setSelectedTaskId(task.id)}
+                              />
+                            ))}
+                            {colTasks.length === 0 && (
+                              <div className="flex items-center justify-center h-16 text-xs text-slate-300 select-none">
+                                Empty
+                              </div>
                             )}
-                          </Fragment>
-                        ))}
-                      </tbody>
-                    </table>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                )}
-              </WorkspaceCard>
+                </div>
+              )}
             </div>
           )}
 
