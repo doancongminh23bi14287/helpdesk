@@ -368,9 +368,14 @@ function GscConnectionCard() {
               Connected
             </span>
           )}
-          {status && !status.connected && (
+          {status && !status.connected && status.configured && (
             <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-muted text-muted-foreground">
               Not connected
+            </span>
+          )}
+          {status && !status.connected && status.configured === false && (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              Chưa kết nối (cấu hình ở production)
             </span>
           )}
         </div>
@@ -387,8 +392,9 @@ function GscConnectionCard() {
           ) : (
             <button
               onClick={handleConnect}
-              disabled={busy || status === null}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+              disabled={busy || status === null || status?.configured === false}
+              title={status?.configured === false ? 'Cần cấu hình GSC_CLIENT_ID / GSC_CLIENT_SECRET trên server' : undefined}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <LinkIcon className="w-4 h-4" />
               {busy ? 'Redirecting…' : 'Connect Google Search Console'}
@@ -424,6 +430,9 @@ export default function SeoDashboardPage() {
           <p className="text-sm text-muted-foreground mt-0.5">Search performance, keyword rankings, and client reporting.</p>
         </div>
       </div>
+
+      {/* Prototype banner */}
+      <PrototypeBanner />
 
       {/* GSC connection status */}
       <GscConnectionCard />

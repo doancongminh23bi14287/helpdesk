@@ -55,11 +55,7 @@ def get_connect_url(
     from app.services import gsc as gsc_svc
 
     if not config.GSC_CLIENT_ID or not config.GSC_CLIENT_SECRET:
-        raise HTTPException(
-            status_code=503,
-            detail="GSC OAuth credentials are not configured on this server. "
-                   "Set GSC_CLIENT_ID and GSC_CLIENT_SECRET in the environment.",
-        )
+        raise HTTPException(status_code=503, detail="GSC not configured on this server")
 
     target_org = _resolve_org(user, db, org_id)
     state = secrets.token_urlsafe(32)
@@ -142,15 +138,17 @@ def get_status(
     db: Session = Depends(get_db),
 ):
     """Return connection status for the org. Never exposes token values."""
+    configured = bool(config.GSC_CLIENT_ID and config.GSC_CLIENT_SECRET)
     target_org = _resolve_org(user, db, org_id)
     conn = db.query(GscConnection).filter(GscConnection.org_id == target_org).first()
 
     if not conn:
-        return {"connected": False, "org_id": target_org}
+        return {"connected": False, "configured": configured, "org_id": target_org}
 
     connector = db.query(User).filter(User.id == conn.connected_by).first()
     return {
         "connected": True,
+        "configured": configured,
         "org_id": target_org,
         "property_url": conn.property_url,
         "status": conn.status,

@@ -53,6 +53,7 @@ def test_status_no_connection(client, admin_token, client_org):
     data = r.json()
     assert data["connected"] is False
     assert data["org_id"] == client_org.id
+    assert "configured" in data  # field must always be present
 
 
 def test_status_with_connection(client, admin_token, client_org, gsc_conn, admin_user):
@@ -68,6 +69,7 @@ def test_status_with_connection(client, admin_token, client_org, gsc_conn, admin
     # tokens must NEVER appear in status response
     assert "access_token" not in data
     assert "refresh_token" not in data
+    assert "configured" in data  # field must always be present
 
 
 def test_status_defaults_to_own_org(client, admin_token, admin_user, provider_org, gsc_conn, client_org, db):
@@ -292,7 +294,7 @@ def test_disconnect_no_connection_returns_404(client, admin_token, client_org):
 # ── /connect endpoint ─────────────────────────────────────────────────────────
 
 def test_connect_unconfigured_returns_503(client, admin_token, client_org):
-    """When GSC_CLIENT_ID is empty, endpoint returns 503."""
+    """When GSC_CLIENT_ID is empty, endpoint returns 503 with short message."""
     import app.config as cfg
     original_id = cfg.GSC_CLIENT_ID
     original_secret = cfg.GSC_CLIENT_SECRET
@@ -304,6 +306,26 @@ def test_connect_unconfigured_returns_503(client, admin_token, client_org):
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert r.status_code == 503
+        assert "GSC not configured" in r.json()["detail"]
+    finally:
+        cfg.GSC_CLIENT_ID = original_id
+        cfg.GSC_CLIENT_SECRET = original_secret
+
+
+def test_status_configured_field_false_when_no_credentials(client, admin_token, client_org):
+    """status.configured = False when GSC credentials are absent — frontend uses this to disable connect button."""
+    import app.config as cfg
+    original_id = cfg.GSC_CLIENT_ID
+    original_secret = cfg.GSC_CLIENT_SECRET
+    try:
+        cfg.GSC_CLIENT_ID = ""
+        cfg.GSC_CLIENT_SECRET = ""
+        r = client.get(
+            f"/api/seo/gsc/status?org_id={client_org.id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert r.status_code == 200
+        assert r.json()["configured"] is False
     finally:
         cfg.GSC_CLIENT_ID = original_id
         cfg.GSC_CLIENT_SECRET = original_secret
