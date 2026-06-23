@@ -24,6 +24,7 @@ from app.api.attachments import router as attachments_router
 from app.api.transfer_requests import router as transfer_requests_router
 from app.api.staff_assignments import router as staff_assignments_router
 from app.api.analytics import router as analytics_router
+from app.api.seo_gsc import router as seo_gsc_router
 from app.config import settings, validate_production_config
 
 validate_production_config()
@@ -172,6 +173,7 @@ app.include_router(attachments_router)
 app.include_router(transfer_requests_router)
 app.include_router(staff_assignments_router)
 app.include_router(analytics_router)
+app.include_router(seo_gsc_router)
 app.include_router(projects.router)
 app.include_router(projects.task_router)
 

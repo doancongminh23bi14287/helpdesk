@@ -1,9 +1,11 @@
+import { useState, useEffect, useCallback } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area,
 } from 'recharts'
-import { ArrowUpIcon, ArrowDownIcon, MinusIcon, PrinterIcon, BeakerIcon } from '@heroicons/react/24/outline'
+import { ArrowUpIcon, ArrowDownIcon, MinusIcon, PrinterIcon, BeakerIcon, LinkIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
 import { keywords, rankHistory, rankKeywords, gscSummary, ga4Summary } from '@/data/seoMockData'
+import client from '@/api/client'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -282,6 +284,134 @@ function WhiteLabelReport() {
   )
 }
 
+// ── GSC connection card ───────────────────────────────────────────────────────
+
+function GscConnectionCard() {
+  const [status, setStatus] = useState(null) // null = loading
+  const [flash, setFlash]   = useState(null) // { type: 'success'|'error', msg }
+  const [busy, setBusy]     = useState(false)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const { data } = await client.get('/seo/gsc/status')
+      setStatus(data)
+    } catch {
+      setStatus({ connected: false })
+    }
+  }, [])
+
+  useEffect(() => {
+    // Handle OAuth redirect params
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('gsc_connected') === '1') {
+      setFlash({ type: 'success', msg: 'Google Search Console connected successfully.' })
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (params.get('gsc_error')) {
+      setFlash({ type: 'error', msg: `Connection failed: ${params.get('gsc_error').replace(/_/g, ' ')}.` })
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    fetchStatus()
+  }, [fetchStatus])
+
+  const handleConnect = async () => {
+    setBusy(true)
+    try {
+      const { data } = await client.get('/seo/gsc/connect')
+      window.location.href = data.url
+    } catch (err) {
+      const msg = err?.response?.data?.detail ?? 'Could not start OAuth flow.'
+      setFlash({ type: 'error', msg })
+      setBusy(false)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    if (!window.confirm('Disconnect Google Search Console? This will revoke the access token.')) return
+    setBusy(true)
+    try {
+      await client.post('/seo/gsc/disconnect')
+      setFlash({ type: 'success', msg: 'Disconnected.' })
+      setStatus({ connected: false })
+    } catch (err) {
+      const msg = err?.response?.data?.detail ?? 'Disconnect failed.'
+      setFlash({ type: 'error', msg })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3">
+      {flash && (
+        <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg text-sm ${
+          flash.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-300'
+            : 'bg-red-50 border border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300'
+        }`}>
+          {flash.type === 'success'
+            ? <CheckCircleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            : <ExclamationCircleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+          <span>{flash.msg}</span>
+          <button onClick={() => setFlash(null)} className="ml-auto text-inherit opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <LinkIcon className="w-4 h-4 text-muted-foreground" />
+          <p className="text-sm font-semibold text-foreground">Google Search Console</p>
+          {status === null && (
+            <span className="text-xs text-muted-foreground animate-pulse">Checking…</span>
+          )}
+          {status?.connected && (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+              Connected
+            </span>
+          )}
+          {status && !status.connected && (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-muted text-muted-foreground">
+              Not connected
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {status?.connected ? (
+            <button
+              onClick={handleDisconnect}
+              disabled={busy}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={handleConnect}
+              disabled={busy || status === null}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              <LinkIcon className="w-4 h-4" />
+              {busy ? 'Redirecting…' : 'Connect Google Search Console'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {status?.connected && status?.property_url && (
+        <p className="text-xs text-muted-foreground">
+          Property: <span className="font-medium text-foreground">{status.property_url}</span>
+          {status.connected_by && <> · Connected by <span className="font-medium text-foreground">{status.connected_by}</span></>}
+        </p>
+      )}
+      {status?.connected && !status?.property_url && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Connected — no property selected yet. Use the API to set a property URL.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SeoDashboardPage() {
@@ -295,8 +425,8 @@ export default function SeoDashboardPage() {
         </div>
       </div>
 
-      {/* Prototype banner — mandatory disclosure */}
-      <PrototypeBanner />
+      {/* GSC connection status */}
+      <GscConnectionCard />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
