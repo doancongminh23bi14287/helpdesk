@@ -112,6 +112,36 @@ def test_status_customer_forbidden(client, customer_token, client_org, gsc_conn)
     assert r.status_code == 403
 
 
+def test_property_cross_org_blocked(client, staff_token, client_org, gsc_conn):
+    """Staff not assigned to client_org cannot set its GSC property."""
+    r = client.post(
+        f"/api/seo/gsc/property?org_id={client_org.id}",
+        json={"property_url": "sc-domain:evil.com"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 404
+
+
+def test_search_analytics_cross_org_blocked(client, staff_token, client_org, gsc_conn, db):
+    """Staff not assigned to client_org cannot read its search analytics."""
+    gsc_conn.property_url = "sc-domain:example.com"
+    db.commit()
+    r = client.get(
+        f"/api/seo/gsc/search-analytics?org_id={client_org.id}",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 404
+
+
+def test_disconnect_cross_org_blocked(client, staff_token, client_org, gsc_conn):
+    """Staff not assigned to client_org cannot disconnect its GSC connection."""
+    r = client.post(
+        f"/api/seo/gsc/disconnect?org_id={client_org.id}",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 404
+
+
 # ── /search-analytics without connection ──────────────────────────────────────
 
 def test_search_analytics_no_connection(client, admin_token, client_org):
