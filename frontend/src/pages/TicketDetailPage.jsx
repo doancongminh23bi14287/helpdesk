@@ -11,6 +11,9 @@ import { listProjects } from '@/api/projects'
 import { getAttachments, uploadAttachment } from '@/api/attachments'
 import { Spinner } from '@/components/ui'
 import AttachmentList from '@/components/ui/AttachmentList'
+import AiPredictionBadge from '@/components/ai/AiPredictionBadge'
+import ClassifyButton from '@/components/ai/ClassifyButton'
+import AiReplyDraft from '@/components/ai/AiReplyDraft'
 import { formatDateTime, formatDate, daysUntil } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { parseUTC } from '@/hooks/useRelativeTime'
@@ -280,6 +283,11 @@ function TicketInfoPanel({
       )}
 
       <SidebarSection title="Details">
+        {isStaffOrAdmin && (
+          <div className="mb-2">
+            <ClassifyButton ticketId={ticket.id} onClassified={setAiPrediction} />
+          </div>
+        )}
         <div className="space-y-0">
           <DetailRow icon={TagIcon} label="Status" value={ticket.status} />
           <DetailRow icon={SparklesIcon} label="Priority" value={ticket.priority} />
@@ -575,6 +583,7 @@ export default function TicketDetailPage() {
   const [projectSearch, setProjectSearch] = useState('')
   const [projectSearchResults, setProjectSearchResults] = useState([])
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false)
+  const [aiPrediction, setAiPrediction] = useState(null)
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem('ticket_sidebar_width'))
@@ -809,6 +818,12 @@ export default function TicketDetailPage() {
                 <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{ticket.ticket_type}</span>
               )}
               <PriorityBadge label={ticket.priority} />
+              {isStaffOrAdmin && (
+                <AiPredictionBadge
+                  ticketId={ticket.id}
+                  prediction={aiPrediction}
+                />
+              )}
 
               {isStaffOrAdmin ? (
                 <div className="relative inline-flex">
@@ -888,6 +903,12 @@ export default function TicketDetailPage() {
                   <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
                     {uploadError}
                   </div>
+                )}
+                {isStaffOrAdmin && (
+                  <AiReplyDraft
+                    ticketId={ticket.id}
+                    onUseDraft={(text) => setMessage(text)}
+                  />
                 )}
                 <textarea
                   value={message}

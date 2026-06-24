@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { Spinner } from '@/components/ui'
 import { useRole } from '@/hooks/useRole'
+import AiStatusBadge from '@/components/ai/AiStatusBadge'
 import { getTicketAnalytics, getSLAAnalytics, getAgentAnalytics, getRevenueAnalytics } from '@/api/analytics'
 import { listOrganizations } from '@/api/organizations'
 import { formatCurrencyVND, formatDate } from '@/lib/utils'
@@ -287,7 +288,10 @@ export default function AnalyticsDashboard() {
     <div className="p-6 space-y-8 max-w-screen-xl mx-auto">
       {/* ── Page header ── */}
       <div>
-        <h1 className="text-xl font-bold text-foreground">Analytics Dashboard</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-foreground">Analytics Dashboard</h1>
+          <AiStatusBadge />
+        </div>
         <p className="text-sm text-muted-foreground mt-1">Ticket metrics, SLA compliance, and agent performance.</p>
       </div>
 
