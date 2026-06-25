@@ -20,6 +20,7 @@ from app.models.user_session import UserSession
 from app.models.project import Project, ProjectTask, ProjectDocument, ProjectMember, TaskComment, TaskActivity, TaskAssignee, TaskApproval
 from app.models.password_reset import PasswordResetOTP
 from app.models.ai_prediction import TicketAiPrediction, AiReplySuggestion
+from app.models.gsc_connection import GscConnection
 
 __all__ = [
     "Organization", "User",
@@ -43,4 +44,5 @@ __all__ = [
     "TaskComment", "TaskActivity", "TaskAssignee", "TaskApproval",
     "PasswordResetOTP",
     "TicketAiPrediction", "AiReplySuggestion",
+    "GscConnection",
 ]

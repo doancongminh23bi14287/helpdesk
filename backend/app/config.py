@@ -65,6 +65,11 @@ GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 AI_FEATURES_ENABLED: bool = _env_bool("AI_FEATURES_ENABLED", False)
 AI_MODEL: str = os.getenv("AI_MODEL", "llama-3.1-8b-instant")
 
+# ── Google Search Console OAuth ───────────────────────────────────────────────
+GSC_CLIENT_ID: str = os.getenv("GSC_CLIENT_ID", "")
+GSC_CLIENT_SECRET: str = os.getenv("GSC_CLIENT_SECRET", "")
+GSC_REDIRECT_URI: str = os.getenv("GSC_REDIRECT_URI", "http://localhost:8001/api/seo/gsc/callback")
+
 RATE_LIMIT_LOGIN: str = os.getenv("RATE_LIMIT_LOGIN", "10/minute")
 RATE_LIMIT_REFRESH: str = os.getenv("RATE_LIMIT_REFRESH", "30/minute")
 RATE_LIMIT_CHANGE_PASSWORD: str = os.getenv("RATE_LIMIT_CHANGE_PASSWORD", "5/minute")
@@ -100,6 +105,9 @@ settings = types.SimpleNamespace(
     GROQ_API_KEY=GROQ_API_KEY,
     AI_FEATURES_ENABLED=AI_FEATURES_ENABLED,
     AI_MODEL=AI_MODEL,
+    GSC_CLIENT_ID=GSC_CLIENT_ID,
+    GSC_CLIENT_SECRET=GSC_CLIENT_SECRET,
+    GSC_REDIRECT_URI=GSC_REDIRECT_URI,
     RATE_LIMIT_LOGIN=RATE_LIMIT_LOGIN,
     RATE_LIMIT_REFRESH=RATE_LIMIT_REFRESH,
     RATE_LIMIT_CHANGE_PASSWORD=RATE_LIMIT_CHANGE_PASSWORD,
