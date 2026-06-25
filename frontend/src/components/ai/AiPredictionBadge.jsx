@@ -16,11 +16,13 @@ export default function AiPredictionBadge({ ticketId, prediction: externalPredic
       return
     }
     if (!ticketId) return
+    let cancelled = false
     setLoading(true)
     client.get(`/ai/tickets/${ticketId}/prediction`)
-      .then((r) => setPrediction(r.data))
-      .catch(() => setPrediction(null))
-      .finally(() => setLoading(false))
+      .then((r) => { if (!cancelled) setPrediction(r.data) })
+      .catch(() => { if (!cancelled) setPrediction(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [ticketId, externalPrediction])
 
   if (!isStaff && !isAdmin) return null
