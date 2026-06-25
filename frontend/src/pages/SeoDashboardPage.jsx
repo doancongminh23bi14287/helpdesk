@@ -4,7 +4,8 @@ import {
   AreaChart, Area,
 } from 'recharts'
 import { ArrowUpIcon, ArrowDownIcon, MinusIcon, PrinterIcon, BeakerIcon, LinkIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
-import { keywords, rankHistory, rankKeywords, gscSummary, ga4Summary } from '@/data/seoMockData'
+import { ga4Summary } from '@/data/seoMockData'
+import { useGscData } from '@/hooks/useGscData'
 import client from '@/api/client'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -15,7 +16,7 @@ function fmt(n) {
   return String(n)
 }
 
-// ── Prototype banner ──────────────────────────────────────────────────────────
+// ── Banners ───────────────────────────────────────────────────────────────────
 
 function PrototypeBanner() {
   return (
@@ -24,13 +25,36 @@ function PrototypeBanner() {
       <div className="min-w-0">
         <span className="font-semibold text-sm">Prototype — sample data only.</span>
         <span className="text-sm ml-1.5">
-          All metrics on this page are mock data. No live Google Search Console or GA4 integration exists yet.
+          Connect Google Search Console above to see live data.
         </span>
       </div>
       <span className="ml-auto flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-200 text-amber-700 dark:bg-amber-800 dark:text-amber-200">
         Preview
       </span>
     </div>
+  )
+}
+
+function AccumulatingBanner() {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:border-blue-700 dark:text-blue-300">
+      <CheckCircleIcon className="w-5 h-5 flex-shrink-0 text-blue-500" />
+      <div className="min-w-0">
+        <span className="font-semibold text-sm">Connected — data đang tích lũy.</span>
+        <span className="text-sm ml-1.5">
+          Thường mất 2–4 tuần để GSC có đủ dữ liệu cho site mới.
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function LiveBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+      Live GSC data
+    </span>
   )
 }
 
@@ -103,7 +127,14 @@ function ChangePill({ change }) {
 
 // ── Keywords table ────────────────────────────────────────────────────────────
 
-function KeywordsTable() {
+function KeywordsTable({ keywords }) {
+  if (!keywords || keywords.length === 0) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
+        Chưa có dữ liệu keyword. GSC cần thêm thời gian để tích lũy.
+      </div>
+    )
+  }
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       <div className="px-5 py-4 border-b border-border">
@@ -150,13 +181,25 @@ function KeywordsTable() {
 
 // ── Rank history chart ────────────────────────────────────────────────────────
 
-function RankChart() {
+function RankChart({ rankHistory, rankKeywords, usingRealData }) {
+  const isClicksChart = usingRealData && rankKeywords?.length === 1 && rankKeywords[0].key === 'clicks'
+  if (!rankHistory || rankHistory.length === 0) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
+        Chưa có dữ liệu lịch sử ranking.
+      </div>
+    )
+  }
   return (
     <div className="bg-card border border-border rounded-xl p-5">
       <div className="mb-1">
-        <h2 className="text-sm font-semibold text-foreground">Keyword Rankings Over Time</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          {isClicksChart ? 'Clicks Over Time' : 'Keyword Rankings Over Time'}
+        </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Lower position = better rank. Y-axis is inverted so improvements go up.
+          {isClicksChart
+            ? 'Daily clicks from Google Search Console.'
+            : 'Lower position = better rank. Y-axis is inverted so improvements go up.'}
         </p>
       </div>
       <ResponsiveContainer width="100%" height={280}>
@@ -169,15 +212,15 @@ function RankChart() {
             interval={6}
           />
           <YAxis
-            reversed
-            domain={[1, 30]}
+            reversed={!isClicksChart}
+            domain={isClicksChart ? ['auto', 'auto'] : [1, 30]}
             tick={{ fontSize: 11, fill: 'var(--color-muted-foreground, #6B7280)' }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => `#${v}`}
+            tickFormatter={(v) => isClicksChart ? fmt(v) : `#${v}`}
           />
           <Tooltip
-            formatter={(value, name) => [`#${value}`, name]}
+            formatter={(value, name) => [isClicksChart ? fmt(value) : `#${value}`, name]}
             contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--border)' }}
           />
           <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
@@ -201,6 +244,7 @@ function RankChart() {
 // ── White-label report block ──────────────────────────────────────────────────
 
 function WhiteLabelReport() {
+  const { keywords, gscSummary } = useGscData()
   const handlePrint = () => window.print()
 
   return (
@@ -421,6 +465,10 @@ function GscConnectionCard() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SeoDashboardPage() {
+  const { isConnected, isLoading, usingRealData, keywords, rankHistory, rankKeywords, gscSummary } = useGscData()
+
+  const hasData = keywords && keywords.length > 0
+
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
       {/* Header */}
@@ -429,10 +477,15 @@ export default function SeoDashboardPage() {
           <h1 className="text-xl font-bold text-foreground">SEO Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Search performance, keyword rankings, and client reporting.</p>
         </div>
+        {usingRealData && hasData && <LiveBadge />}
       </div>
 
-      {/* Prototype banner */}
-      <PrototypeBanner />
+      {/* Banner logic */}
+      {isLoading ? null : !isConnected ? (
+        <PrototypeBanner />
+      ) : !hasData ? (
+        <AccumulatingBanner />
+      ) : null}
 
       {/* GSC connection status */}
       <GscConnectionCard />
@@ -446,9 +499,9 @@ export default function SeoDashboardPage() {
             { label: 'Total Clicks',    value: fmt(gscSummary.clicks) },
             { label: 'Impressions',     value: fmt(gscSummary.impressions) },
             { label: 'CTR',             value: `${gscSummary.ctr}%` },
-            { label: 'Avg. Position',   value: `#${gscSummary.avgPosition}` },
+            { label: 'Avg. Position',   value: gscSummary.avgPosition ? `#${gscSummary.avgPosition}` : '—' },
           ]}
-          sparkline={gscSummary.sparkline}
+          sparkline={gscSummary.sparkline?.length ? gscSummary.sparkline : [0]}
           sparkColor="#F59E0B"
         />
         <KpiCard
@@ -466,10 +519,10 @@ export default function SeoDashboardPage() {
       </div>
 
       {/* Rank trend chart */}
-      <RankChart />
+      <RankChart rankHistory={rankHistory} rankKeywords={rankKeywords} usingRealData={usingRealData} />
 
       {/* Keywords table */}
-      <KeywordsTable />
+      <KeywordsTable keywords={keywords} />
 
       {/* White-label report */}
       <WhiteLabelReport />
