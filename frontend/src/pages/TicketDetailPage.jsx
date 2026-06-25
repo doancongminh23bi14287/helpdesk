@@ -615,11 +615,11 @@ export default function TicketDetailPage() {
   }, [])
 
   useEffect(() => {
-    if (!isStaffOrAdmin) return
+    if (!isAdmin) return
     listUsers({ role: 'staff', per_page: 100 })
       .then(d => setStaffList(Array.isArray(d) ? d : (d?.items ?? [])))
       .catch(() => {})
-  }, [isStaffOrAdmin])
+  }, [isAdmin])
 
   useEffect(() => { loadTransferReq() }, [loadTransferReq])
 
