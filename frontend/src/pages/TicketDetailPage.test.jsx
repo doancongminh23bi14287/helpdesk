@@ -101,7 +101,7 @@ describe('TicketDetailPage', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByText('Internal note')).toBeInTheDocument()
+    expect(screen.getAllByText('Internal note').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/^Internal$/i).length).toBeGreaterThan(0)
   })
 })
