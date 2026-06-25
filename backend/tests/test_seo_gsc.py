@@ -137,7 +137,7 @@ def test_search_analytics_cross_org_blocked(client, staff_token, client_org, gsc
 
 def test_disconnect_cross_org_blocked(client, staff_token, client_org, gsc_conn):
     """Staff not assigned to client_org cannot disconnect its GSC connection."""
-    r = client.post(
+    r = client.delete(
         f"/api/seo/gsc/disconnect?org_id={client_org.id}",
         headers={"Authorization": f"Bearer {staff_token}"},
     )
@@ -272,7 +272,7 @@ def test_callback_valid_state_creates_connection(client, db, client_org, admin_u
 
 def test_disconnect_removes_connection(client, admin_token, client_org, gsc_conn, db):
     with patch("app.services.gsc.revoke_token"):
-        r = client.post(
+        r = client.delete(
             f"/api/seo/gsc/disconnect?org_id={client_org.id}",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
@@ -284,7 +284,7 @@ def test_disconnect_removes_connection(client, admin_token, client_org, gsc_conn
 
 
 def test_disconnect_no_connection_returns_404(client, admin_token, client_org):
-    r = client.post(
+    r = client.delete(
         f"/api/seo/gsc/disconnect?org_id={client_org.id}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
