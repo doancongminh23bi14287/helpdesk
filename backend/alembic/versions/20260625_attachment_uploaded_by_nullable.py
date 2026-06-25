@@ -16,8 +16,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.alter_column('ticket_attachments', 'uploaded_by', nullable=True)
+    op.alter_column(
+        'ticket_attachments',
+        'uploaded_by',
+        existing_type=sa.BigInteger(),
+        nullable=True,
+    )
 
 
 def downgrade() -> None:
-    op.alter_column('ticket_attachments', 'uploaded_by', nullable=False)
+    op.alter_column(
+        'ticket_attachments',
+        'uploaded_by',
+        existing_type=sa.BigInteger(),
+        nullable=False,
+    )
