@@ -37,10 +37,24 @@ def _conn_or_404(org_id: int, db: Session) -> GscConnection:
 
 
 def _resolve_org(user: User, db: Session, org_id: Optional[int]) -> int:
-    """Resolve target org_id (default to user's own org) and verify access."""
-    target = org_id if org_id is not None else user.org_id
-    assert_org_access(target, user, db)
-    return target
+    """Resolve target org_id and verify access.
+
+    For admins: defaults to their own org (they can access all orgs).
+    For staff: defaults to their first assigned client org, since their
+    own org_id (the provider org) is not in their accessible org list.
+    """
+    if org_id is not None:
+        assert_org_access(org_id, user, db)
+        return org_id
+
+    from app.core.scoping import get_accessible_org_ids
+    accessible = get_accessible_org_ids(user, db)
+    if accessible is None:
+        # admin — no restriction, use own org
+        return user.org_id
+    if not accessible:
+        raise HTTPException(status_code=403, detail="No accessible organizations")
+    return accessible[0]
 
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
