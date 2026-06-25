@@ -2,14 +2,19 @@
 import imaplib
 import email as email_lib
 from email.header import decode_header
+import logging
 import re
 from sqlalchemy.orm import Session
 from app.models.ticket import Ticket, TicketReply
+from app.models.attachment import TicketAttachment
 from app.models.notification import EmailLog
 from app.models.email_thread import EmailThread
 from app.models.user import User
 from app.models.organization import Organization
+from app.services.file_storage import save_attachment
 from app import config
+
+logger = logging.getLogger(__name__)
 
 
 def _decode_str(value: str | None) -> str:
@@ -43,6 +48,66 @@ def _get_text_body(msg) -> str:
 
 
 TICKET_REF_PATTERN = re.compile(r"\[#(\d+)\]")
+
+_ALLOWED_ATTACHMENT_PREFIXES = (
+    "image/",
+    "text/",
+    "application/pdf",
+    "application/zip",
+    "application/x-zip",
+    "application/msword",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument",
+)
+_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _save_email_attachments(msg, ticket_id: int, org_id: int, db: Session) -> None:
+    """Extract and persist email attachments to ticket_id. Skips invalid parts, never raises."""
+    for part in msg.walk():
+        disposition = part.get("Content-Disposition", "") or ""
+        if "attachment" not in disposition.lower() and "inline" not in disposition.lower():
+            continue
+        filename = part.get_filename()
+        if not filename:
+            continue
+        filename = _decode_str(filename)
+        mime_type = part.get_content_type() or "application/octet-stream"
+        if not any(mime_type.startswith(p) for p in _ALLOWED_ATTACHMENT_PREFIXES):
+            logger.warning("Email attachment skipped — disallowed MIME %s (%s)", mime_type, filename)
+            continue
+        try:
+            payload = part.get_payload(decode=True)
+        except Exception as exc:
+            logger.warning("Email attachment decode failed (%s): %s", filename, exc)
+            continue
+        if not payload:
+            continue
+        if len(payload) > _MAX_ATTACHMENT_BYTES:
+            logger.warning("Email attachment too large, skipped (%s, %d bytes)", filename, len(payload))
+            continue
+        try:
+            result = save_attachment(
+                file_data=payload,
+                org_id=org_id,
+                original_filename=filename,
+                mime_type=mime_type,
+            )
+        except Exception as exc:
+            logger.warning("Email attachment save failed (%s): %s", filename, exc)
+            continue
+        attachment = TicketAttachment(
+            ticket_id=ticket_id,
+            file_name=filename,
+            file_path=result["stored_path"],
+            file_size=result["file_size"],
+            mime_type=mime_type,
+            detected_mime=result.get("detected_mime"),
+            sha256=result.get("sha256"),
+            uploaded_by=None,
+        )
+        db.add(attachment)
 BOUNCE_SUBJECT_PATTERNS = (
     "failed to deliver",
     "undelivered mail returned to sender",
@@ -227,6 +292,7 @@ def process_inbox(db: Session) -> int:
                         )
                         db.add(reply)
                         db.flush()
+                        _save_email_attachments(msg, ticket_id, org_id, db)
                         _record_inbound_thread(
                             db, ticket_id, message_id, in_reply_to_hdr, references_hdr
                         )
@@ -254,6 +320,7 @@ def process_inbox(db: Session) -> int:
                 )
                 db.add(ticket)
                 db.flush()
+                _save_email_attachments(msg, ticket.id, org_id, db)
                 _record_inbound_thread(
                     db, ticket.id, message_id, in_reply_to_hdr, references_hdr
                 )

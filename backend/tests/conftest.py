@@ -14,6 +14,13 @@ def create_tables():
     from app.database import Base
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    # Purge any data left from a previous interrupted run
+    with engine.connect() as conn:
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        for tbl in reversed(Base.metadata.sorted_tables):
+            conn.execute(text(f"TRUNCATE TABLE `{tbl.name}`"))
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+        conn.commit()
     yield
     with engine.connect() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
@@ -41,18 +48,24 @@ def reset_rate_limiter():
     yield
 
 
+def _truncate_all(conn):
+    conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+    for tbl in _get_sorted_tables():
+        conn.execute(text(f"TRUNCATE TABLE `{tbl}`"))
+    conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+    conn.commit()
+
+
 @pytest.fixture
 def db():
-    """Fresh session per test. Truncates all tables on teardown."""
+    """Fresh session per test. Truncates all tables before AND after each test."""
+    with engine.connect() as conn:
+        _truncate_all(conn)
     session = TestingSessionLocal()
     yield session
     session.close()
     with engine.connect() as conn:
-        conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
-        for tbl in _get_sorted_tables():
-            conn.execute(text(f"TRUNCATE TABLE `{tbl}`"))
-        conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
-        conn.commit()
+        _truncate_all(conn)
 
 
 def _get_sorted_tables():

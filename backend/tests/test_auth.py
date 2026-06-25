@@ -291,3 +291,58 @@ def test_avatar_response_does_not_leak_internal_path(client, admin_token, admin_
     body = up.json()
     assert "avatar_path" not in body
     assert "password_hash" not in body
+
+
+# ── must_change_password enforcement ─────────────────────────────────────────
+
+def _bearer(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _make_must_change_user(db, provider_org):
+    from app.models.user import User
+    from app.core.security import hash_password
+    u = User(
+        org_id=provider_org.id,
+        email="mustchange@test.com",
+        password_hash=hash_password("pass123"),
+        full_name="Must Change",
+        role="customer",
+        is_active=True,
+        must_change_password=True,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+def test_must_change_password_blocks_other_endpoints(client, db, provider_org):
+    user = _make_must_change_user(db, provider_org)
+    login = client.post("/api/auth/login", json={"email": "mustchange@test.com", "password": "pass123"})
+    assert login.status_code == 200, login.text
+    token = login.json()["access_token"]
+    r = client.get("/api/tickets/", headers=_bearer(token))
+    assert r.status_code == 403
+    assert "Must change password" in r.json()["detail"]
+
+
+def test_must_change_password_allows_me(client, db, provider_org):
+    _make_must_change_user(db, provider_org)
+    login = client.post("/api/auth/login", json={"email": "mustchange@test.com", "password": "pass123"})
+    token = login.json()["access_token"]
+    r = client.get("/api/auth/me", headers=_bearer(token))
+    assert r.status_code == 200
+
+
+def test_must_change_password_allows_change_password(client, db, provider_org):
+    _make_must_change_user(db, provider_org)
+    login = client.post("/api/auth/login", json={"email": "mustchange@test.com", "password": "pass123"})
+    token = login.json()["access_token"]
+    r = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "pass123", "new_password": "newpass456"},
+        headers=_bearer(token),
+    )
+    # 200 or 422 acceptable — key is NOT 403
+    assert r.status_code != 403

@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.tasks.invoice_tasks",
         "app.tasks.email_sender_task",
         "app.tasks.email_outbox_task",
+        "app.tasks.ai_tasks",
     ],
 )
 

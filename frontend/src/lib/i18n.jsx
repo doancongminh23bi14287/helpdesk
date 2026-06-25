@@ -44,6 +44,7 @@ export const TRANSLATIONS = {
     'nav.analytics': 'Analytics',
     'nav.systemStatus': 'System Status',
     'nav.accountSecurity': 'Account Security',
+    'nav.seoDashboard': 'SEO (Preview)',
     'nav.newTicket': 'New Ticket',
     'nav.search': 'Search...',
     // ── Topbar / notifications ──────────────────────────────────────────
@@ -146,6 +147,7 @@ export const TRANSLATIONS = {
     'nav.analytics': 'Phân tích',
     'nav.systemStatus': 'Trạng thái hệ thống',
     'nav.accountSecurity': 'Bảo mật tài khoản',
+    'nav.seoDashboard': 'SEO (Xem thử)',
     'nav.newTicket': 'Ticket mới',
     'nav.search': 'Tìm kiếm...',
     // ── Topbar / notifications ──────────────────────────────────────────
