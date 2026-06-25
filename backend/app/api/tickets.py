@@ -277,6 +277,14 @@ def create_ticket(
     except Exception:
         pass  # email failure must never break ticket creation
 
+    # Auto-classify via AI (non-blocking, fail-gracefully)
+    if config.AI_FEATURES_ENABLED:
+        try:
+            from app.tasks.ai_tasks import classify_ticket_task
+            classify_ticket_task.delay(ticket.id)
+        except Exception:
+            pass  # classify failure must never break ticket creation
+
     # Socket.IO: notify admin users of new ticket
     try:
         from app.socketio_server import notify_user

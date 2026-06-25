@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRole } from '@/hooks/useRole'
 import client from '@/api/client'
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline'
@@ -9,6 +9,8 @@ export default function AiPredictionBadge({ ticketId, prediction: externalPredic
   const [loading, setLoading] = useState(!externalPrediction)
   const [expanded, setExpanded] = useState(false)
 
+  const retryTimers = useRef([])
+
   useEffect(() => {
     if (externalPrediction) {
       setPrediction(externalPrediction)
@@ -18,11 +20,38 @@ export default function AiPredictionBadge({ ticketId, prediction: externalPredic
     if (!ticketId) return
     let cancelled = false
     setLoading(true)
-    client.get(`/ai/tickets/${ticketId}/prediction`)
-      .then((r) => { if (!cancelled) setPrediction(r.data) })
-      .catch(() => { if (!cancelled) setPrediction(null) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+
+    function fetchPrediction(onMiss) {
+      client.get(`/ai/tickets/${ticketId}/prediction`)
+        .then((r) => { if (!cancelled) { setPrediction(r.data); setLoading(false) } })
+        .catch(() => { if (!cancelled) { onMiss() } })
+    }
+
+    // Initial fetch, then retry at 3s, 6s, 10s if still no prediction
+    const retryDelays = [3000, 6000, 10000]
+    let attempt = 0
+
+    function attempt_fetch() {
+      fetchPrediction(() => {
+        if (attempt < retryDelays.length) {
+          const t = setTimeout(() => {
+            attempt++
+            attempt_fetch()
+          }, retryDelays[attempt])
+          retryTimers.current.push(t)
+        } else {
+          if (!cancelled) { setPrediction(null); setLoading(false) }
+        }
+      })
+    }
+
+    attempt_fetch()
+
+    return () => {
+      cancelled = true
+      retryTimers.current.forEach(clearTimeout)
+      retryTimers.current = []
+    }
   }, [ticketId, externalPrediction])
 
   if (!isStaff && !isAdmin) return null
