@@ -1,5 +1,4 @@
 """AI endpoints — classification + reply suggestion."""
-import asyncio
 import logging
 from typing import List
 
@@ -71,7 +70,7 @@ def get_prediction(
 # ── 3. POST /api/ai/tickets/{ticket_id}/classify ──────────────────────────────
 
 @router.post("/tickets/{ticket_id}/classify", response_model=AiPredictionOut)
-def classify_ticket_now(
+async def classify_ticket_now(
     ticket_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_staff_or_admin),
@@ -80,15 +79,13 @@ def classify_ticket_now(
 
     from app.services.ai.classifier import classify_ticket
 
-    result = asyncio.run(
-        classify_ticket(
-            ticket_id=ticket.id,
-            subject=ticket.subject,
-            description=ticket.description or "",
-            ticket_type=ticket.ticket_type,
-            org_id=ticket.org_id,
-            db=db,
-        )
+    result = await classify_ticket(
+        ticket_id=ticket.id,
+        subject=ticket.subject,
+        description=ticket.description or "",
+        ticket_type=ticket.ticket_type,
+        org_id=ticket.org_id,
+        db=db,
     )
     if result is None:
         raise HTTPException(status_code=503, detail="AI classification unavailable")
@@ -98,7 +95,7 @@ def classify_ticket_now(
 # ── 4. POST /api/ai/tickets/{ticket_id}/suggest-reply ────────────────────────
 
 @router.post("/tickets/{ticket_id}/suggest-reply", response_model=AiReplyOut)
-def suggest_reply(
+async def suggest_reply(
     ticket_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_staff_or_admin),
@@ -107,13 +104,11 @@ def suggest_reply(
 
     from app.services.ai.reply_suggester import suggest_reply as _suggest
 
-    result = asyncio.run(
-        _suggest(
-            ticket_id=ticket.id,
-            org_id=ticket.org_id,
-            requested_by_user_id=user.id,
-            db=db,
-        )
+    result = await _suggest(
+        ticket_id=ticket.id,
+        org_id=ticket.org_id,
+        requested_by_user_id=user.id,
+        db=db,
     )
     if result is None:
         raise HTTPException(status_code=503, detail="AI reply suggestion unavailable")

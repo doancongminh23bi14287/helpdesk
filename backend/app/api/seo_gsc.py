@@ -7,9 +7,10 @@ Scoping: each org has at most one GscConnection; org access validated via assert
 """
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -211,11 +212,14 @@ def select_property(
     return {"property_url": conn.property_url}
 
 
+_VALID_DIMENSIONS = Literal["query", "page", "date", "country", "device", "searchAppearance"]
+
+
 @router.get("/search-analytics")
 def search_analytics(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    dimensions: str = Query("query"),
+    dimensions: List[_VALID_DIMENSIONS] = Query(["query"]),
     row_limit: int = Query(100, ge=1, le=25000),
     org_id: Optional[int] = Query(None),
     user: User = Depends(require_staff_or_admin),
@@ -225,7 +229,7 @@ def search_analytics(
     Query GSC Search Analytics.
 
     Defaults: last 28 days, dimension=query.
-    Dimensions can be comma-separated: query,page,date,country,device.
+    Dimensions: query, page, date, country, device, searchAppearance.
     Response maps directly from GSC API (rows[].keys + clicks/impressions/ctr/position).
     """
     from datetime import date
@@ -243,7 +247,7 @@ def search_analytics(
     today = date.today()
     end = end_date or today.isoformat()
     start = start_date or (today - timedelta(days=28)).isoformat()
-    dim_list = [d.strip() for d in dimensions.split(",") if d.strip()]
+    dim_list = list(dimensions)
 
     payload = {
         "startDate": start,
@@ -261,7 +265,7 @@ def search_analytics(
     return data
 
 
-@router.post("/disconnect")
+@router.delete("/disconnect")
 def disconnect(
     org_id: Optional[int] = Query(None),
     user: User = Depends(require_staff_or_admin),

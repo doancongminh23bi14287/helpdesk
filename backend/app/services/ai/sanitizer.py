@@ -10,9 +10,14 @@ _SECRET_RE = re.compile(
 )
 
 
+from app.core.constants import MAX_AI_INPUT_CHARS
+
+
 def sanitize_for_ai(text: str) -> str:
     text = _SECRET_RE.sub("[SECRET]", text)
     text = _EMAIL_RE.sub("[EMAIL]", text)
     text = _PHONE_VN_RE.sub("[PHONE]", text)
     text = _IP_RE.sub("[IP]", text)
+    if len(text) > MAX_AI_INPUT_CHARS:
+        text = text[:MAX_AI_INPUT_CHARS] + "... [truncated]"
     return text

@@ -209,6 +209,57 @@ def get_recent_activity(
     return {"activities": result}
 
 
+class AssignmentCandidateOut(BaseModel):
+    user_id: int
+    name: str
+    workload_score: float
+    skill_score: float
+    online_score: float
+    total: float
+    is_winner: bool
+
+
+@router.get("/assignment/preview-score", response_model=List[AssignmentCandidateOut])
+def preview_assignment_score(
+    org_id: int,
+    ticket_type: str = "issue",
+    priority: str = "Medium",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Return scoring breakdown for all staff candidates for a given org + ticket context."""
+    from app.services.auto_assign import score_breakdown
+    from app.models.ticket import Ticket as TicketModel
+
+    # Build a transient (unsaved) Ticket to feed the scoring function
+    dummy_ticket = TicketModel(
+        org_id=org_id,
+        subject="preview",
+        status="Open",
+        ticket_type=ticket_type,
+        priority=priority,
+    )
+
+    candidates = score_breakdown(dummy_ticket, db)
+    if not candidates:
+        return []
+
+    max_score = max(c["total_score"] for c in candidates)
+
+    return [
+        AssignmentCandidateOut(
+            user_id=c["user_id"],
+            name=c["full_name"],
+            workload_score=c["workload_score"],
+            skill_score=c["skill_score"],
+            online_score=c["online_score"],
+            total=c["total_score"],
+            is_winner=c["total_score"] == max_score,
+        )
+        for c in candidates
+    ]
+
+
 @router.get("/health", response_model=HealthResponse)
 def get_health(
     db: Session = Depends(get_db),

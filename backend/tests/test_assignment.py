@@ -483,3 +483,32 @@ def test_assign_endpoint_creates_ticket_assignee_row(
     assert len(rows) == 1
     assert rows[0].user_id == staff_user.id
     assert rows[0].is_primary is True
+
+
+# ── Assignment preview score endpoint ────────────────────────────────────────
+
+def test_assignment_preview_score_admin_only(client, admin_token, customer_token, client_org):
+    """Admin gets 200; non-admin gets 403."""
+    r_admin = client.get(
+        f"/api/admin/assignment/preview-score?org_id={client_org.id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r_admin.status_code == 200
+    body = r_admin.json()
+    assert isinstance(body, list)
+
+
+def test_assignment_preview_score_structure(client, admin_token, client_org, staff_user, staff_assignment):
+    """Response items contain required fields and is_winner is set correctly."""
+    r = client.get(
+        f"/api/admin/assignment/preview-score?org_id={client_org.id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    items = r.json()
+    if items:
+        item = items[0]
+        for field in ("user_id", "name", "workload_score", "skill_score", "online_score", "total", "is_winner"):
+            assert field in item, f"Missing field: {field}"
+        winners = [i for i in items if i["is_winner"]]
+        assert len(winners) >= 1

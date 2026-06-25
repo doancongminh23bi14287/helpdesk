@@ -373,7 +373,7 @@ function GscConnectionCard() {
     if (!window.confirm('Disconnect Google Search Console? This will revoke the access token.')) return
     setBusy(true)
     try {
-      await client.post('/seo/gsc/disconnect')
+      await client.delete('/seo/gsc/disconnect')
       setFlash({ type: 'success', msg: 'Disconnected.' })
       setStatus({ connected: false })
     } catch (err) {

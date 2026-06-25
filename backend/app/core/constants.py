@@ -46,6 +46,9 @@ OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5           # failed attempts before OTP is locked
 RESET_TOKEN_EXPIRE_MINUTES = 15  # reset token must be shorter than a normal session
 
+# ── AI input ──────────────────────────────────────────────────────────────────
+MAX_AI_INPUT_CHARS = 2000   # max chars sent to Groq; prevents prompt stuffing
+
 # ── Pagination ────────────────────────────────────────────────────────────────
 DEFAULT_PAGE_SIZE = 20
 

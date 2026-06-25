@@ -351,3 +351,46 @@ def test_connect_configured_returns_url(client, admin_token, client_org):
     finally:
         cfg.GSC_CLIENT_ID = original_id
         cfg.GSC_CLIENT_SECRET = original_secret
+
+
+# ── Smoke tests added in fix vòng 2 ──────────────────────────────────────────
+
+def test_gsc_connect_requires_auth(client):
+    """Unauthenticated request to /connect must return 401."""
+    r = client.get("/api/seo/gsc/connect")
+    assert r.status_code == 401
+
+
+def test_gsc_callback_rejects_bad_state(client):
+    """Callback with a state not stored in Redis must redirect with gsc_error=invalid_state."""
+    r = client.get(
+        "/api/seo/gsc/callback",
+        params={"code": "fake_code", "state": "nonexistent_state_xyz"},
+        follow_redirects=False,
+    )
+    assert r.status_code in (302, 307)
+    assert "gsc_error=invalid_state" in r.headers["location"]
+
+
+def test_gsc_disconnect_requires_org_access(
+    client, db, customer_user, customer_token, second_client_org
+):
+    """A customer of org A trying to disconnect GSC of org B must receive 403 or 404."""
+    from app.models.gsc_connection import GscConnection
+
+    conn = GscConnection(
+        org_id=second_client_org.id,
+        refresh_token="some_refresh_token",
+        access_token="some_access_token",
+        connected_by=None,
+        status="connected",
+    )
+    db.add(conn)
+    db.commit()
+
+    r = client.delete(
+        "/api/seo/gsc/disconnect",
+        params={"org_id": second_client_org.id},
+        headers={"Authorization": f"Bearer {customer_token}"},
+    )
+    assert r.status_code in (403, 404)
