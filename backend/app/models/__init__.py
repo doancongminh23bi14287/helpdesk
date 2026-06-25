@@ -19,6 +19,7 @@ from app.models.invoice_payment import InvoicePayment
 from app.models.user_session import UserSession
 from app.models.project import Project, ProjectTask, ProjectDocument, ProjectMember, TaskComment, TaskActivity, TaskAssignee, TaskApproval
 from app.models.password_reset import PasswordResetOTP
+from app.models.ai_prediction import TicketAiPrediction, AiReplySuggestion
 
 __all__ = [
     "Organization", "User",
@@ -41,4 +42,5 @@ __all__ = [
     "Project", "ProjectTask", "ProjectDocument", "ProjectMember",
     "TaskComment", "TaskActivity", "TaskAssignee", "TaskApproval",
     "PasswordResetOTP",
+    "TicketAiPrediction", "AiReplySuggestion",
 ]
