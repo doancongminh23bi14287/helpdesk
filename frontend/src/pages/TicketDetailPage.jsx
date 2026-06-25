@@ -267,6 +267,7 @@ function TicketInfoPanel({
   setShowTransferModal, setShowLinkProjectModal,
   handleAssign, handleAcceptTransfer, handleDeclineTransfer,
   handleCreateProject, handleUnlinkProject,
+  setAiPrediction,
 }) {
   return (
     <>
@@ -1017,6 +1018,7 @@ export default function TicketDetailPage() {
             handleDeclineTransfer={handleDeclineTransfer}
             handleCreateProject={handleCreateProject}
             handleUnlinkProject={handleUnlinkProject}
+            setAiPrediction={setAiPrediction}
           />
         </div>
       </div>
@@ -1069,6 +1071,7 @@ export default function TicketDetailPage() {
                   handleDeclineTransfer={handleDeclineTransfer}
                   handleCreateProject={handleCreateProject}
                   handleUnlinkProject={handleUnlinkProject}
+                  setAiPrediction={setAiPrediction}
                 />
               </div>
             </motion.div>
