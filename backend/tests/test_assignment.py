@@ -512,3 +512,195 @@ def test_assignment_preview_score_structure(client, admin_token, client_org, sta
             assert field in item, f"Missing field: {field}"
         winners = [i for i in items if i["is_winner"]]
         assert len(winners) >= 1
+
+
+# ── Skill score tests ─────────────────────────────────────────────────────────
+
+def _make_ticket(db, org_id, raised_by, status="Open", ticket_type="Bug"):
+    from app.models.ticket import Ticket
+    t = Ticket(
+        org_id=org_id,
+        subject="test skill",
+        description="desc",
+        status=status,
+        priority="Medium",
+        ticket_type=ticket_type,
+        source="portal",
+        raised_by=raised_by,
+        raised_by_email="x@x.com",
+        is_deleted=False,
+        sla_paused_total_seconds=0,
+        assignment_mode="manual",
+    )
+    db.add(t)
+    db.flush()
+    return t
+
+
+def _assign(db, ticket_id, user_id):
+    from app.models.ticket import TicketAssignee
+    row = TicketAssignee(ticket_id=ticket_id, user_id=user_id, is_primary=True, assigned_by=None)
+    db.add(row)
+    db.flush()
+
+
+def _add_prediction(db, ticket_id, category="technical"):
+    from app.models.ai_prediction import TicketAiPrediction
+    pred = TicketAiPrediction(
+        ticket_id=ticket_id,
+        predicted_category=category,
+        predicted_priority="medium",
+        confidence=0.9,
+        model_name="test-model",
+        model_version="1.0",
+    )
+    db.add(pred)
+    db.flush()
+
+
+def test_skill_score_coldstart_equal_for_new_agents(db, client_org, staff_user, admin_user):
+    """Two brand-new agents with zero resolved tickets get identical skill_score (cold-start baseline)."""
+    from app.models.user import User
+    from app.models.team import StaffOrgAssignment
+    from app.services.auto_assign import _skill_score
+    from app.core.constants import ASSIGN_SKILL_WEIGHT, SKILL_BASELINE_WEIGHT
+
+    # Create a second staff user
+    staff2 = User(
+        org_id=staff_user.org_id,
+        email="staff2_skill@test.com",
+        password_hash="x",
+        full_name="Staff Two",
+        role="staff",
+        is_active=True,
+    )
+    db.add(staff2)
+    db.flush()
+
+    # Both assigned to client_org
+    for uid in (staff_user.id, staff2.id):
+        if not db.query(StaffOrgAssignment).filter_by(user_id=uid, org_id=client_org.id).first():
+            db.add(StaffOrgAssignment(user_id=uid, org_id=client_org.id))
+    db.flush()
+
+    # Ticket with no prediction (neither agent has history)
+    ticket = _make_ticket(db, client_org.id, admin_user.id)
+    db.commit()
+
+    score1 = _skill_score(staff_user.id, ticket, db)
+    score2 = _skill_score(staff2.id, ticket, db)
+
+    expected_baseline = round(ASSIGN_SKILL_WEIGHT * SKILL_BASELINE_WEIGHT, 2)
+    assert score1 == score2 == expected_baseline, (
+        f"Cold-start agents should both score {expected_baseline}, got {score1} and {score2}"
+    )
+
+
+def test_skill_score_rewards_category_history(db, client_org, staff_user, admin_user):
+    """Agent with 5 resolved 'technical' tickets scores higher for a 'technical' ticket than a fresh agent."""
+    from app.models.user import User
+    from app.models.team import StaffOrgAssignment
+    from app.services.auto_assign import _skill_score
+
+    staff_expert = User(
+        org_id=staff_user.org_id,
+        email="staff_expert@test.com",
+        password_hash="x",
+        full_name="Expert Staff",
+        role="staff",
+        is_active=True,
+    )
+    staff_fresh = User(
+        org_id=staff_user.org_id,
+        email="staff_fresh@test.com",
+        password_hash="x",
+        full_name="Fresh Staff",
+        role="staff",
+        is_active=True,
+    )
+    db.add_all([staff_expert, staff_fresh])
+    db.flush()
+
+    for uid in (staff_expert.id, staff_fresh.id):
+        if not db.query(StaffOrgAssignment).filter_by(user_id=uid, org_id=client_org.id).first():
+            db.add(StaffOrgAssignment(user_id=uid, org_id=client_org.id))
+    db.flush()
+
+    # Give expert 5 resolved technical tickets
+    for _ in range(5):
+        resolved = _make_ticket(db, client_org.id, admin_user.id, status="Resolved", ticket_type="Bug")
+        _assign(db, resolved.id, staff_expert.id)
+        _add_prediction(db, resolved.id, category="technical")
+
+    # New ticket with AI prediction = "technical"
+    new_ticket = _make_ticket(db, client_org.id, admin_user.id)
+    _add_prediction(db, new_ticket.id, category="technical")
+    db.commit()
+
+    expert_score = _skill_score(staff_expert.id, new_ticket, db)
+    fresh_score = _skill_score(staff_fresh.id, new_ticket, db)
+
+    assert expert_score > fresh_score, (
+        f"Expert should score higher than fresh agent ({expert_score} vs {fresh_score})"
+    )
+
+
+def test_skill_score_baseline_decays(db, client_org, staff_user, admin_user):
+    """Agent with 10+ resolved tickets has baseline=0; skill comes only from historical."""
+    from app.services.auto_assign import _skill_score
+    from app.core.constants import SKILL_COLDSTART_THRESHOLD, SKILL_HISTORICAL_WEIGHT
+
+    from app.models.team import StaffOrgAssignment
+    if not db.query(StaffOrgAssignment).filter_by(user_id=staff_user.id, org_id=client_org.id).first():
+        db.add(StaffOrgAssignment(user_id=staff_user.id, org_id=client_org.id))
+        db.flush()
+
+    # Give agent SKILL_COLDSTART_THRESHOLD resolved tickets (no category match for new ticket)
+    for _ in range(SKILL_COLDSTART_THRESHOLD):
+        resolved = _make_ticket(db, client_org.id, admin_user.id, status="Resolved", ticket_type="Bug")
+        _assign(db, resolved.id, staff_user.id)
+        _add_prediction(db, resolved.id, category="billing")  # different category
+
+    # New ticket: category "technical" — agent has no history in this category
+    new_ticket = _make_ticket(db, client_org.id, admin_user.id, ticket_type="Question")
+    _add_prediction(db, new_ticket.id, category="technical")
+    db.commit()
+
+    score = _skill_score(staff_user.id, new_ticket, db)
+
+    # baseline=0 (10 resolved ≥ threshold), historical=0 (no "technical" resolved)
+    # → skill = 0.7×0 + 0.3×0 = 0.0
+    assert score == 0.0, f"Expected 0.0 when baseline decayed and no history, got {score}"
+
+
+def test_skill_score_fallback_to_ticket_type_when_no_prediction(db, client_org, staff_user, admin_user):
+    """When ticket has no AI prediction, skill matching falls back to ticket_type."""
+    from app.services.auto_assign import _skill_score
+    from app.core.constants import ASSIGN_SKILL_WEIGHT, SKILL_BASELINE_WEIGHT, SKILL_HISTORICAL_WEIGHT
+    from app.models.team import StaffOrgAssignment
+
+    if not db.query(StaffOrgAssignment).filter_by(user_id=staff_user.id, org_id=client_org.id).first():
+        db.add(StaffOrgAssignment(user_id=staff_user.id, org_id=client_org.id))
+        db.flush()
+
+    # Agent has 1 resolved ticket of type "Bug" (no AI prediction on it)
+    resolved = _make_ticket(db, client_org.id, admin_user.id, status="Resolved", ticket_type="Bug")
+    _assign(db, resolved.id, staff_user.id)
+    # Intentionally NO _add_prediction here
+
+    # New ticket: type "Bug", no AI prediction
+    new_ticket = _make_ticket(db, client_org.id, admin_user.id, ticket_type="Bug")
+    # Intentionally NO _add_prediction here
+    db.commit()
+
+    score = _skill_score(staff_user.id, new_ticket, db)
+
+    # 1 resolved Bug ticket → historical_score = 1×8 = 8
+    # total_resolved = 1 → baseline_score = 40×(1-1/10) = 36
+    # skill = 0.7×8 + 0.3×36 = 5.6 + 10.8 = 16.4
+    from app.core.constants import HISTORICAL_POINT_PER_TICKET, SKILL_COLDSTART_THRESHOLD
+    expected_historical = min(ASSIGN_SKILL_WEIGHT, 1 * HISTORICAL_POINT_PER_TICKET)
+    expected_baseline = max(0.0, ASSIGN_SKILL_WEIGHT * (1 - 1 / SKILL_COLDSTART_THRESHOLD))
+    expected = round(SKILL_HISTORICAL_WEIGHT * expected_historical + SKILL_BASELINE_WEIGHT * expected_baseline, 2)
+
+    assert score == expected, f"Fallback-to-ticket_type skill expected {expected}, got {score}"

@@ -27,7 +27,7 @@ ANNUAL_DISCOUNT = "0.80"      # 20% off for 12-month commitment (Decimal-safe st
 
 # ── Assignment scoring weights (must sum to 100) ──────────────────────────────
 ASSIGN_WORKLOAD_WEIGHT = 40.0
-ASSIGN_SKILL_WEIGHT = 40.0
+ASSIGN_SKILL_WEIGHT = 40.0    # max points skill can contribute
 ASSIGN_ONLINE_WEIGHT = 20.0
 
 # Staff is considered "online" if last_login_at is within this window.
@@ -35,6 +35,18 @@ ASSIGN_ONLINE_WINDOW_SECONDS = 1800   # 30 minutes
 
 # Redis lock TTL to prevent double-assignment within one org.
 ASSIGN_LOCK_TTL_SECONDS = 10
+
+# ── Skill score — hybrid (historical + baseline) ──────────────────────────────
+# skill_score = SKILL_HISTORICAL_WEIGHT × historical_score
+#             + SKILL_BASELINE_WEIGHT   × baseline_score
+# Both sub-scores are normalised to 0–ASSIGN_SKILL_WEIGHT.
+SKILL_HISTORICAL_WEIGHT = 0.7
+SKILL_BASELINE_WEIGHT = 0.3
+# Each resolved ticket of the same category earns this many skill points.
+# 5 matching tickets → 5×8 = 40 = max → historical fully saturates.
+HISTORICAL_POINT_PER_TICKET = 8
+# Below this threshold the agent is "new"; baseline score decays linearly to 0.
+SKILL_COLDSTART_THRESHOLD = 10
 
 # ── File uploads ──────────────────────────────────────────────────────────────
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024   # 10 MB
