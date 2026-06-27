@@ -10,7 +10,7 @@ load_dotenv()
 ENV: str = os.getenv("ENV", "development")  # "development" | "test" | "production"
 
 DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-DB_URL: str = os.getenv("DB_URL", DATABASE_URL or "")
+DB_URL: str = os.getenv("DB_URL") or os.getenv("DATABASE_URL") or ""
 JWT_SECRET: str = os.getenv("JWT_SECRET", "changeme")
 JWT_ALGO: str = os.getenv("JWT_ALGO", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
