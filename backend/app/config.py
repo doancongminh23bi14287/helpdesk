@@ -135,7 +135,7 @@ def validate_production_config() -> None:
             f"Current length: {len(JWT_SECRET)}."
         )
     if not DB_URL:
-        raise ValueError("FATAL: DB_URL or DATABASE_URL must be set (no localhost fallback).")
+        raise ValueError("FATAL: DATABASE_URL or DB_URL must be set (no localhost fallback).")
     if ENV != "production":
         return
     if not os.getenv("DATABASE_URL") and not os.getenv("DB_URL"):
