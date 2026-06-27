@@ -10,7 +10,7 @@ load_dotenv()
 ENV: str = os.getenv("ENV", "development")  # "development" | "test" | "production"
 
 DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-DB_URL: str = os.getenv("DB_URL", DATABASE_URL or "mysql+pymysql://helpdesk:helpdesk_pass@127.0.0.1:3307/helpdesk_db")
+DB_URL: str = os.getenv("DB_URL", DATABASE_URL or "")
 JWT_SECRET: str = os.getenv("JWT_SECRET", "changeme")
 JWT_ALGO: str = os.getenv("JWT_ALGO", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
@@ -134,6 +134,8 @@ def validate_production_config() -> None:
             "FATAL: JWT_SECRET must be at least 32 characters. "
             f"Current length: {len(JWT_SECRET)}."
         )
+    if not DB_URL:
+        raise ValueError("FATAL: DB_URL or DATABASE_URL must be set (no localhost fallback).")
     if ENV != "production":
         return
     if not os.getenv("DATABASE_URL") and not os.getenv("DB_URL"):
