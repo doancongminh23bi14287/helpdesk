@@ -16,9 +16,14 @@ db_url = os.getenv("DB_URL") or os.getenv("DATABASE_URL")
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
 
+import sys
 # Import all models so Alembic can detect schema changes
-import app.models  # noqa: F401 — registers all models with Base
-from app.database import Base
+try:
+    import app.models  # noqa: F401 — registers all models with Base
+    from app.database import Base
+except Exception as _e:
+    print(f"ALEMBIC IMPORT ERROR: {_e}", file=sys.stderr, flush=True)
+    raise
 
 target_metadata = Base.metadata
 
