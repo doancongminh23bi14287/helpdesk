@@ -1,4 +1,4 @@
-"""AI endpoints — classification + reply suggestion."""
+"""AI endpoints — classification + reply suggestion + summarize."""
 import logging
 from typing import List
 
@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 from app import config
 from app.database import get_db
 from app.models.ai_prediction import TicketAiPrediction, AiReplySuggestion
-from app.models.ticket import Ticket
+from app.models.ai_summary import AiTicketSummary
+from app.models.ticket import Ticket, TicketReply
 from app.models.user import User
 from app.core.deps import get_current_user, require_staff_or_admin
 from app.core.scoping import get_accessible_org_ids
-from app.schemas.ai import AiPredictionOut, AiReplyOut
+from app.core.redis_client import redis_client
+from app.schemas.ai import AiPredictionOut, AiReplyOut, AiSummaryOut
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +149,129 @@ def accept_suggestion(
     return suggestion
 
 
-# ── 6. GET /api/ai/tickets/{ticket_id}/suggestions ───────────────────────────
+# ── 6. GET /api/ai/tickets/{ticket_id}/summary ───────────────────────────────
+
+_SUMMARY_MAX = 10
+_SUMMARY_COOLDOWN = 120  # seconds
+_SUMMARY_INPUT_CAP = 3000  # chars sent to Groq
+
+
+@router.get("/tickets/{ticket_id}/summary", response_model=AiSummaryOut)
+def get_summary(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff_or_admin),
+):
+    _assert_ticket_accessible(ticket_id, user, db)
+
+    row = (
+        db.query(AiTicketSummary)
+        .filter(AiTicketSummary.ticket_id == ticket_id)
+        .order_by(AiTicketSummary.created_at.desc())
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="No summary found for this ticket")
+
+    cooldown_key = f"ai:summary:{ticket_id}"
+    ttl = redis_client.ttl(cooldown_key)
+    remaining = max(0, ttl) if ttl and ttl > 0 else 0
+
+    out = AiSummaryOut.model_validate(row)
+    out.cooldown_remaining = remaining
+    return out
+
+
+# ── 7. POST /api/ai/tickets/{ticket_id}/summarize ────────────────────────────
+
+@router.post("/tickets/{ticket_id}/summarize", response_model=AiSummaryOut)
+async def summarize_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff_or_admin),
+):
+    ticket = _assert_ticket_accessible(ticket_id, user, db)
+
+    cooldown_key = f"ai:summary:{ticket_id}"
+    if redis_client.exists(cooldown_key):
+        ttl = redis_client.ttl(cooldown_key)
+        remaining = max(0, ttl) if ttl and ttl > 0 else 0
+        raise HTTPException(
+            status_code=429,
+            detail=f"Vui lòng đợi {remaining}s trước khi phân tích lại",
+        )
+
+    existing = (
+        db.query(AiTicketSummary)
+        .filter(AiTicketSummary.ticket_id == ticket_id)
+        .order_by(AiTicketSummary.created_at.desc())
+        .first()
+    )
+    current_count = existing.summary_count if existing else 0
+    if current_count >= _SUMMARY_MAX:
+        raise HTTPException(status_code=429, detail="Đã đạt giới hạn 10 lần phân tích cho ticket này")
+
+    from app.services.ai.sanitizer import sanitize_for_ai
+
+    replies = (
+        db.query(TicketReply)
+        .filter(
+            TicketReply.ticket_id == ticket_id,
+            TicketReply.is_internal == False,  # noqa: E712
+        )
+        .order_by(TicketReply.created_at.asc())
+        .all()
+    )
+
+    replies_text = "\n".join(
+        f"[{'Staff' if r.author_type == 'staff' else 'Customer'}]: {r.content}"
+        for r in replies
+    ) or "Chưa có phản hồi"
+
+    raw_input = f"Ticket: {ticket.subject}\nDescription: {ticket.description or ''}\nReplies:\n{replies_text}"
+    sanitized = sanitize_for_ai(raw_input[:_SUMMARY_INPUT_CAP])
+
+    prompt = f"""You are analyzing a customer support ticket. Summarize concisely in Vietnamese.
+
+{sanitized}
+
+Respond in exactly this format (3 lines only):
+**Vấn đề chính:** [what the customer needs, 1-2 sentences]
+**Đã xử lý:** [what has been done/replied so far, or "Chưa có phản hồi"]
+**Trạng thái:** [current state and next action needed]"""
+
+    from app.services.ai.groq_client import chat_completion, AIDisabledException
+    try:
+        summary_text = await chat_completion(
+            [{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=300,
+        )
+    except AIDisabledException:
+        raise HTTPException(status_code=503, detail="AI features are disabled")
+    except Exception:
+        logger.exception("Groq summarize failed for ticket_id=%s", ticket_id)
+        raise HTTPException(status_code=503, detail="AI summarization unavailable")
+
+    new_count = current_count + 1
+    row = AiTicketSummary(
+        ticket_id=ticket_id,
+        summary_text=summary_text.strip(),
+        summary_count=new_count,
+        created_by=user.id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    redis_client.setex(cooldown_key, _SUMMARY_COOLDOWN, "1")
+
+    out = AiSummaryOut.model_validate(row)
+    out.cooldown_remaining = _SUMMARY_COOLDOWN
+    return out
+
+
+# ── 9. GET /api/ai/tickets/{ticket_id}/suggestions ───────────────────────────
 
 @router.get("/tickets/{ticket_id}/suggestions", response_model=List[AiReplyOut])
 def list_suggestions(

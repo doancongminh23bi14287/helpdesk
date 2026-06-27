@@ -9,6 +9,7 @@ import { updateTicket, assignTicket, getTransferRequest, createTransferRequest, 
 import { listUsers } from '@/api/users'
 import { listProjects } from '@/api/projects'
 import { getAttachments, uploadAttachment } from '@/api/attachments'
+import client from '@/api/client'
 import { Spinner } from '@/components/ui'
 import AttachmentList from '@/components/ui/AttachmentList'
 import AiPredictionBadge from '@/components/ai/AiPredictionBadge'
@@ -280,6 +281,34 @@ function TicketInfoPanel({
       {attachments.filter(a => !a.reply_id).length > 0 && (
         <SidebarSection title={`Attachments (${attachments.filter(a => !a.reply_id).length})`} defaultOpen={false}>
           <AttachmentList attachments={attachments.filter(a => !a.reply_id)} />
+        </SidebarSection>
+      )}
+
+      {isStaffOrAdmin && (
+        <SidebarSection title="AI Summary">
+          <div className="space-y-2">
+            {summary && (
+              <div className="text-xs text-gray-700 whitespace-pre-line bg-gray-50 rounded-md p-2.5 leading-relaxed">
+                {summary.summary_text}
+                <div className="text-[10px] text-gray-400 mt-1.5">
+                  Phân tích lúc {formatDateTime(summary.created_at)} · {summary.summary_count}/10 lần
+                </div>
+              </div>
+            )}
+            {!summary && !summaryLoading && (
+              <p className="text-xs text-gray-400">Tóm tắt nội dung ticket và các phản hồi bằng AI</p>
+            )}
+            <button
+              onClick={handleSummarize}
+              disabled={summaryLoading || cooldown > 0 || (summary?.summary_count ?? 0) >= 10}
+              className="w-full text-xs py-1.5 rounded-md border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+            >
+              {summaryLoading ? 'Đang phân tích...' :
+               cooldown > 0 ? `Thử lại sau ${cooldown}s` :
+               (summary?.summary_count ?? 0) >= 10 ? 'Đã đạt giới hạn' :
+               summary ? 'Phân tích lại' : 'Phân tích'}
+            </button>
+          </div>
         </SidebarSection>
       )}
 
@@ -585,6 +614,9 @@ export default function TicketDetailPage() {
   const [projectSearchResults, setProjectSearchResults] = useState([])
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false)
   const [aiPrediction, setAiPrediction] = useState(null)
+  const [summary, setSummary] = useState(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem('ticket_sidebar_width'))
@@ -608,7 +640,34 @@ export default function TicketDetailPage() {
   useEffect(() => {
     if (!id || !ticket) return
     getAttachments(id).then(setAttachments).catch(() => {})
+    client.get(`/ai/tickets/${id}/prediction`)
+      .then(res => setAiPrediction(res.data))
+      .catch(() => {})
+    client.get(`/ai/tickets/${id}/summary`)
+      .then(res => { setSummary(res.data); setCooldown(res.data.cooldown_remaining || 0) })
+      .catch(() => {})
   }, [id, ticket])
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setInterval(() => setCooldown(c => Math.max(0, c - 1)), 1000)
+    return () => clearInterval(t)
+  }, [cooldown])
+
+  const handleSummarize = async () => {
+    setSummaryLoading(true)
+    try {
+      const res = await client.post(`/ai/tickets/${id}/summarize`)
+      setSummary(res.data)
+      setCooldown(res.data.cooldown_remaining || 120)
+    } catch (err) {
+      const detail = err.response?.data?.detail
+      if (err.response?.status === 429) setCooldown(120)
+      console.error('Summarize failed:', detail)
+    } finally {
+      setSummaryLoading(false)
+    }
+  }
 
   const loadTransferReq = useCallback(() => {
     // transfer-request endpoint not yet implemented — skip to avoid CORS/404
