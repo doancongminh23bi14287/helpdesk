@@ -224,7 +224,7 @@ async def summarize_ticket(
     )
 
     replies_text = "\n".join(
-        f"[{'Staff' if r.author_type == 'staff' else 'Customer'}]: {r.content}"
+        f"[{'Staff' if r.author_id else 'Customer'}]: {r.content}"
         for r in replies
     ) or "Chưa có phản hồi"
 
