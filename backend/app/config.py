@@ -69,6 +69,7 @@ AI_MODEL: str = os.getenv("AI_MODEL", "llama-3.1-8b-instant")
 GSC_CLIENT_ID: str = os.getenv("GSC_CLIENT_ID", "")
 GSC_CLIENT_SECRET: str = os.getenv("GSC_CLIENT_SECRET", "")
 GSC_REDIRECT_URI: str = os.getenv("GSC_REDIRECT_URI", "http://localhost:8001/api/seo/gsc/callback")
+GA4_REDIRECT_URI: str = os.getenv("GA4_REDIRECT_URI", "http://localhost:8001/api/seo/ga4/callback")
 
 RATE_LIMIT_LOGIN: str = os.getenv("RATE_LIMIT_LOGIN", "10/minute")
 RATE_LIMIT_REFRESH: str = os.getenv("RATE_LIMIT_REFRESH", "30/minute")

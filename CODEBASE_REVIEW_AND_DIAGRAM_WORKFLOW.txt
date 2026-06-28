@@ -1,0 +1,277 @@
+CustomerHub / helpdesk-system review
+Date: 2026-06-26
+
+Scope:
+- Read-only review of source code.
+- No source code changed.
+- This file is a review/explanation note only.
+
+
+1. Important findings
+
+Finding 1 - Ticket/task assignment accepts users that should not be assignable
+Severity: High
+
+Where:
+- backend/app/api/tickets.py:187-228
+- backend/app/api/tickets.py:552-565
+- backend/app/services/assignment.py:34-41
+- backend/app/services/assignment.py:98-104
+
+What happens:
+Ticket creation/update can pass assignee_id or assignee_ids into set_ticket_assignees().
+Project task creation/update can pass assignee_id or assignee_ids into set_task_assignees().
+Those helper functions only check that the user IDs exist. They do not check:
+- user.role == "staff"
+- user.is_active == True
+- staff is assigned to the ticket/project organization
+
+Why this matters:
+An admin, or a staff path that reaches these helpers, can accidentally assign a ticket/task to:
+- a customer account
+- inactive users
+- staff unrelated to that organization
+
+For tickets linked to projects, set_ticket_assignees() also syncs assignees into project_members with role="staff". If a customer ID is passed, that customer can be inserted as a staff project member.
+
+Suggested fix:
+Create one validation helper, for example validate_assignable_staff(db, user_ids, org_id), and call it from:
+- set_ticket_assignees()
+- set_task_assignees()
+- ticket create/update/assign endpoints
+- project task create/update endpoints
+
+The helper should require active staff users and enforce organization assignment unless the business intentionally allows global staff.
+
+
+Finding 2 - Socket.IO authentication does not honor session revocation/blacklist
+Severity: Medium-High
+
+Where:
+- backend/app/socketio_server.py:30-53
+- backend/app/core/deps.py:20-51
+
+What happens:
+HTTP endpoints use get_current_user(), which checks:
+- token type
+- Redis user blacklist
+- active UserSession current_jti
+- active user
+- must_change_password restrictions
+
+Socket.IO connect only decodes the JWT and checks that the user exists and is active.
+
+Why this matters:
+After logout-all, password reset, password change, or admin session revocation, an old access token can still connect to Socket.IO until the access token expires. That creates a mismatch: HTTP says the session is revoked, realtime may still accept it.
+
+Suggested fix:
+Make Socket.IO connect validate the same rules as get_current_user:
+- reject blacklisted users
+- verify jti exists in an active UserSession
+- reject inactive users
+
+
+Finding 3 - Development env example conflicts with startup validation
+Severity: Medium
+
+Where:
+- .env.dev.example:12
+- backend/app/config.py:122-138
+- backend/app/main.py:31
+
+What happens:
+.env.dev.example tells developers to use:
+JWT_SECRET=dev-secret-change-in-production
+
+But validate_production_config() treats that exact value as insecure and fatal before the app starts. The function runs at import/startup in backend/app/main.py.
+
+Why this matters:
+A new developer who follows the comment "Copy this file to backend/.env" can get a startup crash before using the app.
+
+Suggested fix:
+Either:
+- change .env.dev.example to a 32+ character non-banned dev secret, or
+- rename validate_production_config() to validate_runtime_config() and document that dev also needs a strong secret.
+
+The first option is the simplest.
+
+
+Finding 4 - Ticket creation allows staff to create tickets in orgs they may not serve
+Severity: Medium
+
+Where:
+- backend/app/api/tickets.py:146-148
+
+What happens:
+create_ticket() only restricts customers from creating tickets for another organization. Staff users are not checked with assert_org_access() or get_accessible_org_ids().
+
+Why this matters:
+The architecture says staff visibility is based on staff_org_assignments. Listing/viewing uses scope_tickets(), but creation does not apply the same org access rule.
+
+Suggested fix:
+For user.role == "staff", call assert_org_access(payload.org_id, user, db) before creating the ticket. Admin can remain unrestricted.
+
+
+2. Things that looked okay
+
+- Project document direct download checks customer visibility before serving files.
+- Attachment download checks ticket scope before serving files.
+- Invoice read routes are scoped by organization.
+- Customer ticket detail hides internal replies.
+- Password reset OTP code has attempt limits and row locking.
+- Backend tests reached 47 passed before I interrupted the long-running suite after about 6 minutes 53 seconds. No failures appeared before interruption.
+
+
+3. How the system works
+
+Frontend:
+- React 18 + Vite SPA.
+- Main route map is frontend/src/App.jsx.
+- Public pages: login, register shim, forgot password.
+- Protected customer/staff/admin pages are wrapped by ProtectedRoute.
+- AdminRoute and StaffOrAdminRoute only control frontend navigation. Real security is in the backend.
+
+API:
+- FastAPI app starts in backend/app/main.py.
+- Routers are mounted for auth, tickets, projects, invoices, services, users, organizations, analytics, AI, SEO/GSC, notifications, and attachments.
+- JWT access tokens authenticate normal API calls.
+- Refresh tokens are stored as hashed UserSession rows and rotate on refresh.
+
+Data:
+- MariaDB stores users, organizations, tickets, replies, projects, subscriptions, invoices, notifications, email logs, and outbox records.
+- SQLAlchemy models live in backend/app/models/.
+- Alembic migrations are authoritative; SCHEMA.sql is a reference.
+
+Background jobs:
+- Redis is both cache/broker/pubsub.
+- Celery worker runs async jobs.
+- Celery beat schedules:
+  - email polling every 2 minutes
+  - SLA checks every 5 minutes
+  - subscription checks daily
+  - invoice generation daily
+  - email outbox draining every 2 minutes
+
+Realtime:
+- Socket.IO lets users receive live notifications.
+- FastAPI process subscribes to Redis pub/sub and forwards messages to user rooms.
+
+File storage:
+- Uploaded ticket/project files are stored under FILES_ROOT.
+- File type is checked by declared MIME and magic bytes.
+- Downloads go through API authorization checks.
+
+
+4. Diagram workflow
+
+Step 1 - Pick diagram type
+- System architecture: use flowchart.
+- API request flow: use sequenceDiagram.
+- Database model: use erDiagram.
+- Ticket status lifecycle: use stateDiagram-v2.
+- Background jobs: use flowchart or sequenceDiagram.
+
+Step 2 - Collect source files
+- System architecture:
+  - README.md
+  - docs/ARCHITECTURE.md
+  - docker-compose.yml
+  - backend/app/main.py
+  - frontend/src/App.jsx
+
+- API route diagram:
+  - backend/app/main.py
+  - backend/app/api/*.py
+  - frontend/src/api/*.js
+
+- Data model diagram:
+  - backend/app/models/*.py
+  - SCHEMA.sql
+
+- Ticket workflow:
+  - backend/app/api/tickets.py
+  - backend/app/services/assignment.py
+  - backend/app/services/auto_assign.py
+  - backend/app/services/sla_monitor.py
+  - backend/app/tasks/sla_checker.py
+
+- Billing workflow:
+  - backend/app/api/invoices.py
+  - backend/app/services/invoice_service.py
+  - backend/app/tasks/invoice_tasks.py
+  - backend/app/tasks/email_outbox_task.py
+
+Step 3 - Extract nouns and arrows
+- Nouns become boxes/entities:
+  User, React SPA, FastAPI, MariaDB, Redis, Celery, SMTP, IMAP, Socket.IO.
+
+- Arrows become actions:
+  User logs in -> React sends request -> FastAPI validates -> DB stores -> Redis publishes -> Socket.IO notifies.
+
+Step 4 - Keep first diagram simple
+- Do not put every table in one architecture diagram.
+- Make separate diagrams:
+  1. System architecture
+  2. Ticket lifecycle
+  3. Billing/email outbox
+  4. ER diagram
+  5. Deployment diagram
+
+Step 5 - Write Mermaid
+Example command-style workflow:
+1. Read code/doc files.
+2. Write a Mermaid block.
+3. Preview it in Markdown, Mermaid Live Editor, or a renderer.
+4. Check arrows manually.
+5. Simplify labels until it is readable in 5 seconds.
+
+Step 6 - Use this starter system diagram
+
+```mermaid
+flowchart LR
+  User["Customer / Staff / Admin"] --> SPA["React + Vite SPA"]
+  SPA --> API["FastAPI API"]
+  SPA --> SIO["Socket.IO"]
+  API --> DB[("MariaDB")]
+  API --> Redis[("Redis")]
+  API --> Files["File Storage"]
+  Beat["Celery Beat"] --> Worker["Celery Worker"]
+  Worker --> DB
+  Worker --> Redis
+  Worker --> SMTP["SMTP"]
+  IMAP["IMAP Mailbox"] --> Worker
+  Redis --> SIO
+  SIO --> SPA
+```
+
+Step 7 - Use this starter ticket workflow
+
+```mermaid
+sequenceDiagram
+  actor Customer
+  participant SPA as React Portal
+  participant API as FastAPI Tickets API
+  participant Assign as Assignment Service
+  participant SLA as SLA Service
+  participant DB as MariaDB
+  participant Redis as Redis
+  participant Staff
+
+  Customer->>SPA: Create ticket
+  SPA->>API: POST /api/tickets
+  API->>Assign: choose assignee
+  Assign->>DB: read staff workload
+  API->>SLA: compute deadlines
+  API->>DB: save ticket and activity
+  API->>Redis: publish notification
+  Redis->>Staff: realtime update
+```
+
+
+5. Priority order if you fix later
+
+1. Validate assignable staff users and org access.
+2. Make Socket.IO reuse session revocation checks.
+3. Fix .env.dev.example JWT secret mismatch.
+4. Add regression tests for the first two issues.
+5. Then make diagrams for thesis/report.

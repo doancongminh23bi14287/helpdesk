@@ -22,6 +22,7 @@ from app.models.password_reset import PasswordResetOTP
 from app.models.ai_prediction import TicketAiPrediction, AiReplySuggestion
 from app.models.ai_summary import AiTicketSummary
 from app.models.gsc_connection import GscConnection
+from app.models.ga4_connection import Ga4Connection
 
 __all__ = [
     "Organization", "User",
@@ -46,4 +47,5 @@ __all__ = [
     "PasswordResetOTP",
     "TicketAiPrediction", "AiReplySuggestion", "AiTicketSummary",
     "GscConnection",
+    "Ga4Connection",
 ]

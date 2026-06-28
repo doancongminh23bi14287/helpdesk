@@ -565,6 +565,7 @@ function Step4User({ onBack, onNext, onSkip, organization }) {
             <input
               type="text"
               value={organization?.name ?? ''}
+              readOnly
               disabled={!!organization}
               placeholder="No organization linked"
               className="w-full px-3 py-2 border border-input rounded-lg bg-muted text-muted-foreground text-sm cursor-not-allowed"

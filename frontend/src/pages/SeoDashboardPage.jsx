@@ -4,7 +4,7 @@ import {
   AreaChart, Area,
 } from 'recharts'
 import { ArrowUpIcon, ArrowDownIcon, MinusIcon, PrinterIcon, BeakerIcon, LinkIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
-import { ga4Summary } from '@/data/seoMockData'
+import { ga4Summary as ga4MockSummary } from '@/data/seoMockData'
 import { useGscData } from '@/hooks/useGscData'
 import client from '@/api/client'
 
@@ -243,7 +243,7 @@ function RankChart({ rankHistory, rankKeywords, usingRealData }) {
 
 // ── White-label report block ──────────────────────────────────────────────────
 
-function WhiteLabelReport() {
+function WhiteLabelReport({ ga4Summary }) {
   const { keywords, gscSummary } = useGscData()
   const handlePrint = () => window.print()
 
@@ -334,6 +334,8 @@ function GscConnectionCard() {
   const [status, setStatus] = useState(null) // null = loading
   const [flash, setFlash]   = useState(null) // { type: 'success'|'error', msg }
   const [busy, setBusy]     = useState(false)
+  const [properties, setProperties] = useState([])
+  const [selectingProperty, setSelectingProperty] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -454,9 +456,240 @@ function GscConnectionCard() {
         </p>
       )}
       {status?.connected && !status?.property_url && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          Connected — no property selected yet. Use the API to set a property URL.
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Connected — chưa chọn property. Chọn website bên dưới:
+          </p>
+          {properties.length === 0 && (
+            <button
+              onClick={async () => {
+                try {
+                  const { data } = await client.get('/seo/gsc/properties')
+                  setProperties(data.properties || [])
+                } catch (err) {
+                  setFlash({ type: 'error', msg: 'Không lấy được danh sách property.' })
+                }
+              }}
+              className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 w-fit"
+            >
+              Xem danh sách property
+            </button>
+          )}
+          {properties.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                className="text-xs border border-border rounded-md px-2 py-1.5 bg-background text-foreground"
+                defaultValue=""
+                onChange={async (e) => {
+                  if (!e.target.value) return
+                  setSelectingProperty(true)
+                  try {
+                    await client.post('/seo/gsc/property', { property_url: e.target.value })
+                    setFlash({ type: 'success', msg: `Property đã chọn: ${e.target.value}` })
+                    fetchStatus()
+                    setProperties([])
+                  } catch (err) {
+                    setFlash({ type: 'error', msg: 'Không chọn được property.' })
+                  } finally {
+                    setSelectingProperty(false)
+                  }
+                }}
+                disabled={selectingProperty}
+              >
+                <option value="">-- Chọn property --</option>
+                {properties.map(p => (
+                  <option key={p.siteUrl} value={p.siteUrl}>{p.siteUrl}</option>
+                ))}
+              </select>
+              {selectingProperty && <span className="text-xs text-muted-foreground animate-pulse">Đang lưu…</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── GA4 connection card ───────────────────────────────────────────────────────
+
+function Ga4ConnectionCard({ onDataChange }) {
+  const [status, setStatus]     = useState(null)
+  const [flash, setFlash]       = useState(null)
+  const [busy, setBusy]         = useState(false)
+  const [properties, setProperties] = useState([])
+  const [selectingProperty, setSelectingProperty] = useState(false)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const { data } = await client.get('/seo/ga4/status')
+      setStatus(data)
+      if (data.connected && data.property_id) {
+        try {
+          const { data: report } = await client.get('/seo/ga4/report')
+          onDataChange(report)
+        } catch { /* property set but no data yet */ }
+      }
+    } catch {
+      setStatus({ connected: false })
+    }
+  }, [onDataChange])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('ga4_connected') === '1') {
+      setFlash({ type: 'success', msg: 'Google Analytics 4 connected.' })
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (params.get('ga4_error')) {
+      setFlash({ type: 'error', msg: `GA4 connection failed: ${params.get('ga4_error').replace(/_/g, ' ')}.` })
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    fetchStatus()
+  }, [fetchStatus])
+
+  const handleConnect = async () => {
+    setBusy(true)
+    try {
+      const { data } = await client.get('/seo/ga4/connect')
+      window.location.href = data.url
+    } catch (err) {
+      setFlash({ type: 'error', msg: err?.response?.data?.detail ?? 'Could not start GA4 OAuth flow.' })
+      setBusy(false)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    if (!window.confirm('Disconnect Google Analytics 4?')) return
+    setBusy(true)
+    try {
+      await client.delete('/seo/ga4/disconnect')
+      setFlash({ type: 'success', msg: 'GA4 disconnected.' })
+      setStatus({ connected: false })
+      onDataChange(null)
+    } catch (err) {
+      setFlash({ type: 'error', msg: err?.response?.data?.detail ?? 'Disconnect failed.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3">
+      {flash && (
+        <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg text-sm ${
+          flash.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-300'
+            : 'bg-red-50 border border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300'
+        }`}>
+          {flash.type === 'success'
+            ? <CheckCircleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            : <ExclamationCircleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+          <span>{flash.msg}</span>
+          <button onClick={() => setFlash(null)} className="ml-auto text-inherit opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <LinkIcon className="w-4 h-4 text-muted-foreground" />
+          <p className="text-sm font-semibold text-foreground">Google Analytics 4</p>
+          {status === null && <span className="text-xs text-muted-foreground animate-pulse">Checking…</span>}
+          {status?.connected && (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+              Connected
+            </span>
+          )}
+          {status && !status.connected && (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-muted text-muted-foreground">
+              Not connected
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {status?.connected ? (
+            <button
+              onClick={handleDisconnect}
+              disabled={busy}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={handleConnect}
+              disabled={busy || status === null}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <LinkIcon className="w-4 h-4" />
+              {busy ? 'Redirecting…' : 'Connect Google Analytics 4'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {status?.connected && status?.property_name && (
+        <p className="text-xs text-muted-foreground">
+          Property: <span className="font-medium text-foreground">{status.property_name}</span>
+          {status.property_id && <> · ID: {status.property_id}</>}
         </p>
+      )}
+
+      {status?.connected && !status?.property_id && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Connected — chưa chọn property. Chọn bên dưới:
+          </p>
+          {properties.length === 0 && (
+            <button
+              onClick={async () => {
+                try {
+                  const { data } = await client.get('/seo/ga4/properties')
+                  setProperties(data.properties || [])
+                } catch {
+                  setFlash({ type: 'error', msg: 'Không lấy được danh sách property.' })
+                }
+              }}
+              className="text-xs px-3 py-1.5 rounded-lg border border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 w-fit"
+            >
+              Xem danh sách property
+            </button>
+          )}
+          {properties.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                className="text-xs border border-border rounded-md px-2 py-1.5 bg-background text-foreground"
+                defaultValue=""
+                onChange={async (e) => {
+                  if (!e.target.value) return
+                  const selected = properties.find(p => p.property === e.target.value)
+                  setSelectingProperty(true)
+                  try {
+                    await client.post('/seo/ga4/property', {
+                      property_id: e.target.value,
+                      property_name: selected?.displayName ?? '',
+                    })
+                    setFlash({ type: 'success', msg: `Property đã chọn: ${selected?.displayName ?? e.target.value}` })
+                    fetchStatus()
+                    setProperties([])
+                  } catch {
+                    setFlash({ type: 'error', msg: 'Không chọn được property.' })
+                  } finally {
+                    setSelectingProperty(false)
+                  }
+                }}
+                disabled={selectingProperty}
+              >
+                <option value="">-- Chọn property --</option>
+                {properties.map(p => (
+                  <option key={p.property} value={p.property}>
+                    {p.displayName} ({p.property})
+                  </option>
+                ))}
+              </select>
+              {selectingProperty && <span className="text-xs text-muted-foreground animate-pulse">Đang lưu…</span>}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
@@ -466,6 +699,12 @@ function GscConnectionCard() {
 
 export default function SeoDashboardPage() {
   const { isConnected, isLoading, usingRealData, keywords, rankHistory, rankKeywords, gscSummary } = useGscData()
+  const [ga4Report, setGa4Report] = useState(null)
+
+  const ga4Summary = ga4Report?.summary ?? ga4MockSummary
+  const ga4Sparkline = ga4Report?.sparkline?.length
+    ? ga4Report.sparkline.map(d => d.v)
+    : ga4MockSummary.sparkline
 
   const hasData = keywords && keywords.length > 0
 
@@ -483,12 +722,11 @@ export default function SeoDashboardPage() {
       {/* Banner logic */}
       {isLoading ? null : !isConnected ? (
         <PrototypeBanner />
-      ) : !hasData ? (
-        <AccumulatingBanner />
       ) : null}
 
-      {/* GSC connection status */}
+      {/* Connection cards */}
       <GscConnectionCard />
+      <Ga4ConnectionCard onDataChange={setGa4Report} />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -506,14 +744,14 @@ export default function SeoDashboardPage() {
         />
         <KpiCard
           title="Google Analytics 4"
-          badge="Last 30 days"
+          badge={ga4Report ? 'Live · Last 30 days' : 'Last 30 days'}
           metrics={[
-            { label: 'Sessions',          value: fmt(ga4Summary.sessions) },
-            { label: 'Users',             value: fmt(ga4Summary.users) },
-            { label: 'Engagement Rate',   value: `${ga4Summary.engagementRate}%` },
-            { label: 'Avg. per Session',  value: (ga4Summary.sessions / 30).toFixed(0) + '/day' },
+            { label: 'Sessions',         value: fmt(ga4Summary.sessions) },
+            { label: 'Users',            value: fmt(ga4Summary.users) },
+            { label: 'Engagement Rate',  value: `${ga4Summary.engagementRate}%` },
+            { label: 'Avg. per Session', value: Math.round(ga4Summary.sessions / 30) + '/day' },
           ]}
-          sparkline={ga4Summary.sparkline}
+          sparkline={ga4Sparkline}
           sparkColor="#0EA5E9"
         />
       </div>
@@ -525,7 +763,7 @@ export default function SeoDashboardPage() {
       <KeywordsTable keywords={keywords} />
 
       {/* White-label report */}
-      <WhiteLabelReport />
+      <WhiteLabelReport ga4Summary={ga4Summary} />
     </div>
   )
 }

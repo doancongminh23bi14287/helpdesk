@@ -269,6 +269,7 @@ function TicketInfoPanel({
   handleAssign, handleAcceptTransfer, handleDeclineTransfer,
   handleCreateProject, handleUnlinkProject,
   setAiPrediction,
+  summary, summaryLoading, cooldown, handleSummarize,
 }) {
   return (
     <>
@@ -1078,6 +1079,10 @@ export default function TicketDetailPage() {
             handleCreateProject={handleCreateProject}
             handleUnlinkProject={handleUnlinkProject}
             setAiPrediction={setAiPrediction}
+            summary={summary}
+            summaryLoading={summaryLoading}
+            cooldown={cooldown}
+            handleSummarize={handleSummarize}
           />
         </div>
       </div>
@@ -1131,6 +1136,10 @@ export default function TicketDetailPage() {
                   handleCreateProject={handleCreateProject}
                   handleUnlinkProject={handleUnlinkProject}
                   setAiPrediction={setAiPrediction}
+                  summary={summary}
+                  summaryLoading={summaryLoading}
+                  cooldown={cooldown}
+                  handleSummarize={handleSummarize}
                 />
               </div>
             </motion.div>
