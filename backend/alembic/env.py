@@ -36,10 +36,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
     url = db_url or config.get_main_option("sqlalchemy.url")
     connectable = create_engine(url, poolclass=pool.NullPool)
     with connectable.connect() as connection:
+        # Fail fast if metadata lock blocks DDL — prevents Railway deploy hang
+        connection.execute(text("SET SESSION lock_wait_timeout = 30"))
+        connection.execute(text("SET SESSION innodb_lock_wait_timeout = 30"))
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
