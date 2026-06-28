@@ -185,11 +185,13 @@ app.include_router(projects.task_router)
 @app.get("/health", tags=["system"])
 async def health():
     from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    print(f"Healthcheck called at {now.isoformat()}", flush=True)
     return {
         "status": "ok",
         "service": "CustomerHub API",
         "version": "1.0.0",
-        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        "timestamp": now.isoformat(),
     }
 
 
