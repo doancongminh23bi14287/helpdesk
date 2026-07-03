@@ -1,4 +1,4 @@
-"""Outbound email sender via Resend API (fallback: SMTP) with DB logging."""
+"""Outbound email sender via Mailjet API (fallback: SMTP) with DB logging."""
 import logging
 import os
 import uuid
@@ -8,7 +8,8 @@ from app.models.notification import EmailLog
 
 logger = logging.getLogger(__name__)
 
-_RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+_MAILJET_API_KEY = os.getenv("MAILJET_API_KEY", "")
+_MAILJET_SECRET_KEY = os.getenv("MAILJET_SECRET_KEY", "")
 
 
 def send_email(
@@ -26,8 +27,8 @@ def send_email(
     """
     outbound_message_id = f"<{uuid.uuid4()}@osd.vn>"
     try:
-        if _RESEND_API_KEY:
-            _send_via_resend(to, subject, body_html, body_text, outbound_message_id)
+        if _MAILJET_API_KEY and _MAILJET_SECRET_KEY:
+            _send_via_mailjet(to, subject, body_html, body_text, outbound_message_id)
         else:
             _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 
@@ -40,25 +41,28 @@ def send_email(
         return None
 
 
-def _send_via_resend(to, subject, body_html, body_text, message_id):
-    import resend
+def _send_via_mailjet(to, subject, body_html, body_text, message_id):
+    from mailjet_rest import Client
 
-    resend.api_key = _RESEND_API_KEY
-    from_addr = f"{config.SMTP_FROM_NAME} <{config.SMTP_FROM_EMAIL}>"
-    params = {
-        "from": from_addr,
-        "to": [to],
-        "subject": subject,
-        "html": body_html,
-        "headers": {"Message-ID": message_id},
+    mj = Client(auth=(_MAILJET_API_KEY, _MAILJET_SECRET_KEY), version="v3.1")
+    data = {
+        "Messages": [
+            {
+                "From": {"Email": config.SMTP_FROM_EMAIL, "Name": config.SMTP_FROM_NAME},
+                "To": [{"Email": to}],
+                "Subject": subject,
+                "HTMLPart": body_html,
+                "Headers": {"Message-ID": message_id},
+            }
+        ]
     }
     if body_text:
-        params["text"] = body_text
+        data["Messages"][0]["TextPart"] = body_text
 
-    result = resend.Emails.send(params)
-    if not result.get("id"):
-        raise RuntimeError(f"Resend error: {result}")
-    logger.info("Email sent via Resend to %s (id=%s)", to, result.get("id"))
+    result = mj.send.create(data=data)
+    if result.status_code >= 400:
+        raise RuntimeError(f"Mailjet error {result.status_code}: {result.json()}")
+    logger.info("Email sent via Mailjet to %s (status %s)", to, result.status_code)
 
 
 def _send_via_smtp(to, subject, body_html, body_text, message_id):
