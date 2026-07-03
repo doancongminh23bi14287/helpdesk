@@ -1,15 +1,14 @@
-"""Outbound email sender with SMTP/SSL and DB logging."""
-import smtplib
+"""Outbound email sender via SendGrid API (fallback: SMTP) with DB logging."""
 import logging
+import os
 import uuid
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import formataddr
 from sqlalchemy.orm import Session
 from app import config
 from app.models.notification import EmailLog
 
 logger = logging.getLogger(__name__)
+
+_SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
 
 
 def send_email(
@@ -21,33 +20,16 @@ def send_email(
     ticket_id: int = None,
 ) -> str | None:
     """
-    Send an email via SMTP SSL.
-    Generates and sets a unique Message-ID header.
-    Returns the generated Message-ID on success, None on failure.
+    Send an email via SendGrid HTTP API (or SMTP if no API key set).
+    Returns a unique Message-ID on success, None on failure.
     Logs result to email_log table if db is provided.
     """
     outbound_message_id = f"<{uuid.uuid4()}@osd.vn>"
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = formataddr((config.SMTP_FROM_NAME, config.SMTP_FROM_EMAIL))
-        msg["To"] = to
-        msg["Message-ID"] = outbound_message_id
-
-        if body_text:
-            msg.attach(MIMEText(body_text, "plain", "utf-8"))
-        msg.attach(MIMEText(body_html, "html", "utf-8"))
-
-        if config.SMTP_USE_SSL:
-            smtp_cls = smtplib.SMTP_SSL
+        if _SENDGRID_API_KEY:
+            _send_via_sendgrid(to, subject, body_html, body_text, outbound_message_id)
         else:
-            smtp_cls = smtplib.SMTP
-
-        with smtp_cls(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as server:
-            if not config.SMTP_USE_SSL:
-                server.starttls()
-            server.login(config.SMTP_USER, config.SMTP_PASS)
-            server.sendmail(config.SMTP_FROM_EMAIL, [to], msg.as_string())
+            _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 
         _log(db, to, subject, ticket_id, "outbound", "sent")
         return outbound_message_id
@@ -56,6 +38,51 @@ def send_email(
         logger.warning("Email send failed to %s: %s", to, exc)
         _log(db, to, subject, ticket_id, "outbound", f"failed: {exc}"[:255])
         return None
+
+
+def _send_via_sendgrid(to, subject, body_html, body_text, message_id):
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail, Content, MimeType, Header
+
+    mail = Mail(
+        from_email=(config.SMTP_FROM_EMAIL, config.SMTP_FROM_NAME),
+        to_emails=to,
+        subject=subject,
+    )
+    mail.add_header(Header("Message-ID", message_id))
+    if body_text:
+        mail.add_content(Content(MimeType.text, body_text))
+    mail.add_content(Content(MimeType.html, body_html))
+
+    sg = SendGridAPIClient(_SENDGRID_API_KEY)
+    response = sg.send(mail)
+    if response.status_code >= 400:
+        raise RuntimeError(f"SendGrid error {response.status_code}: {response.body}")
+    logger.info("Email sent via SendGrid to %s (status %s)", to, response.status_code)
+
+
+def _send_via_smtp(to, subject, body_html, body_text, message_id):
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.utils import formataddr
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = formataddr((config.SMTP_FROM_NAME, config.SMTP_FROM_EMAIL))
+    msg["To"] = to
+    msg["Message-ID"] = message_id
+
+    if body_text:
+        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+    msg.attach(MIMEText(body_html, "html", "utf-8"))
+
+    smtp_cls = smtplib.SMTP_SSL if config.SMTP_USE_SSL else smtplib.SMTP
+    with smtp_cls(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as server:
+        if not config.SMTP_USE_SSL:
+            server.starttls()
+        server.login(config.SMTP_USER, config.SMTP_PASS)
+        server.sendmail(config.SMTP_FROM_EMAIL, [to], msg.as_string())
 
 
 def _record_outbound_thread(db: Session, ticket_id: int, message_id: str) -> None:
