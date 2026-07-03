@@ -1,4 +1,4 @@
-"""Outbound email sender via Resend API (fallback: SMTP) with DB logging."""
+"""Outbound email sender via Brevo API (fallback: SMTP) with DB logging."""
 import logging
 import os
 import uuid
@@ -8,7 +8,7 @@ from app.models.notification import EmailLog
 
 logger = logging.getLogger(__name__)
 
-_RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+_BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 
 
 def send_email(
@@ -26,8 +26,8 @@ def send_email(
     """
     outbound_message_id = f"<{uuid.uuid4()}@osd.vn>"
     try:
-        if _RESEND_API_KEY:
-            _send_via_resend(to, subject, body_html, body_text, outbound_message_id)
+        if _BREVO_API_KEY:
+            _send_via_brevo(to, subject, body_html, body_text, outbound_message_id)
         else:
             _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 
@@ -40,25 +40,25 @@ def send_email(
         return None
 
 
-def _send_via_resend(to, subject, body_html, body_text, message_id):
-    import resend
+def _send_via_brevo(to, subject, body_html, body_text, message_id):
+    import sib_api_v3_sdk
+    from sib_api_v3_sdk.rest import ApiException
 
-    resend.api_key = _RESEND_API_KEY
-    from_addr = f"{config.SMTP_FROM_NAME} <{config.SMTP_FROM_EMAIL}>"
-    params = {
-        "from": from_addr,
-        "to": [to],
-        "subject": subject,
-        "html": body_html,
-        "headers": {"Message-ID": message_id},
-    }
-    if body_text:
-        params["text"] = body_text
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key["api-key"] = _BREVO_API_KEY
 
-    result = resend.Emails.send(params)
-    if not result.get("id"):
-        raise RuntimeError(f"Resend error: {result}")
-    logger.info("Email sent via Resend to %s (id=%s)", to, result.get("id"))
+    api = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+    sender = {"name": config.SMTP_FROM_NAME, "email": config.SMTP_FROM_EMAIL}
+    send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to}],
+        sender=sender,
+        subject=subject,
+        html_content=body_html,
+        text_content=body_text,
+        headers={"Message-ID": message_id},
+    )
+    result = api.send_transac_email(send_smtp_email)
+    logger.info("Email sent via Brevo to %s (messageId=%s)", to, result.message_id)
 
 
 def _send_via_smtp(to, subject, body_html, body_text, message_id):
