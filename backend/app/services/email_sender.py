@@ -1,4 +1,4 @@
-"""Outbound email sender via SendGrid API (fallback: SMTP) with DB logging."""
+"""Outbound email sender via Resend API (fallback: SMTP) with DB logging."""
 import logging
 import os
 import uuid
@@ -8,7 +8,7 @@ from app.models.notification import EmailLog
 
 logger = logging.getLogger(__name__)
 
-_SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
+_RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 
 
 def send_email(
@@ -26,8 +26,8 @@ def send_email(
     """
     outbound_message_id = f"<{uuid.uuid4()}@osd.vn>"
     try:
-        if _SENDGRID_API_KEY:
-            _send_via_sendgrid(to, subject, body_html, body_text, outbound_message_id)
+        if _RESEND_API_KEY:
+            _send_via_resend(to, subject, body_html, body_text, outbound_message_id)
         else:
             _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 
@@ -40,25 +40,25 @@ def send_email(
         return None
 
 
-def _send_via_sendgrid(to, subject, body_html, body_text, message_id):
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail, Content, MimeType, Header
+def _send_via_resend(to, subject, body_html, body_text, message_id):
+    import resend
 
-    mail = Mail(
-        from_email=(config.SMTP_FROM_EMAIL, config.SMTP_FROM_NAME),
-        to_emails=to,
-        subject=subject,
-    )
-    mail.add_header(Header("Message-ID", message_id))
+    resend.api_key = _RESEND_API_KEY
+    from_addr = f"{config.SMTP_FROM_NAME} <{config.SMTP_FROM_EMAIL}>"
+    params = {
+        "from": from_addr,
+        "to": [to],
+        "subject": subject,
+        "html": body_html,
+        "headers": {"Message-ID": message_id},
+    }
     if body_text:
-        mail.add_content(Content(MimeType.text, body_text))
-    mail.add_content(Content(MimeType.html, body_html))
+        params["text"] = body_text
 
-    sg = SendGridAPIClient(_SENDGRID_API_KEY)
-    response = sg.send(mail)
-    if response.status_code >= 400:
-        raise RuntimeError(f"SendGrid error {response.status_code}: {response.body}")
-    logger.info("Email sent via SendGrid to %s (status %s)", to, response.status_code)
+    result = resend.Emails.send(params)
+    if not result.get("id"):
+        raise RuntimeError(f"Resend error: {result}")
+    logger.info("Email sent via Resend to %s (id=%s)", to, result.get("id"))
 
 
 def _send_via_smtp(to, subject, body_html, body_text, message_id):
