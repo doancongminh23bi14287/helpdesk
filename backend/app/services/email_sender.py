@@ -22,11 +22,13 @@ def send_email(
     ticket_id: int = None,
 ) -> str | None:
     """
-    Send an email via SendGrid HTTP API (or SMTP if no API key set).
+    Send an email via Gmail API (or SMTP if OAuth env vars are not set).
     Returns a unique Message-ID on success, None on failure.
     Logs result to email_log table if db is provided.
     """
-    outbound_message_id = f"<{uuid.uuid4()}@osd.vn>"
+    # Message-ID domain must match the sending address for DMARC alignment
+    sender_domain = config.SMTP_FROM_EMAIL.rsplit("@", 1)[-1] or "localhost"
+    outbound_message_id = f"<{uuid.uuid4()}@{sender_domain}>"
     try:
         if _GMAIL_CLIENT_ID and _GMAIL_REFRESH_TOKEN:
             _send_via_gmail(to, subject, body_html, body_text, outbound_message_id)

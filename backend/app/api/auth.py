@@ -487,8 +487,6 @@ def forgot_password(request: Request, payload: dict = Body(...), db: Session = D
             expires_at=expires_at,
         )
         db.add(otp_row)
-        db.flush()
-        logger.info("forgot-password: otp_row flushed id=%s for %s", otp_row.id, email)
 
         # Queue email
         body_text = (
@@ -513,7 +511,15 @@ def forgot_password(request: Request, payload: dict = Body(...), db: Session = D
         )
         db.add(email_row)
         db.commit()
-        logger.info("forgot-password: committed otp=%s outbox=%s for %s", otp_row.id, email_row.id, email)
+
+        # Trigger the outbox drain immediately so the OTP arrives in seconds
+        # instead of waiting for the next 2-minute beat cycle. The beat schedule
+        # remains as a safety net if this enqueue fails (e.g. Redis hiccup).
+        try:
+            from app.tasks.email_outbox_task import process_email_outbox
+            process_email_outbox.delay()
+        except Exception:
+            logger.warning("forgot-password: immediate outbox trigger failed; beat will retry")
     except Exception as exc:
         logger.error("forgot-password: failed for %s: %s", email, exc, exc_info=True)
         db.rollback()
