@@ -469,51 +469,53 @@ def forgot_password(request: Request, payload: dict = Body(...), db: Session = D
     if not user:
         return generic_ok
 
-    # Invalidate any existing unused OTPs for this user
-    db.query(PasswordResetOTP).filter(
-        PasswordResetOTP.user_id == user.id,
-        PasswordResetOTP.used_at.is_(None),
-    ).update({"used_at": datetime.utcnow()})
-
-    # Generate 6-digit OTP
-    otp = f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
-    otp_hash = hashlib.sha256(otp.encode()).hexdigest()
-    expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES)
-
-    otp_row = PasswordResetOTP(
-        user_id=user.id,
-        otp_hash=otp_hash,
-        expires_at=expires_at,
-    )
-    db.add(otp_row)
-
-    # Queue email
-    body_text = (
-        f"Your CustomerHub password reset code is: {otp}. "
-        f"It expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
-        f"Mã đặt lại mật khẩu của bạn là: {otp}, hết hạn sau {OTP_EXPIRY_MINUTES} phút."
-    )
-    body_html = (
-        f"<p>Your CustomerHub password reset code is: <strong>{otp}</strong>. "
-        f"It expires in {OTP_EXPIRY_MINUTES} minutes.</p>"
-        f"<p>Mã đặt lại mật khẩu của bạn là: <strong>{otp}</strong>, hết hạn sau {OTP_EXPIRY_MINUTES} phút.</p>"
-    )
-    email_row = EmailOutbox(
-        email_type="password_reset",
-        recipient_email=user.email,
-        recipient_name=user.full_name,
-        subject="CustomerHub — Password Reset Code",
-        body_text=body_text,
-        body_html=body_html,
-        status="pending",
-        scheduled_at=datetime.utcnow(),
-    )
-    db.add(email_row)
     try:
+        # Invalidate any existing unused OTPs for this user
+        db.query(PasswordResetOTP).filter(
+            PasswordResetOTP.user_id == user.id,
+            PasswordResetOTP.used_at.is_(None),
+        ).update({"used_at": datetime.utcnow()})
+
+        # Generate 6-digit OTP
+        otp = f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
+        otp_hash = hashlib.sha256(otp.encode()).hexdigest()
+        expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+        otp_row = PasswordResetOTP(
+            user_id=user.id,
+            otp_hash=otp_hash,
+            expires_at=expires_at,
+        )
+        db.add(otp_row)
+        db.flush()
+        logger.info("forgot-password: otp_row flushed id=%s for %s", otp_row.id, email)
+
+        # Queue email
+        body_text = (
+            f"Your CustomerHub password reset code is: {otp}. "
+            f"It expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
+            f"Mã đặt lại mật khẩu của bạn là: {otp}, hết hạn sau {OTP_EXPIRY_MINUTES} phút."
+        )
+        body_html = (
+            f"<p>Your CustomerHub password reset code is: <strong>{otp}</strong>. "
+            f"It expires in {OTP_EXPIRY_MINUTES} minutes.</p>"
+            f"<p>Mã đặt lại mật khẩu của bạn là: <strong>{otp}</strong>, hết hạn sau {OTP_EXPIRY_MINUTES} phút.</p>"
+        )
+        email_row = EmailOutbox(
+            email_type="password_reset",
+            recipient_email=user.email,
+            recipient_name=user.full_name,
+            subject="CustomerHub — Password Reset Code",
+            body_text=body_text,
+            body_html=body_html,
+            status="pending",
+            scheduled_at=datetime.utcnow(),
+        )
+        db.add(email_row)
         db.commit()
-        logger.info("forgot-password: outbox row %s committed for %s", email_row.id, email)
+        logger.info("forgot-password: committed otp=%s outbox=%s for %s", otp_row.id, email_row.id, email)
     except Exception as exc:
-        logger.error("forgot-password: commit failed for %s: %s", email, exc)
+        logger.error("forgot-password: failed for %s: %s", email, exc, exc_info=True)
         db.rollback()
 
     return generic_ok
