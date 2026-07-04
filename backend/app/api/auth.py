@@ -1,5 +1,8 @@
 # backend/app/api/auth.py
+import logging
 import hashlib
+
+logger = logging.getLogger(__name__)
 import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
@@ -506,7 +509,12 @@ def forgot_password(request: Request, payload: dict = Body(...), db: Session = D
         scheduled_at=datetime.utcnow(),
     )
     db.add(email_row)
-    db.commit()
+    try:
+        db.commit()
+        logger.info("forgot-password: outbox row %s committed for %s", email_row.id, email)
+    except Exception as exc:
+        logger.error("forgot-password: commit failed for %s: %s", email, exc)
+        db.rollback()
 
     return generic_ok
 
