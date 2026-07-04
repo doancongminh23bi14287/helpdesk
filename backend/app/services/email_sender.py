@@ -1,4 +1,4 @@
-"""Outbound email sender via Mailjet API (fallback: SMTP) with DB logging."""
+"""Outbound email sender via Gmail API (fallback: SMTP) with DB logging."""
 import logging
 import os
 import uuid
@@ -8,8 +8,9 @@ from app.models.notification import EmailLog
 
 logger = logging.getLogger(__name__)
 
-_MAILJET_API_KEY = os.getenv("MAILJET_API_KEY", "")
-_MAILJET_SECRET_KEY = os.getenv("MAILJET_SECRET_KEY", "")
+_GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
+_GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
+_GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN", "")
 
 
 def send_email(
@@ -27,8 +28,8 @@ def send_email(
     """
     outbound_message_id = f"<{uuid.uuid4()}@osd.vn>"
     try:
-        if _MAILJET_API_KEY and _MAILJET_SECRET_KEY:
-            _send_via_mailjet(to, subject, body_html, body_text, outbound_message_id)
+        if _GMAIL_CLIENT_ID and _GMAIL_REFRESH_TOKEN:
+            _send_via_gmail(to, subject, body_html, body_text, outbound_message_id)
         else:
             _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 
@@ -41,28 +42,47 @@ def send_email(
         return None
 
 
-def _send_via_mailjet(to, subject, body_html, body_text, message_id):
-    from mailjet_rest import Client
+def _send_via_gmail(to, subject, body_html, body_text, message_id):
+    import base64
+    import urllib.request
+    import urllib.parse
+    import json
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.utils import formataddr
 
-    mj = Client(auth=(_MAILJET_API_KEY, _MAILJET_SECRET_KEY), version="v3.1")
-    data = {
-        "Messages": [
-            {
-                "From": {"Email": config.SMTP_FROM_EMAIL, "Name": config.SMTP_FROM_NAME},
-                "To": [{"Email": to}],
-                "Subject": subject,
-                "HTMLPart": body_html,
-                "Headers": {"Message-ID": message_id},
-            }
-        ]
-    }
+    # Get access token via refresh token
+    token_data = urllib.parse.urlencode({
+        "client_id": _GMAIL_CLIENT_ID,
+        "client_secret": _GMAIL_CLIENT_SECRET,
+        "refresh_token": _GMAIL_REFRESH_TOKEN,
+        "grant_type": "refresh_token",
+    }).encode()
+    req = urllib.request.Request("https://oauth2.googleapis.com/token", data=token_data)
+    with urllib.request.urlopen(req) as resp:
+        token = json.loads(resp.read())
+    access_token = token["access_token"]
+
+    # Build email
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = formataddr((config.SMTP_FROM_NAME, config.SMTP_FROM_EMAIL))
+    msg["To"] = to
+    msg["Message-ID"] = message_id
     if body_text:
-        data["Messages"][0]["TextPart"] = body_text
+        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+    msg.attach(MIMEText(body_html, "html", "utf-8"))
 
-    result = mj.send.create(data=data)
-    if result.status_code >= 400:
-        raise RuntimeError(f"Mailjet error {result.status_code}: {result.json()}")
-    logger.info("Email sent via Mailjet to %s (status %s)", to, result.status_code)
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    body = json.dumps({"raw": raw}).encode()
+    api_req = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        data=body,
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(api_req) as resp:
+        result = json.loads(resp.read())
+    logger.info("Email sent via Gmail API to %s (id=%s)", to, result.get("id"))
 
 
 def _send_via_smtp(to, subject, body_html, body_text, message_id):
