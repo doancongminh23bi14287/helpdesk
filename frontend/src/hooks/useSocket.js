@@ -36,8 +36,11 @@ export function useSocket() {
     const token = localStorage.getItem('access_token')
     if (!token) return
 
+    // auth as a callback so every (re)connect attempt reads the CURRENT token —
+    // a static object would resend the token captured at mount, which expires
+    // after 30 min and floods the server with ExpiredSignatureError rejections
     const socket = io(SOCKET_URL, {
-      auth: { token },
+      auth: (cb) => cb({ token: localStorage.getItem('access_token') }),
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
     })

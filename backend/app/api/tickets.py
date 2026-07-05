@@ -1,4 +1,5 @@
 # backend/app/api/tickets.py
+import html
 from datetime import datetime, timezone
 from typing import List, Optional
 from math import ceil
@@ -601,8 +602,8 @@ def update_ticket(
                 ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
                 subject = f"[#{ticket.id}] Status changed to {new_status}"
                 body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
-<h2>Ticket #{ticket.id} — {new_status}</h2>
-<p>Your ticket <strong>{ticket.subject}</strong> status: <strong>{new_status}</strong></p>
+<h2>Ticket #{ticket.id} — {html.escape(new_status)}</h2>
+<p>Your ticket <strong>{html.escape(ticket.subject or '')}</strong> status: <strong>{html.escape(new_status)}</strong></p>
 <p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
                 body_text = f"Ticket #{ticket.id} '{ticket.subject}' → {new_status}\n{ticket_url}"
                 background_tasks.add_task(bg_send_email, to_email, subject, body_html, body_text)
@@ -783,8 +784,8 @@ def add_reply(
             subject = f"Re: [#{ticket_id}] {ticket.subject}"
             body_html = f"""<html><body style="font-family:Arial,sans-serif;color:#333">
 <h2>New Reply on Ticket #{ticket_id}</h2>
-<p><b>{ticket.subject}</b></p>
-<div style="background:#f9fafb;padding:12px;border-left:3px solid #1a56db;margin:16px 0">{payload.content[:500]}</div>
+<p><b>{html.escape(ticket.subject or '')}</b></p>
+<div style="background:#f9fafb;padding:12px;border-left:3px solid #1a56db;margin:16px 0">{html.escape(payload.content[:500])}</div>
 <p><a href="{ticket_url}">View Ticket</a></p></body></html>"""
             body_text = f"New reply on #{ticket_id}: {ticket.subject}\n\n{payload.content[:200]}\n{ticket_url}"
             if user.role == "customer" and ticket.assignee_id:

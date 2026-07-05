@@ -1,4 +1,5 @@
 # backend/app/services/invoice_service.py
+import html
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -187,7 +188,7 @@ def send_invoice(invoice_id: int, db: Session) -> Invoice:
         plan_section = (
             '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;'
             'padding:10px 16px;margin-bottom:16px;font-size:13px;color:#0c4a6e">'
-            f'<strong>Gói dịch vụ:</strong> {plan_name}</div>'
+            f'<strong>Gói dịch vụ:</strong> {html.escape(plan_name)}</div>'
         )
 
     # Build line rows
@@ -196,7 +197,7 @@ def send_invoice(invoice_id: int, db: Session) -> Invoice:
     for ln in lines:
         rows.append(
             '<tr>'
-            f'<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#374151">{ln.description}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#374151">{html.escape(ln.description or "")}</td>'
             f'<td style="text-align:right;padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280">{int(ln.quantity):g}</td>'
             f'<td style="text-align:right;padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280">{_fmt_vnd(ln.unit_price)}</td>'
             f'<td style="text-align:right;padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;color:#111">{_fmt_vnd(ln.line_total)}</td>'
@@ -212,13 +213,13 @@ def send_invoice(invoice_id: int, db: Session) -> Invoice:
             '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;'
             'padding:12px 16px;margin-bottom:24px;font-size:13px;color:#374151">'
             '<p style="margin:0 0 4px;font-weight:600;color:#111">Ghi chú:</p>'
-            f'<p style="margin:0">{invoice.notes}</p></div>'
+            f'<p style="margin:0">{html.escape(invoice.notes)}</p></div>'
         )
 
     body_html = render_template(
         "invoice.html",
         invoice_number=invoice.invoice_number,
-        org_name=org_name,
+        org_name=html.escape(org_name or ""),
         issue_date=invoice.issue_date.strftime("%d/%m/%Y"),
         due_date=invoice.due_date.strftime("%d/%m/%Y"),
         plan_section=plan_section,

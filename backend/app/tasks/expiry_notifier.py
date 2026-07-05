@@ -1,4 +1,5 @@
 # backend/app/tasks/expiry_notifier.py
+import html
 from app.tasks.celery_app import celery_app
 from app.core.redis_client import redis_client
 from app.database import SessionLocal
@@ -92,8 +93,8 @@ def notify_expiring():
 
             body_html = render_template(
                 "renewal_reminder.html",
-                org_name=org_name,
-                plan_name=plan_name,
+                org_name=html.escape(org_name or ""),
+                plan_name=html.escape(plan_name or ""),
                 next_billing_date=billing_date_fmt,
                 days_until=days_until,
                 amount_fmt=amount_fmt,
@@ -165,8 +166,8 @@ def notify_expiring():
                 body_html = (
                     f'<html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px">'
                     f'<h2 style="color:#dc2626">Thông báo: Gói dịch vụ đã hết hạn</h2>'
-                    f'<p>Kính gửi <strong>{org_name}</strong>,</p>'
-                    f'<p>Gói dịch vụ <strong>{plan_name}</strong> của quý khách đã hết hạn vào ngày <strong>{today.strftime("%d/%m/%Y")}</strong>.</p>'
+                    f'<p>Kính gửi <strong>{html.escape(org_name or "")}</strong>,</p>'
+                    f'<p>Gói dịch vụ <strong>{html.escape(plan_name or "")}</strong> của quý khách đã hết hạn vào ngày <strong>{today.strftime("%d/%m/%Y")}</strong>.</p>'
                     f'<p>Dịch vụ đã kết thúc. Vui lòng liên hệ với chúng tôi nếu quý khách muốn gia hạn hoặc đăng ký gói mới.</p>'
                     f'<p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System</p>'
                     f'</body></html>'
