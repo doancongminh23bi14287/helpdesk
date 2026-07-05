@@ -641,13 +641,16 @@ export default function TicketDetailPage() {
   useEffect(() => {
     if (!id || !ticket) return
     getAttachments(id).then(setAttachments).catch(() => {})
-    client.get(`/ai/tickets/${id}/prediction`)
-      .then(res => setAiPrediction(res.data))
-      .catch(() => {})
-    client.get(`/ai/tickets/${id}/summary`)
-      .then(res => { setSummary(res.data); setCooldown(res.data.cooldown_remaining || 0) })
-      .catch(() => {})
-  }, [id, ticket])
+    // AI endpoints are staff/admin-only (403 for customers) — skip the calls entirely
+    if (user?.role === 'staff' || user?.role === 'admin') {
+      client.get(`/ai/tickets/${id}/prediction`)
+        .then(res => setAiPrediction(res.data))
+        .catch(() => {})
+      client.get(`/ai/tickets/${id}/summary`)
+        .then(res => { setSummary(res.data); setCooldown(res.data.cooldown_remaining || 0) })
+        .catch(() => {})
+    }
+  }, [id, ticket, user?.role])
 
   useEffect(() => {
     if (cooldown <= 0) return
