@@ -1,4 +1,5 @@
 """Outbound email sender via Gmail API (fallback: SMTP) with DB logging."""
+import html
 import logging
 import os
 import uuid
@@ -147,9 +148,47 @@ def _log(db: Session, to: str, subject: str, ticket_id, action: str, detail: str
         db.rollback()
 
 
+def _fmt_vn_time(dt) -> str:
+    """Format a UTC-naive datetime as dd/mm/yyyy HH:MM in Vietnam time (UTC+7)."""
+    if not dt:
+        return "N/A"
+    from datetime import timedelta
+    return (dt + timedelta(hours=7)).strftime("%d/%m/%Y %H:%M")
+
+
+def _excerpt(text: str, limit: int = 300) -> str:
+    """HTML-escaped excerpt of user-supplied text, truncated with ellipsis."""
+    if not text:
+        return ""
+    text = text.strip()
+    if len(text) > limit:
+        text = text[:limit].rstrip() + "…"
+    return html.escape(text)
+
+
+def _creator_full_name(ticket, db: Session) -> str | None:
+    """Look up the full name of the user who raised the ticket."""
+    if db is None or not getattr(ticket, "raised_by", None):
+        return None
+    from app.models.user import User
+    user = db.query(User).filter(User.id == ticket.raised_by).first()
+    return user.full_name if user and user.full_name else None
+
+
 def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = None) -> None:
     """Send new ticket notification to admin AND confirmation to creator."""
     ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
+    subject_esc = html.escape(ticket.subject or "")
+    org_esc = html.escape(org_name) if org_name else "N/A"
+    service_esc = html.escape(service_name) if service_name else "N/A"
+    desc_excerpt = _excerpt(getattr(ticket, "description", None))
+    created_str = _fmt_vn_time(getattr(ticket, "created_at", None))
+
+    excerpt_block_html = (
+        f'<div style="background:#f9fafb;padding:12px;border-left:3px solid #1a56db;'
+        f'margin:16px 0;color:#374151;font-size:14px">{desc_excerpt}</div>'
+        if desc_excerpt else ""
+    )
 
     # — Admin notification —
     admin_subject = f"[Ticket #{ticket.id}] {ticket.subject}"
@@ -157,36 +196,53 @@ def notify_new_ticket(ticket, org_name: str, service_name: str, db: Session = No
 <html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px">
 <h2 style="color:#1a56db">New Support Ticket #{ticket.id}</h2>
 <table style="border-collapse:collapse;width:100%;margin-bottom:16px">
-  <tr><td style="padding:8px;font-weight:bold;width:140px;border-bottom:1px solid #e5e7eb">Subject</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.subject}</td></tr>
-  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Organization</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{org_name or 'N/A'}</td></tr>
-  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Service</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{service_name or 'N/A'}</td></tr>
-  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Priority</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.priority}</td></tr>
-  <tr><td style="padding:8px;font-weight:bold">Raised by</td><td style="padding:8px">{ticket.raised_by_email or 'N/A'}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;width:140px;border-bottom:1px solid #e5e7eb">Subject</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{subject_esc}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Organization</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{org_esc}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Service</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{service_esc}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Priority</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{html.escape(str(ticket.priority or 'N/A'))}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Raised by</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{html.escape(ticket.raised_by_email or 'N/A')}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold">Created</td><td style="padding:8px">{created_str} (GMT+7)</td></tr>
 </table>
+{excerpt_block_html}
 <a href="{ticket_url}" style="background:#1a56db;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block">View &amp; Assign Ticket</a>
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System</p>
 </body></html>"""
-    admin_text = f"New ticket #{ticket.id}: {ticket.subject}\nOrg: {org_name}\nService: {service_name}\nPriority: {ticket.priority}\nRaised by: {ticket.raised_by_email}\n\nView: {ticket_url}"
+    admin_text = (
+        f"New ticket #{ticket.id}: {ticket.subject}\nOrg: {org_name}\nService: {service_name}\n"
+        f"Priority: {ticket.priority}\nRaised by: {ticket.raised_by_email}\nCreated: {created_str} (GMT+7)\n\n"
+        f"{(ticket.description or '')[:300]}\n\nView: {ticket_url}"
+    )
     send_email(config.ADMIN_NOTIFICATION_EMAIL, admin_subject, admin_html, admin_text, db=db)
 
     # — Creator confirmation (record thread so their reply can be threaded) —
     creator_email = ticket.raised_by_email
     if creator_email and creator_email != config.ADMIN_NOTIFICATION_EMAIL:
+        full_name = _creator_full_name(ticket, db)
+        greeting = f"Chào {html.escape(full_name)}," if full_name else "Chào Quý khách,"
         creator_subject = f"[Ticket #{ticket.id}] Yêu cầu hỗ trợ đã được tiếp nhận"
         creator_html = f"""
 <html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px">
 <h2 style="color:#1a56db">Yêu cầu hỗ trợ #{ticket.id} đã được tiếp nhận</h2>
+<p>{greeting}</p>
 <p>Cảm ơn bạn đã liên hệ. Đội ngũ hỗ trợ của chúng tôi sẽ phản hồi sớm nhất có thể.</p>
 <table style="border-collapse:collapse;width:100%;margin:16px 0">
-  <tr><td style="padding:8px;font-weight:bold;width:140px;border-bottom:1px solid #e5e7eb">Tiêu đề</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.subject}</td></tr>
-  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Dịch vụ</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{service_name or 'N/A'}</td></tr>
-  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Mức độ</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{ticket.priority}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;width:140px;border-bottom:1px solid #e5e7eb">Tiêu đề</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{subject_esc}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Tổ chức</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{org_esc}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Dịch vụ</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{service_esc}</td></tr>
+  <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Mức độ</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{html.escape(str(ticket.priority or 'N/A'))}</td></tr>
+  <tr><td style="padding:8px;font-weight:bold;border-bottom:1px solid #e5e7eb">Thời gian tạo</td><td style="padding:8px;border-bottom:1px solid #e5e7eb">{created_str} (GMT+7)</td></tr>
   <tr style="background:#f9fafb"><td style="padding:8px;font-weight:bold">Mã ticket</td><td style="padding:8px">#{ticket.id}</td></tr>
 </table>
+{f'<p style="margin-bottom:4px;color:#6b7280;font-size:13px">Nội dung bạn đã gửi:</p>{excerpt_block_html}' if desc_excerpt else ''}
 <a href="{ticket_url}" style="background:#1a56db;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block">Xem ticket của bạn</a>
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System — Nếu bạn không tạo yêu cầu này, vui lòng bỏ qua email.</p>
 </body></html>"""
-        creator_text = f"Yêu cầu hỗ trợ #{ticket.id} đã được tiếp nhận.\nTiêu đề: {ticket.subject}\nMức độ: {ticket.priority}\nXem tại: {ticket_url}"
+        creator_text = (
+            f"{greeting.rstrip(',')}\n\nYêu cầu hỗ trợ #{ticket.id} đã được tiếp nhận.\n"
+            f"Tiêu đề: {ticket.subject}\nTổ chức: {org_name or 'N/A'}\nMức độ: {ticket.priority}\n"
+            f"Thời gian tạo: {created_str} (GMT+7)\n\n"
+            f"Nội dung: {(ticket.description or '')[:300]}\n\nXem tại: {ticket_url}"
+        )
         mid = send_email(creator_email, creator_subject, creator_html, creator_text,
                          db=db, ticket_id=ticket.id)
         _record_outbound_thread(db, ticket.id, mid)
@@ -212,44 +268,58 @@ def bg_send_email(to: str, subject: str, body_html: str, body_text: str = None) 
     send_email(to, subject, body_html, body_text)
 
 
-def notify_ticket_reply(ticket, reply_content: str, sender_role: str, to_email: str, db: Session = None) -> None:
+def notify_ticket_reply(ticket, reply_content: str, sender_role: str, to_email: str,
+                        db: Session = None, recipient_name: str = None) -> None:
     """Send reply notification to the other party."""
     if not to_email:
         return
     subject = f"Re: [#{ticket.id}] {ticket.subject}"
     ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
+    greeting = f"Chào {html.escape(recipient_name)}," if recipient_name else "Chào Quý khách,"
+    reply_esc = _excerpt(reply_content, 500)
     body_html = f"""
-<html><body style="font-family:Arial,sans-serif;color:#333">
-<h2 style="color:#1a56db">New Reply on Ticket #{ticket.id}</h2>
-<p><strong>{ticket.subject}</strong></p>
+<html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px">
+<h2 style="color:#1a56db">Phản hồi mới trên ticket #{ticket.id}</h2>
+<p>{greeting}</p>
+<p>Ticket <strong>{html.escape(ticket.subject or '')}</strong> vừa có phản hồi mới:</p>
 <div style="background:#f9fafb;padding:12px;border-left:3px solid #1a56db;margin:16px 0">
-  {reply_content[:500]}
+  {reply_esc}
 </div>
 <p>
-  <a href="{ticket_url}" style="background:#1a56db;color:white;padding:8px 16px;text-decoration:none;border-radius:4px">View Ticket</a>
+  <a href="{ticket_url}" style="background:#1a56db;color:white;padding:8px 16px;text-decoration:none;border-radius:4px">Xem ticket</a>
 </p>
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System</p>
 </body></html>"""
-    body_text = f"New reply on ticket #{ticket.id}: {ticket.subject}\n\n{reply_content[:200]}\n\nLink: {ticket_url}"
+    body_text = (
+        f"{greeting.rstrip(',')}\n\nPhản hồi mới trên ticket #{ticket.id}: {ticket.subject}\n\n"
+        f"{(reply_content or '')[:200]}\n\nXem tại: {ticket_url}"
+    )
     mid = send_email(to_email, subject, body_html, body_text, db=db, ticket_id=ticket.id)
     _record_outbound_thread(db, ticket.id, mid)
 
 
-def notify_status_changed(ticket, new_status: str, to_email: str, db: Session = None) -> None:
+def notify_status_changed(ticket, new_status: str, to_email: str,
+                          db: Session = None, recipient_name: str = None) -> None:
     """Send status change notification (Resolved / Closed only)."""
     if not to_email:
         return
     subject = f"[#{ticket.id}] Status changed to {new_status}"
     ticket_url = f"{config.FRONTEND_URL}/tickets/{ticket.id}"
+    greeting = f"Chào {html.escape(recipient_name)}," if recipient_name else "Chào Quý khách,"
+    status_esc = html.escape(str(new_status))
     body_html = f"""
-<html><body style="font-family:Arial,sans-serif;color:#333">
-<h2 style="color:#1a56db">Ticket #{ticket.id} — {new_status}</h2>
-<p>Your ticket <strong>{ticket.subject}</strong> has been updated to status: <strong>{new_status}</strong></p>
+<html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px">
+<h2 style="color:#1a56db">Ticket #{ticket.id} — {status_esc}</h2>
+<p>{greeting}</p>
+<p>Ticket <strong>{html.escape(ticket.subject or '')}</strong> của bạn đã được cập nhật trạng thái: <strong>{status_esc}</strong></p>
 <p>
-  <a href="{ticket_url}" style="background:#1a56db;color:white;padding:8px 16px;text-decoration:none;border-radius:4px">View Ticket</a>
+  <a href="{ticket_url}" style="background:#1a56db;color:white;padding:8px 16px;text-decoration:none;border-radius:4px">Xem ticket</a>
 </p>
 <p style="color:#6b7280;font-size:12px;margin-top:24px">OSD Support System</p>
 </body></html>"""
-    body_text = f"Ticket #{ticket.id} '{ticket.subject}' status changed to {new_status}.\nLink: {ticket_url}"
+    body_text = (
+        f"{greeting.rstrip(',')}\n\nTicket #{ticket.id} '{ticket.subject}' đã chuyển sang trạng thái {new_status}.\n"
+        f"Xem tại: {ticket_url}"
+    )
     mid = send_email(to_email, subject, body_html, body_text, db=db, ticket_id=ticket.id)
     _record_outbound_thread(db, ticket.id, mid)
