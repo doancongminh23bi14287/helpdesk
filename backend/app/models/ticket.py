@@ -47,6 +47,9 @@ class Ticket(Base):
     sla_paused_total_seconds = Column(Integer, nullable=False, default=0, server_default='0')
     sla_state = Column(Enum("green", "amber", "red", "breached"), default="green")
     is_deleted = Column(Boolean, nullable=False, default=False)
+    # Personal archive flag for the ticket creator — hides the ticket from the
+    # customer's default list only; staff/admin views ignore it entirely
+    customer_archived = Column(Boolean, nullable=False, default=False, server_default='0')
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 

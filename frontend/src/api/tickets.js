@@ -19,6 +19,24 @@ export async function getTickets(params = {}) {
 }
 
 /**
+ * Archive a ticket from the customer's own list (view-only flag).
+ * @param {string|number} id
+ */
+export async function archiveTicket(id) {
+  const res = await client.put(`/tickets/${id}/archive`)
+  return res.data
+}
+
+/**
+ * Restore an archived ticket to the customer's main list.
+ * @param {string|number} id
+ */
+export async function unarchiveTicket(id) {
+  const res = await client.put(`/tickets/${id}/unarchive`)
+  return res.data
+}
+
+/**
  * Create a new ticket.
  * @param {{ org_id, service_id, subject, description?, priority?, ticket_type? }} data
  * @returns {Promise<Object>} created ticket

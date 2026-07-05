@@ -308,6 +308,7 @@ def list_tickets(
     org_id: Optional[int] = None,
     service_id: Optional[int] = None,
     search: Optional[str] = Query(None),
+    archived: bool = Query(False),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     sort: str = Query("created_at"),
@@ -319,6 +320,10 @@ def list_tickets(
 
     # Role-based scoping
     query = scope_tickets(query, user, db)
+
+    # Personal archive is a customer-view concept only; staff/admin always see everything
+    if user.role == "customer":
+        query = query.filter(Ticket.customer_archived == archived)
 
     # Optional filters
     if status:
@@ -624,6 +629,37 @@ def update_ticket(
         pass
 
     return _ticket_out_dict(ticket, db)
+
+
+# ── Personal archive (customer-only view flag, no data change) ───────────────
+
+def _set_customer_archived(ticket_id: int, value: bool, user: User, db: Session) -> dict:
+    ticket = _get_ticket_in_scope(ticket_id, user, db)
+    if user.role != "customer" or ticket.raised_by != user.id:
+        raise HTTPException(status_code=403, detail="Only the ticket creator can archive it")
+    ticket.customer_archived = value
+    db.commit()
+    return {"ticket_id": ticket_id, "archived": value}
+
+
+@router.put("/{ticket_id}/archive")
+def archive_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Hide a ticket from the customer's default list. View-only; staff unaffected."""
+    return _set_customer_archived(ticket_id, True, user, db)
+
+
+@router.put("/{ticket_id}/unarchive")
+def unarchive_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Restore an archived ticket to the customer's default list."""
+    return _set_customer_archived(ticket_id, False, user, db)
 
 
 # ── DELETE /api/tickets/{id} ──────────────────────────────────────────────────

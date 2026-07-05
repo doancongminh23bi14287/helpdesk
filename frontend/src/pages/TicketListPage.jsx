@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { getTickets, deleteTicket, deleteTicketPermanent } from '@/api/tickets'
+import { getTickets, deleteTicket, deleteTicketPermanent, archiveTicket, unarchiveTicket } from '@/api/tickets'
 import { useRole } from '@/hooks/useRole'
 import { Spinner } from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
@@ -11,6 +11,7 @@ import {
   MagnifyingGlassIcon,
   TicketIcon,
   XMarkIcon,
+  ArchiveBoxIcon,
 } from '@heroicons/react/24/outline'
 
 const STATUSES = ['All', 'Open', 'In Progress', 'Waiting', 'Resolved', 'Closed']
@@ -61,6 +62,7 @@ export default function TicketListPage() {
   const [status, setStatus] = useState(searchParams.get('status') ?? 'All')
   const [priority, setPriority] = useState(searchParams.get('priority') ?? 'All')
   const [page, setPage] = useState(Number(searchParams.get('page') ?? 1))
+  const [showArchived, setShowArchived] = useState(searchParams.get('archived') === '1')
 
   const [tickets, setTickets] = useState([])
   const [total, setTotal] = useState(0)
@@ -108,6 +110,7 @@ export default function TicketListPage() {
     if (debouncedSearch) params.search = debouncedSearch
     if (status !== 'All') params.status = status
     if (priority !== 'All') params.priority = priority
+    if (isCustomer && showArchived) params.archived = true
 
     getTickets(params)
       .then((data) => {
@@ -124,7 +127,7 @@ export default function TicketListPage() {
       })
 
     return () => { cancelled = true }
-  }, [debouncedSearch, status, priority, page, reloadKey])
+  }, [debouncedSearch, status, priority, page, reloadKey, isCustomer, showArchived])
 
   // Sync URL params
   useEffect(() => {
@@ -133,8 +136,9 @@ export default function TicketListPage() {
     if (status !== 'All') p.set('status', status)
     if (priority !== 'All') p.set('priority', priority)
     if (page > 1) p.set('page', String(page))
+    if (showArchived) p.set('archived', '1')
     setSearchParams(p, { replace: true })
-  }, [debouncedSearch, status, priority, page, setSearchParams])
+  }, [debouncedSearch, status, priority, page, showArchived, setSearchParams])
 
   const hasFilters = searchInput !== '' || status !== 'All' || priority !== 'All'
 
@@ -155,6 +159,19 @@ export default function TicketListPage() {
       alert(err.message || 'Xóa thất bại')
     }
   }, [])
+
+  const handleArchiveToggle = useCallback(async (ticket) => {
+    try {
+      if (showArchived) {
+        await unarchiveTicket(ticket.id)
+      } else {
+        await archiveTicket(ticket.id)
+      }
+      setReloadKey(k => k + 1)
+    } catch (err) {
+      alert(err.response?.data?.detail || err.message || 'Thao tác thất bại')
+    }
+  }, [showArchived])
 
   const handleHardDelete = useCallback(async (ticket) => {
     if (!window.confirm(`XÓA VĨNH VIỄN ticket #${ticket.id} "${ticket.subject}"?\n\nHành động này KHÔNG thể hoàn tác. Toàn bộ file đính kèm sẽ bị xóa khỏi server.`)) return
@@ -243,6 +260,21 @@ export default function TicketListPage() {
             ))}
           </select>
 
+          {/* Archive view toggle — customers only */}
+          {isCustomer && (
+            <button
+              onClick={() => { setShowArchived(v => !v); setPage(1) }}
+              className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
+                showArchived
+                  ? 'bg-amber-50 border-amber-200 text-amber-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+            >
+              <ArchiveBoxIcon className="w-4 h-4" />
+              {showArchived ? 'Đang xem lưu trữ' : 'Lưu trữ'}
+            </button>
+          )}
+
           {/* Clear filters link */}
           {hasFilters && (
             <button
@@ -278,6 +310,14 @@ export default function TicketListPage() {
           >
             Mở
           </button>
+          {isCustomer && (
+            <button
+              className="w-full text-left px-4 py-2 hover:bg-amber-50 text-amber-700"
+              onClick={() => { handleArchiveToggle(ctxMenu.ticket); setCtxMenu(null) }}
+            >
+              {showArchived ? 'Bỏ lưu trữ' : 'Lưu trữ'}
+            </button>
+          )}
           {isAdmin && (
             <button
               className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600"
