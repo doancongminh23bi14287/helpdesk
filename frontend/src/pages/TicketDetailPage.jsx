@@ -647,7 +647,12 @@ export default function TicketDetailPage() {
         .then(res => setAiPrediction(res.data))
         .catch(() => {})
       client.get(`/ai/tickets/${id}/summary`)
-        .then(res => { setSummary(res.data); setCooldown(res.data.cooldown_remaining || 0) })
+        .then(res => { 
+          if (res.data) {
+            setSummary(res.data); 
+            setCooldown(res.data.cooldown_remaining || 0);
+          }
+        })
         .catch(() => {})
     }
   }, [id, ticket, user?.role])

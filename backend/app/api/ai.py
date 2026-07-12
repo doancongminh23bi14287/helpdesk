@@ -1,6 +1,6 @@
 """AI endpoints — classification + reply suggestion + summarize."""
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -156,7 +156,7 @@ _SUMMARY_COOLDOWN = 120  # seconds
 _SUMMARY_INPUT_CAP = 3000  # chars sent to Groq
 
 
-@router.get("/tickets/{ticket_id}/summary", response_model=AiSummaryOut)
+@router.get("/tickets/{ticket_id}/summary", response_model=Optional[AiSummaryOut])
 def get_summary(
     ticket_id: int,
     db: Session = Depends(get_db),
@@ -171,7 +171,7 @@ def get_summary(
         .first()
     )
     if not row:
-        raise HTTPException(status_code=404, detail="No summary found for this ticket")
+        return None
 
     cooldown_key = f"ai:summary:{ticket_id}"
     ttl = redis_client.ttl(cooldown_key)
