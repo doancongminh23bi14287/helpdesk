@@ -1,0 +1,48 @@
+ticket_id,ticket_text,rater1_category,rater1_priority,rater2_category,rater2_priority,model_category,model_priority
+T001,"Chào shop, cho em hỏi gói hosting Basic có hỗ trợ SSL miễn phí không ạ?",,,,,general,low
+T002,Em muốn hỏi thời gian backup dữ liệu định kỳ là bao lâu một lần vậy admin?,,,,,general,low
+T003,Em cần được hỗ trợ migrate dữ liệu từ hosting cũ sang gói mới đã đăng ký tuần trước.,,,,,hosting,medium
+T004,"Toàn bộ website công ty em không truy cập được từ 9h sáng, khách hàng phản ánh liên tục.",,,,,technical,high
+T005,"Server báo lỗi 503 Service Unavailable trên tất cả các domain đang host, cần xử lý gấp.",,,,,hosting,urgent
+T006,"Website bị chậm nghiêm trọng, load mất hơn 30 giây mỗi trang, ảnh hưởng doanh thu bán hàng.",,,,,hosting,urgent
+T007,Nhờ đội kỹ thuật cấu hình thêm một subdomain cho dự án marketing mới của công ty.,,,,,hosting,medium
+T008,"Domain của em sắp hết hạn, gia hạn thì có bị mất dữ liệu DNS đang cấu hình không?",,,,,domain,medium
+T009,Cho hỏi có thể đổi tên miền chính (primary domain) của gói hosting hiện tại không ạ?,,,,,domain,medium
+T010,"Domain phụ của em sắp hết hạn trong 2 tuần tới, em muốn gia hạn thêm 2 năm.",,,,,domain,medium
+T011,"Công ty em muốn đổi tên miền hiển thị chính từ .com sang .vn, cần hỗ trợ chuyển đổi.",,,,,domain,medium
+T012,Em cần được hướng dẫn cấu hình lại DNS để trỏ về server mới do đổi nhà cung cấp CDN.,,,,,domain,medium
+T013,"Sau khi gia hạn domain, website không truy cập được nữa, không rõ do DNS hay do lỗi hệ thống.",,,,,domain,high
+T014,Anh ơi email công ty em gửi ra ngoài có bị giới hạn số lượng mỗi ngày không?,,,,,email,medium
+T015,Form liên hệ trên website không gửi được email thông báo về hộp thư của em từ hôm qua.,,,,,technical,high
+T016,"Email công ty em không nhận được thư mới trong 2 giờ qua, nghi ngờ mail server bị down.",,,,,email,high
+T017,Nhờ hỗ trợ tạo thêm 3 tài khoản email theo tên nhân viên mới của phòng kinh doanh.,,,,,email,medium
+T018,"Email không gửi được sau khi em tự ý đổi cấu hình DNS, cần hỗ trợ khôi phục và giải thích nguyên nhân.",,,,,email,high
+T019,"Từ sáng nay toàn bộ 12 tài khoản email trong công ty đều không nhận được thư, đối tác gửi bị trả lại.",,,,,email,high
+T020,Cho em hỏi có thể thanh toán bằng chuyển khoản ngân hàng thay vì thẻ không?,,,,,billing,low
+T021,"Trang thanh toán hiện sai đơn vị tiền tệ, hiển thị USD thay vì VND như cấu hình.",,,,,billing,high
+T022,"Gói hosting của em hết hạn vào cuối tháng này, xác nhận giúp em quy trình gia hạn.",,,,,billing,medium
+T023,Em thấy thông báo dịch vụ SEO sắp hết hạn trong 3 ngày nữa mà chưa nhận được hóa đơn.,,,,,billing,medium
+T024,Nhờ đổi chu kỳ thanh toán từ hàng tháng sang hàng năm để được giá ưu đãi.,,,,,billing,medium
+T025,Em cần một bản báo giá chính thức có đóng dấu để làm hồ sơ thanh toán nội bộ công ty.,,,,,billing,medium
+T026,"Không chắc lỗi thanh toán bị trừ tiền 2 lần là do ngân hàng hay do hệ thống của mình, mong được kiểm tra.",,,,,billing,medium
+T027,"Trang quản trị WordPress của em bị lỗi 500 khi vào mục Plugins, các mục khác vẫn bình thường.",,,,,technical,medium
+T028,"Sau khi cập nhật plugin, trang chủ hiển thị lỗi PHP trắng xóa, không load được gì cả.",,,,,technical,high
+T029,"Chức năng upload ảnh trong CMS bị lỗi, ảnh trên 2MB không upload lên được.",,,,,technical,high
+T030,Icon giỏ hàng trên di động bị lệch vị trí sau lần cập nhật giao diện gần nhất.,,,,,technical,medium
+T031,"Cơ sở dữ liệu báo lỗi kết nối liên tục, website hiển thị Error establishing a database connection.",,,,,technical,high
+T032,Nhờ team hỗ trợ cài đặt thêm plugin cache để tối ưu tốc độ tải trang giúp em.,,,,,technical,medium
+T033,Em cần restore lại bản backup của tuần trước vì vừa xóa nhầm một số bài viết.,,,,,hosting,high
+T034,"Nghi ngờ website bị tấn công, xuất hiện các trang lạ không phải do em tạo trên domain chính.",,,,,security,high
+T035,Chứng chỉ SSL báo lỗi not secure trên trình duyệt dù em chưa thay đổi gì.,,,,,security,high
+T036,"Vừa nhận cảnh báo bảo mật lạ qua email, không chắc là thật hay lừa đảo, website vẫn truy cập bình thường.",,,,,security,medium
+T037,Em cần xác nhận bằng văn bản về chính sách bảo mật dữ liệu khách hàng của bên mình.,,,,,general,low
+T038,Em muốn góp ý là giao diện trang quản lý ticket hơi khó dùng trên điện thoại.,,,,,general,low
+T039,"Cảm ơn team đã hỗ trợ nhiệt tình trong đợt migrate vừa rồi, chất lượng dịch vụ rất tốt.",,,,,general,low
+T040,Công ty em muốn được giới thiệu case study về các khách hàng đã dùng dịch vụ tương tự.,,,,,general,low
+T041,"Em thấy có 2 gói SEO khác nhau trên web, không rõ khác biệt cụ thể là gì, nhờ tư vấn giúp.",,,,,general,medium
+T042,Em muốn nâng cấp từ gói Basic lên gói Business vì lượng truy cập tăng nhiều gần đây.,,,,,billing,medium
+T043,Cho em hỏi có ưu đãi gì khi gia hạn gói Business thêm 1 năm không ạ?,,,,,billing,low
+T044,"Gói hosting sắp hết hạn trong 3 ngày, nhưng khi em vào trang quản trị thì bị lỗi 500 không đăng nhập được để gia hạn.",,,,,hosting,high
+T045,Em cần nâng cấp gói gấp vì website đang bị quá tải và sập liên tục do lượng truy cập tăng đột biến.,,,,,hosting,urgent
+T046,Em cần restore gấp bản backup vì sau khi đổi gói dịch vụ dữ liệu bị mất một phần.,,,,,hosting,urgent
+T047,"Muốn đổi gói nhưng lo dữ liệu website hiện tại bị mất, cần tư vấn quy trình an toàn trước khi quyết định.",,,,,hosting,medium

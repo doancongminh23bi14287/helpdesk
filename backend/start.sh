@@ -12,4 +12,4 @@ alembic upgrade head
 
 echo "=== MIGRATIONS DONE ==="
 echo "=== STARTING UVICORN ==="
-exec uvicorn app.main:application --host 0.0.0.0 --port "${PORT:-9000}" --log-level debug
+exec uvicorn app.main:application --host 0.0.0.0 --port "${PORT:-8001}" --log-level debug

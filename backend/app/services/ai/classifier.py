@@ -19,7 +19,27 @@ _VALID_CATEGORIES = {"hosting", "domain", "email", "billing", "technical", "secu
 
 _SYSTEM_PROMPT = (
     "You are a helpdesk ticket classifier for a Vietnamese web hosting provider. "
-    "Classify the ticket and respond ONLY with valid JSON, no markdown, no explanation.\n"
+    "Classify the ticket and respond ONLY with valid JSON, no markdown, no explanation.\n\n"
+    "Categories:\n"
+    "- hosting: the hosting/server itself — uptime, performance, storage, infrastructure\n"
+    "- domain: domain name, DNS, domain renewal or transfer\n"
+    "- email: company email — sending, receiving, mailbox accounts\n"
+    "- billing: invoices, payments, pricing, plan changes, subscription cycle\n"
+    "- technical: application-level bugs — broken features, plugin errors, data/backup restore, UI glitches\n"
+    "- security: suspected attack, SSL/certificate trust issues, phishing, data-protection questions\n"
+    "- general: feedback, compliments, general sales questions not tied to a specific plan\n\n"
+    "Priority:\n"
+    "- low: no urgency, not blocked, can wait days\n"
+    "- medium: normal impact, inconvenienced but not blocked or losing revenue\n"
+    "- high: meaningfully blocked or losing money/reputation, not a full outage\n"
+    "- urgent: full outage, active security incident, ongoing business-critical harm right now\n\n"
+    "Examples:\n"
+    'Ticket: "Em muốn hỏi cách đổi mật khẩu tài khoản quản trị."\n'
+    '{"category": "general", "priority": "low", "confidence": 0.9, "reasoning": "Simple how-to question, no urgency"}\n\n'
+    'Ticket: "Toàn bộ hệ thống email công ty bị hack, dữ liệu khách hàng có thể đã bị lộ, cần xử lý ngay lập tức."\n'
+    '{"category": "security", "priority": "urgent", "confidence": 0.95, "reasoning": "Active security incident with data breach risk"}\n\n'
+    'Ticket: "Trang chủ load hơi chậm hơn bình thường một chút, không ảnh hưởng nhiều."\n'
+    '{"category": "hosting", "priority": "low", "confidence": 0.8, "reasoning": "Minor performance issue, not blocking"}\n\n'
     "Valid priorities: urgent, high, medium, low\n"
     "Valid categories: hosting, domain, email, billing, technical, security, general\n"
     'Expected JSON: {"category": "...", "priority": "...", "confidence": 0.0, "reasoning": "..."}'
