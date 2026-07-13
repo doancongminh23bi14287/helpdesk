@@ -50,7 +50,7 @@ def ai_health():
 
 # ── 2. GET /api/ai/tickets/{ticket_id}/prediction ─────────────────────────────
 
-@router.get("/tickets/{ticket_id}/prediction", response_model=AiPredictionOut)
+@router.get("/tickets/{ticket_id}/prediction", response_model=Optional[AiPredictionOut])
 def get_prediction(
     ticket_id: int,
     db: Session = Depends(get_db),
@@ -65,7 +65,7 @@ def get_prediction(
         .first()
     )
     if not prediction:
-        raise HTTPException(status_code=404, detail="No prediction found for this ticket")
+        return None
     return prediction
 
 

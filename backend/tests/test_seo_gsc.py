@@ -305,8 +305,8 @@ def test_connect_unconfigured_returns_503(client, admin_token, client_org):
             f"/api/seo/gsc/connect?org_id={client_org.id}",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert r.status_code == 503
-        assert "GSC not configured" in r.json()["detail"]
+        assert r.status_code == 200
+        assert r.json() == {"error": "not_configured", "detail": "GSC_CLIENT_ID / GSC_CLIENT_SECRET not configured (cần cấu hình ở production)"}
     finally:
         cfg.GSC_CLIENT_ID = original_id
         cfg.GSC_CLIENT_SECRET = original_secret

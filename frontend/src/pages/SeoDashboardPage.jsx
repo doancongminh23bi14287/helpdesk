@@ -363,6 +363,11 @@ function GscConnectionCard() {
     setBusy(true)
     try {
       const { data } = await client.get('/seo/gsc/connect')
+      if (data.error) {
+        setFlash({ type: 'error', msg: data.detail || 'GSC is not configured.' })
+        setBusy(false)
+        return
+      }
       window.location.href = data.url
     } catch (err) {
       const msg = err?.response?.data?.detail ?? 'Could not start OAuth flow.'
@@ -550,6 +555,11 @@ function Ga4ConnectionCard({ onDataChange }) {
     setBusy(true)
     try {
       const { data } = await client.get('/seo/ga4/connect')
+      if (data.error) {
+        setFlash({ type: 'error', msg: data.detail || 'GA4 is not configured.' })
+        setBusy(false)
+        return
+      }
       window.location.href = data.url
     } catch (err) {
       setFlash({ type: 'error', msg: err?.response?.data?.detail ?? 'Could not start GA4 OAuth flow.' })

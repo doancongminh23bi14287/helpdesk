@@ -70,7 +70,7 @@ def get_connect_url(
     from app.services import gsc as gsc_svc
 
     if not config.GSC_CLIENT_ID or not config.GSC_CLIENT_SECRET:
-        raise HTTPException(status_code=503, detail="GSC not configured on this server")
+        return {"error": "not_configured", "detail": "GSC_CLIENT_ID / GSC_CLIENT_SECRET not configured (cần cấu hình ở production)"}
 
     target_org = _resolve_org(user, db, org_id)
     state = secrets.token_urlsafe(32)

@@ -112,7 +112,8 @@ def test_get_prediction_not_found(client, staff_token, staff_assignment, ticket_
         f"/api/ai/tickets/{ticket_for_ai.id}/prediction",
         headers=auth(staff_token),
     )
-    assert r.status_code == 404
+    assert r.status_code == 200
+    assert r.json() is None
 
 
 def test_get_prediction_cross_org_blocked(client, staff_token, second_client_org, db, service):

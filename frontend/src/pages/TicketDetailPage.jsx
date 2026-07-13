@@ -644,7 +644,7 @@ export default function TicketDetailPage() {
     // AI endpoints are staff/admin-only (403 for customers) — skip the calls entirely
     if (user?.role === 'staff' || user?.role === 'admin') {
       client.get(`/ai/tickets/${id}/prediction`)
-        .then(res => setAiPrediction(res.data))
+        .then(res => { if (res.data) setAiPrediction(res.data) })
         .catch(() => {})
       client.get(`/ai/tickets/${id}/summary`)
         .then(res => { 

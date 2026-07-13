@@ -44,8 +44,8 @@ def get_connect_url(
     user: User = Depends(require_staff_or_admin),
     db: Session = Depends(get_db),
 ):
-    if not config.GSC_CLIENT_ID or not config.GSC_CLIENT_SECRET:
-        raise HTTPException(status_code=503, detail="GA4_CLIENT_ID / GA4_CLIENT_SECRET not configured")
+    if not config.GA4_CLIENT_ID or not config.GA4_CLIENT_SECRET:
+        return {"error": "not_configured", "detail": "GA4_CLIENT_ID / GA4_CLIENT_SECRET not configured (cần cấu hình ở production)"}
 
     target_org = _resolve_org(user, db, org_id)
     state = secrets.token_urlsafe(32)
@@ -116,7 +116,7 @@ def get_status(
     target_org = _resolve_org(user, db, org_id)
     conn = db.query(Ga4Connection).filter(Ga4Connection.org_id == target_org).first()
     if not conn:
-        return {"connected": False, "configured": bool(config.GSC_CLIENT_ID)}
+        return {"connected": False, "configured": bool(config.GA4_CLIENT_ID)}
     return {
         "connected": True,
         "property_id": conn.property_id,
