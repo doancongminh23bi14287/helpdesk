@@ -6,8 +6,51 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.ticket import Ticket, TicketAssignee
-from app.models.project import TaskAssignee
+from app.models.project import Project, TaskAssignee
+from app.models.team import StaffOrgAssignment
 from app.models.user import User
+
+
+def validate_assignee_ids(
+    db: Session,
+    user_ids: list[int],
+    org_id: int,
+) -> dict[int, User]:
+    """Return eligible staff users or raise without changing assignment state."""
+    if not user_ids:
+        return {}
+
+    unique_ids = list(dict.fromkeys(user_ids))
+    found = db.query(User).filter(User.id.in_(unique_ids)).all()
+    users = {u.id: u for u in found}
+    missing = set(unique_ids) - set(users)
+    if missing:
+        raise HTTPException(status_code=404, detail=f"User(s) not found: {sorted(missing)}")
+
+    invalid = sorted(
+        uid for uid, candidate in users.items()
+        if candidate.role != "staff" or not candidate.is_active
+    )
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Assignee(s) must be active staff: {invalid}",
+        )
+
+    assigned_ids = {
+        row.user_id
+        for row in db.query(StaffOrgAssignment).filter(
+            StaffOrgAssignment.user_id.in_(unique_ids),
+            StaffOrgAssignment.org_id == org_id,
+        ).all()
+    }
+    unauthorized = sorted(set(unique_ids) - assigned_ids)
+    if unauthorized:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Assignee(s) are not assigned to organization {org_id}: {unauthorized}",
+        )
+    return users
 
 
 def set_ticket_assignees(
@@ -31,14 +74,7 @@ def set_ticket_assignees(
     elif primary_id is None or primary_id not in user_ids:
         primary_id = user_ids[0]
 
-    # Validate all user_ids exist
-    users: dict[int, User] = {}
-    if user_ids:
-        found = db.query(User).filter(User.id.in_(user_ids)).all()
-        users = {u.id: u for u in found}
-        missing = set(user_ids) - set(users)
-        if missing:
-            raise HTTPException(status_code=404, detail=f"User(s) not found: {sorted(missing)}")
+    users = validate_assignee_ids(db, user_ids, ticket.org_id)
 
     # Capture old assignees before clearing (for member-sync cleanup)
     old_rows = db.query(TicketAssignee).filter(TicketAssignee.ticket_id == ticket.id).all()
@@ -95,13 +131,10 @@ def set_task_assignees(
     elif primary_id is None or primary_id not in user_ids:
         primary_id = user_ids[0]
 
-    users: dict[int, User] = {}
-    if user_ids:
-        found = db.query(User).filter(User.id.in_(user_ids)).all()
-        users = {u.id: u for u in found}
-        missing = set(user_ids) - set(users)
-        if missing:
-            raise HTTPException(status_code=404, detail=f"User(s) not found: {sorted(missing)}")
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    users = validate_assignee_ids(db, user_ids, project.org_id)
 
     old_rows = db.query(TaskAssignee).filter(TaskAssignee.task_id == task.id).all()
     for row in old_rows:

@@ -209,6 +209,51 @@ def test_reply_no_match_creates_new_ticket(db, client_org, customer_user, servic
     assert tickets[0].subject == "Completely new question"
 
 
+def test_subject_reference_from_another_customer_creates_new_ticket(
+    db, client_org, customer_user, service
+):
+    """A ticket reference is not authorization to append to that ticket."""
+    from app.models.organization import Organization
+    from app.models.ticket import Ticket, TicketReply
+    from app.models.user import User
+    from app.core.security import hash_password
+    from app.services.email_piping import process_inbox
+
+    ticket = _seed_ticket(db, client_org, customer_user, service)
+    other_org = Organization(name="Other customer", code="OTHER-MAIL", status="active")
+    db.add(other_org)
+    db.flush()
+    attacker = User(
+        org_id=other_org.id,
+        email="other-customer@example.com",
+        password_hash=hash_password("test-password"),
+        full_name="Other Customer",
+        role="customer",
+        is_active=True,
+    )
+    db.add(attacker)
+    db.commit()
+
+    mock_mail = _mock_imap([{
+        "from_addr": attacker.email,
+        "subject": f"Re: [#{ticket.id}] Original issue",
+        "body": "Unauthorized content must not enter the original ticket.",
+        "message_id": "<cross-customer-reference@example.com>",
+    }])
+
+    with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
+        count = process_inbox(db)
+
+    assert count == 1
+    assert db.query(TicketReply).filter(TicketReply.ticket_id == ticket.id).count() == 0
+    rerouted = db.query(Ticket).filter(
+        Ticket.source == "email",
+        Ticket.raised_by == attacker.id,
+    ).one()
+    assert rerouted.id != ticket.id
+    assert rerouted.org_id == other_org.id
+
+
 def test_duplicate_message_id_skipped(db, client_org, customer_user, service):
     """
     Delivering the same Message-ID twice: second delivery is skipped

@@ -1,7 +1,9 @@
+from datetime import date, timedelta
 from typing import List, Optional
 from math import ceil
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,12 +17,60 @@ from app.schemas.subscription import SubscriptionCreate, SubscriptionOut
 from app.models.invoice import Invoice
 from app.models.project import Project
 from app.models.service import Service
-from app.services.billing import create_subscription, cancel_subscription
+from app.services.billing import cancel_subscription, create_subscription, effective_subscription_status
 from app.services.service_sync import sync_service_from_subscription
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
 
 VALID_SUB_SORT_FIELDS = {"start_date", "next_billing_date", "status", "created_at"}
+
+
+def _effective_status_condition(status: str):
+    """SQL equivalent of effective_subscription_status for list filtering."""
+    today = date.today()
+    grace_cutoff = today - timedelta(days=7)
+    not_cancelled = Subscription.status != "cancelled"
+    scheduled = and_(
+        not_cancelled,
+        Subscription.start_date > today,
+    )
+    expired = and_(
+        not_cancelled,
+        ~scheduled,
+        or_(
+            Subscription.status == "expired",
+            Subscription.end_date < today,
+            Subscription.next_billing_date < grace_cutoff,
+        ),
+    )
+    trial = and_(
+        not_cancelled,
+        ~scheduled,
+        ~expired,
+        Subscription.status == "trial",
+        Subscription.trial_end_date.is_not(None),
+        Subscription.trial_end_date > today,
+    )
+    past_due = and_(
+        not_cancelled,
+        ~scheduled,
+        ~expired,
+        ~trial,
+        Subscription.next_billing_date < today,
+    )
+    if status == "cancelled":
+        return Subscription.status == "cancelled"
+    if status == "scheduled":
+        return scheduled
+    if status == "expired":
+        return expired
+    if status == "trial":
+        return trial
+    if status == "past_due":
+        return past_due
+    if status == "active":
+        return and_(not_cancelled, ~scheduled, ~expired, ~trial, ~past_due)
+    return Subscription.status == status
 
 
 def _build_subscriptions_out(subs, db):
@@ -38,21 +88,25 @@ def _build_subscriptions_out(subs, db):
         item = item_map.get(s.item_id)
         org = org_map.get(s.org_id)
         plan_name = (plan.name if plan else None) or (item.name if item else None)
+        values = {c.key: getattr(s, c.key) for c in s.__table__.columns}
+        values["status"] = effective_subscription_status(s)
         result.append(SubscriptionOut(
-            **{c.key: getattr(s, c.key) for c in s.__table__.columns},
+            **values,
             plan_name=plan_name,
             org_name=org.name if org else None,
         ))
     return result
 
 
-def _enrich_one(sub, db):
+def _enrich_one(sub, db, use_effective: bool = True):
     plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.subscription_plan_id).first() if sub.subscription_plan_id else None
     item = db.query(Item).filter(Item.id == sub.item_id).first() if sub.item_id else None
     org = db.query(Organization).filter(Organization.id == sub.org_id).first()
     plan_name = (plan.name if plan else None) or (item.name if item else None)
+    values = {c.key: getattr(sub, c.key) for c in sub.__table__.columns}
+    values["status"] = effective_subscription_status(sub) if use_effective else sub.status
     return SubscriptionOut(
-        **{c.key: getattr(sub, c.key) for c in sub.__table__.columns},
+        **values,
         plan_name=plan_name,
         org_name=org.name if org else None,
     )
@@ -85,7 +139,7 @@ def list_subscriptions(
     q = db.query(Subscription)
     q = scope_subscriptions(q, user, db)
     if status:
-        q = q.filter(Subscription.status == status)
+        q = q.filter(_effective_status_condition(status))
     # Search: match on org name via join
     if search:
         term = f"%{search}%"
@@ -128,7 +182,7 @@ def create_subscription_endpoint(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return _enrich_one(sub, db)
+    return _enrich_one(sub, db, use_effective=False)
 
 
 @router.get("/{sub_id}", response_model=SubscriptionOut)
@@ -142,7 +196,7 @@ def get_subscription(
     if not sub:
         raise HTTPException(status_code=404, detail="Subscription not found")
     assert_org_access(sub.org_id, user, db)
-    return _enrich_one(sub, db)
+    return _enrich_one(sub, db, use_effective=True)
 
 
 @router.delete("/{sub_id}", status_code=204)
@@ -175,7 +229,7 @@ def cancel_subscription_endpoint(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     sync_service_from_subscription(db, sub, create_if_missing=False)
-    return _enrich_one(sub, db)
+    return _enrich_one(sub, db, use_effective=False)
 
 
 @router.delete("/{sub_id}/permanent")

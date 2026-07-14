@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { listServices } from '@/api/services'
 import { useAuthStore } from '@/hooks/useAuth'
-import { Spinner, PageShell, PageHeader } from '@/components/ui'
+import { EmptyState, LoadingState, PageShell, PageHeader } from '@/components/ui'
 import { motion } from 'framer-motion'
 import { formatDate, daysUntil } from '@/lib/utils'
 import {
@@ -138,7 +138,7 @@ export default function ServicesPage() {
 
   if (loading) return (
     <PageShell>
-      <div className="flex items-center justify-center h-96"><Spinner className="w-6 h-6" /></div>
+      <LoadingState label="Loading services" rows={6} />
     </PageShell>
   )
 
@@ -150,11 +150,11 @@ export default function ServicesPage() {
       />
 
       {services.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center">
-          <ServerStackIcon className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-base font-semibold text-muted-foreground">No services found</p>
-          <p className="text-sm text-muted-foreground mt-1">Contact support if you believe this is an error.</p>
-        </div>
+        <EmptyState
+          icon={ServerStackIcon}
+          title="No services found"
+          description="Contact support if you believe this is an error."
+        />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {services.map((s) => (

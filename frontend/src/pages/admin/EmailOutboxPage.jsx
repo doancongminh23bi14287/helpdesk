@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { listEmailOutbox, retryEmailOutbox } from '@/api/emailOutbox'
-import { Spinner } from '@/components/ui'
+import {
+  Button,
+  EmptyState,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  ResponsiveTableViewport,
+  Spinner,
+} from '@/components/ui'
 import { formatDateTime as fmt } from '@/lib/utils'
 
 const STATUS = {
@@ -54,7 +63,7 @@ export default function EmailOutboxPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="px-4 py-5 sm:p-6 max-w-6xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-xl font-bold text-foreground">Email Outbox</h1>
@@ -81,12 +90,45 @@ export default function EmailOutboxPage() {
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-16"><Spinner className="w-5 h-5" /></div>
+          <LoadingState rows={4} className="px-4" label="Loading email outbox" />
         ) : rows.length === 0 ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">No outbox emails found.</div>
+          <EmptyState
+            title="No outbox emails found"
+            description={status === 'all' ? 'Queued email delivery attempts will appear here.' : 'No emails match this status.'}
+          />
         ) : (
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <ResponsiveTableViewport
+            mobile={(
+              <MobileCardList ariaLabel="Email outbox">
+                {rows.map((row) => (
+                  <MobileDataCard
+                    key={row.id}
+                    className={row.status === 'failed' ? 'border-red-200 bg-red-50/40' : ''}
+                    actions={row.status !== 'sent' ? (
+                      <Button type="button" size="sm" variant="outline" onClick={() => retry(row)} isLoading={retrying === row.id}>
+                        Retry
+                      </Button>
+                    ) : null}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-sm font-semibold text-foreground" title={row.subject}>{row.subject}</h3>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">{row.recipient_email}</p>
+                      </div>
+                      <StatusBadge status={row.status} />
+                    </div>
+                    {row.last_error && <p className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-700">{row.last_error}</p>}
+                    <dl className="mt-3 divide-y divide-border">
+                      <MobileDataRow label="Retries">{row.retry_count}/{row.max_retries}</MobileDataRow>
+                      <MobileDataRow label="Related">{row.related_type ? `${row.related_type} ${row.related_id || ''}` : 'None'}</MobileDataRow>
+                      <MobileDataRow label="Scheduled">{fmt(row.scheduled_at)}</MobileDataRow>
+                    </dl>
+                  </MobileDataCard>
+                ))}
+              </MobileCardList>
+            )}
+          >
+          <table className="w-full min-w-[900px] text-sm">
             <thead className="bg-muted/40 border-b border-border">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Recipient</th>
@@ -126,7 +168,7 @@ export default function EmailOutboxPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </ResponsiveTableViewport>
         )}
       </div>
     </div>

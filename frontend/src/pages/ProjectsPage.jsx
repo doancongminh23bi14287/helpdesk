@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowRightIcon, CalendarDaysIcon, CheckCircleIcon, FolderIcon, MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline'
-import { EmptyState, PageShell, PageHeader } from '@/components/ui'
+import { EmptyState, MobileCardList, MobileDataCard, MobileDataRow, PageShell, PageHeader, ResponsiveTableViewport } from '@/components/ui'
 import { listProjects, createProject, listProjectTasks } from '@/api/projects'
 import { listOrganizations } from '@/api/organizations'
 import { useRole } from '@/hooks/useRole'
@@ -236,6 +236,55 @@ export default function ProjectsPage() {
     </>
   )
 
+  const mobileProjectCards = (
+    <MobileCardList ariaLabel="Projects">
+      {visibleProjects.map((project) => (
+        <MobileDataCard
+          key={project.id}
+          onClick={(event) => {
+            if (event.target.closest('a, button')) return
+            navigate('/projects/' + project.id)
+          }}
+          ariaLabel={'Open project ' + project.name}
+          actions={(
+            <Link to={'/projects/' + project.id} className="btn-secondary min-h-11 w-full">
+              View details
+              <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Link to={'/projects/' + project.id} className="text-base font-semibold text-foreground">
+                {project.name}
+              </Link>
+              <p className="mt-1 text-xs capitalize text-muted-foreground">
+                {project.project_type}
+                {!isCustomer && project.org_name ? ' - ' + project.org_name : ''}
+              </p>
+            </div>
+            <StatusBadge status={project.status} />
+          </div>
+          <div className="mt-4"><ProgressBar value={project.progress_percent} /></div>
+          <dl className="mt-3 border-t border-border pt-2">
+            <MobileDataRow label="Tasks">
+              <span className="inline-flex items-center gap-1">
+                <CheckCircleIcon className="h-4 w-4 text-info" aria-hidden="true" />
+                {(project._task_completed ?? 0) + '/' + (project._task_total ?? 0)}
+              </span>
+            </MobileDataRow>
+            <MobileDataRow label="Start">{fmtDate(project.start_date)}</MobileDataRow>
+            <MobileDataRow label="Deadline">
+              <span className={isPastDeadline(project.due_date, project.status) ? 'text-danger' : isDueSoon(project.due_date) ? 'text-warning' : ''}>
+                {fmtDate(project.due_date)}
+              </span>
+            </MobileDataRow>
+          </dl>
+        </MobileDataCard>
+      ))}
+    </MobileCardList>
+  )
+
   return (
     <PageShell>
       <PageHeader
@@ -254,15 +303,15 @@ export default function ProjectsPage() {
       )}
       {loading ? (
         <div className="grid grid-cols-1 gap-3">
-          {[1, 2, 3].map((i) => <div key={i} className="h-24 animate-pulse rounded-2xl bg-slate-200" />)}
+          {[1, 2, 3].map((i) => <div key={i} className="h-24 skeleton-shimmer rounded-lg" />)}
         </div>
       ) : visibleProjects.length === 0 ? (
         <EmptyState icon={FolderIcon} title="No projects found" description="SEO project progress will appear here once projects are created." />
       ) : (
         <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm">
-          <div className="overflow-x-auto">
+          <ResponsiveTableViewport mobile={mobileProjectCards}>
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+            <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-slate-500">Project</th>
                 <th className="text-left px-4 py-3 font-medium text-slate-500">Type</th>
@@ -315,7 +364,7 @@ export default function ProjectsPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </ResponsiveTableViewport>
         </div>
       )}
     </PageShell>

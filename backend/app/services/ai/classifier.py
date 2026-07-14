@@ -58,8 +58,9 @@ async def classify_ticket(
     if not config.AI_FEATURES_ENABLED:
         return None
 
-    sanitized = sanitize_for_ai((subject or "") + " " + (description or ""))
-    injected = check_prompt_injection(sanitized)
+    subject_clean = sanitize_for_ai(subject or "")
+    description_clean = sanitize_for_ai(description or "")
+    injected = check_prompt_injection(subject_clean + " " + description_clean)
 
     if injected:
         prediction = TicketAiPrediction(
@@ -78,7 +79,10 @@ async def classify_ticket(
 
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": f"Subject: {subject}\nDescription: {description or '(no description)'}"},
+        {
+            "role": "user",
+            "content": f"Subject: {subject_clean}\nDescription: {description_clean or '(no description)'}",
+        },
     ]
 
     try:

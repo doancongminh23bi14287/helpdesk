@@ -226,3 +226,84 @@ def test_assignment_score_endpoint(
     assert "workload_score" in first
     assert "skill_score" in first
     assert "online_score" in first
+
+def test_recent_login_is_not_treated_as_online_presence(
+    db, admin_user, staff_user, staff_assignment, client_org
+):
+    from app.models.ticket import Ticket
+    from app.services.auto_assign import score_breakdown
+
+    staff_user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    ticket = Ticket(
+        org_id=client_org.id,
+        subject="Presence must not come from login",
+        status="Open",
+        priority="Medium",
+        ticket_type="Question",
+        source="portal",
+        raised_by=admin_user.id,
+    )
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    score = next(
+        item for item in score_breakdown(ticket, db)
+        if item["user_id"] == staff_user.id
+    )
+    assert score["online"] == 0
+    assert score["online_score"] == 0
+
+
+def test_project_member_restricts_auto_assignment(
+    client, db, admin_user, customer_token, client_org, provider_org, service, staff_assignment
+):
+    from app.models.user import User
+    from app.core.security import hash_password
+    from app.models.project import Project, ProjectMember
+    from app.models.team import StaffOrgAssignment
+
+    staff2 = User(
+        org_id=provider_org.id,
+        email="staff2-project@test.com",
+        password_hash=hash_password("s"),
+        full_name="Staff Project",
+        role="staff",
+        is_active=True,
+    )
+    db.add(staff2)
+    db.commit()
+    db.refresh(staff2)
+    db.add(StaffOrgAssignment(user_id=staff2.id, org_id=client_org.id))
+    db.commit()
+
+    project = Project(
+        org_id=client_org.id,
+        name="Member Only Project",
+        project_type="seo",
+        status="open",
+        visibility="customer_visible",
+        created_by=admin_user.id,
+        progress_percent=0,
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    db.add(ProjectMember(project_id=project.id, user_id=staff2.id, role="staff", added_by=admin_user.id))
+    db.commit()
+
+    response = client.post(
+        "/api/tickets",
+        json={
+            "org_id": client_org.id,
+            "service_id": service.id,
+            "project_id": project.id,
+            "subject": "Project member assignment test",
+        },
+        headers={"Authorization": f"Bearer {customer_token}"},
+    )
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["project_id"] == project.id
+    assert data["assignee_id"] == staff2.id

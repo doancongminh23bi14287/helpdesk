@@ -78,6 +78,12 @@ async def suggest_reply(
         for r in replies:
             role = _author_role(r, db)
             content_clean = sanitize_for_ai(r.content or "")
+            if check_prompt_injection(content_clean):
+                logger.warning(
+                    "Prompt injection detected in reply history for ticket_id=%s; skipping suggestion",
+                    ticket_id,
+                )
+                return None
             context_parts.append(f"[{role}]: {content_clean}")
 
     context_parts.append("\nWrite a helpful support reply:")

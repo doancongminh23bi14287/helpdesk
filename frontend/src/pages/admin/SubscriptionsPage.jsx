@@ -7,7 +7,21 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/Modal'
-import { Spinner } from '@/components/ui'
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  FilterBar,
+  Input,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  PageHeader,
+  ResponsiveTableViewport,
+  Select,
+  Spinner,
+} from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
 import {
   listSubscriptions,
@@ -472,67 +486,107 @@ export default function SubscriptionsPage() {
   const linkedService = detailSub ? serviceMap.get(detailSub.id) : null
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Subscriptions</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Manage all customer subscriptions</p>
-        </div>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          <PlusIcon className="w-4 h-4" />
-          Create Subscription
-        </button>
-      </div>
+    <div className="px-4 py-5 sm:p-6 max-w-7xl mx-auto">
+      <PageHeader
+        className="mb-6"
+        title="Subscriptions"
+        description="Manage all customer subscriptions"
+        actions={(
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            <PlusIcon className="h-4 w-4" aria-hidden="true" />
+            Create Subscription
+          </Button>
+        )}
+      />
 
-      {error && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
-          {error}
-        </div>
-      )}
-
+      {error && <ErrorState className="mb-4" title="Unable to load subscriptions" description={error} />}
       {/* Search + Filter bar */}
-      <div className="flex gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm">
-          <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
+      <FilterBar className="mb-4">
+        <div className="relative w-full sm:w-80">
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input
+            type="search"
             placeholder="Search by organisation…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            onChange={(event) => setSearch(event.target.value)}
+            className="pl-9"
+            aria-label="Search subscriptions by organization"
           />
         </div>
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        >
+        <Select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)} aria-label="Filter subscriptions by status" className="w-full sm:w-48">
           <option value="all">All statuses</option>
           <option value="trial">Trial</option>
+          <option value="scheduled">Scheduled</option>
           <option value="active">Active</option>
           <option value="past_due">Past Due</option>
           <option value="cancelled">Cancelled</option>
           <option value="expired">Expired</option>
-        </select>
+        </Select>
         {(filterStatus !== 'all' || search) && (
-          <button
-            onClick={() => { setFilterStatus('all'); setSearch('') }}
-            className="px-3 py-2 border border-input rounded-lg bg-background text-muted-foreground text-sm hover:text-foreground hover:bg-muted transition-colors"
-          >
+          <Button type="button" variant="outline" onClick={() => { setFilterStatus('all'); setSearch('') }}>
             Clear
-          </button>
+          </Button>
         )}
-      </div>
+      </FilterBar>
+
+
 
       {/* Table */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <ResponsiveTableViewport
+          mobile={loading ? (
+            <LoadingState rows={3} label="Loading subscriptions" />
+          ) : subscriptions.length === 0 ? (
+            <EmptyState
+              icon={CreditCardIcon}
+              title="No subscriptions found"
+              description={search || filterStatus !== 'all' ? 'Try adjusting your filters.' : 'Create one to get started.'}
+            />
+          ) : (
+            <MobileCardList ariaLabel="Subscriptions">
+              {subscriptions.map((sub) => {
+                const svc = serviceMap.get(sub.id)
+                return (
+                  <MobileDataCard
+                    key={sub.id}
+                    onClick={() => setDetailSub(sub)}
+                    ariaLabel={`View subscription for ${sub.org_name ?? sub.org_id}`}
+                    actions={(
+                      <>
+                        <Button type="button" size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setDetailSub(sub) }}>
+                          View details
+                        </Button>
+                        <div onClick={(event) => event.stopPropagation()}>
+                          <ActionMenu
+                            sub={sub}
+                            onCancel={setCancelTarget}
+                            onPermanentDelete={(item) => { setPermanentDeleteTarget(item); setDeleteChecked(false) }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-semibold text-foreground">{sub.org_name ?? sub.org_id}</h3>
+                        <p className="mt-0.5 truncate text-sm text-muted-foreground">{sub.plan_name || 'No plan name'}</p>
+                      </div>
+                      <StatusBadge status={sub.status} />
+                    </div>
+                    <dl className="mt-3 divide-y divide-border">
+                      <MobileDataRow label="Service">{svc?.name || 'Not linked'}</MobileDataRow>
+                      <MobileDataRow label="Billing">{CYCLE_LABELS[sub.billing_cycle] ?? sub.billing_cycle}</MobileDataRow>
+                      <MobileDataRow label="Next billing">{fmtDate(sub.next_billing_date) || 'Not scheduled'}</MobileDataRow>
+                      <MobileDataRow label="Price">{sub.unit_price != null ? fmtVND(sub.unit_price) : 'Not set'}</MobileDataRow>
+                    </dl>
+                  </MobileDataCard>
+                )
+              })}
+            </MobileCardList>
+          )}
+        >
+          <table className="w-full min-w-[940px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Organisation</th>
@@ -551,7 +605,7 @@ export default function SubscriptionsPage() {
                   <tr key={i} className="border-b border-border">
                     {Array.from({ length: 8 }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
-                        <div className="h-4 bg-muted rounded animate-pulse" />
+                        <div className="h-4 skeleton-shimmer rounded" />
                       </td>
                     ))}
                   </tr>
@@ -621,7 +675,7 @@ export default function SubscriptionsPage() {
               </tbody>
             )}
           </table>
-        </div>
+        </ResponsiveTableViewport>
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} />
       </div>
 

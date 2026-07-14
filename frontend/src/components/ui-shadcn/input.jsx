@@ -1,22 +1,27 @@
+import { forwardRef } from 'react'
 import { cn } from '@/lib/utils'
+import { FormField } from '@/components/ui/FormField'
 
-export function Input({ className, label, error, ...props }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      {label && <label className="text-sm font-medium text-foreground">{label}</label>}
-      <input
-        className={cn(
-          'flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-sm',
-          'placeholder:text-muted-foreground',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          'disabled:cursor-not-allowed disabled:opacity-50',
-          'transition duration-150',
-          error && 'border-destructive focus-visible:ring-destructive',
-          className,
-        )}
-        {...props}
-      />
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
+export const Input = forwardRef(function Input(
+  { className, label, error, helperText, required, id, ...props },
+  ref,
+) {
+  const control = (
+    <input
+      ref={ref}
+      id={id}
+      required={required}
+      className={cn(
+        'flex h-11 w-full sm:h-9 rounded-md border border-input bg-surface px-3 text-sm text-foreground shadow-sm',
+        'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'disabled:cursor-not-allowed disabled:bg-surface-muted disabled:opacity-60',
+        error && 'border-danger focus-visible:ring-danger',
+        className,
+      )}
+      {...props}
+    />
   )
-}
+
+  if (!label && !helperText && !error) return control
+  return <FormField label={label} required={required} helperText={helperText} error={error} id={id}>{control}</FormField>
+})

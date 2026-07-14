@@ -5,46 +5,40 @@ from app.database import SessionLocal
 
 @celery_app.task(name="app.tasks.subscription_checker.check_subscriptions")
 def check_subscriptions():
-    """
-    Daily at 08:00 UTC. Transitions subscription statuses based on today's date.
-
-    Transitions:
-    1. trial → active: when today >= trial_end_date (trial ended, move to active)
-    2. active/trial/past_due → expired: when today > next_billing_date + 7 days grace period
-       (i.e., next_billing_date < today - 7 days)
-    3. active → past_due: when today > next_billing_date (overdue, not yet in grace exhaustion)
-       (i.e., next_billing_date < today AND next_billing_date >= today - 7 days)
-
-    Returns dict: {"trial_to_active": N, "past_due": N, "expired": N}
-    """
+    """Synchronize stored subscription/service state with effective business dates."""
     db = SessionLocal()
     try:
         from app.models.subscription import Subscription
-        from datetime import date, timedelta
-
-        today = date.today()
-        grace_cutoff = today - timedelta(days=7)
+        from app.services.billing import effective_subscription_status
+        from app.services.service_sync import sync_service_from_subscription
 
         subscriptions = db.query(Subscription).filter(
-            Subscription.status.notin_(["cancelled", "expired"])
+            Subscription.status != "cancelled"
         ).all()
 
-        trial_to_active = 0
-        past_due = 0
-        expired = 0
-
+        result = {"trial_to_active": 0, "past_due": 0, "expired": 0}
         for sub in subscriptions:
-            if sub.status == "trial" and sub.trial_end_date is not None and today >= sub.trial_end_date:
-                sub.status = "active"
-                trial_to_active += 1
-            elif sub.next_billing_date < grace_cutoff:
-                sub.status = "expired"
-                expired += 1
-            elif sub.next_billing_date < today:
-                sub.status = "past_due"
-                past_due += 1
+            previous = sub.status
+            effective = effective_subscription_status(sub)
+            if effective != "scheduled" and effective != previous:
+                sub.status = effective
+                if previous == "trial" and effective == "active":
+                    result["trial_to_active"] += 1
+                elif effective in result:
+                    result[effective] += 1
+            # Always reconcile the linked service, including legacy rows whose
+            # subscription was already marked expired before this checker ran.
+            sync_service_from_subscription(
+                db,
+                sub,
+                create_if_missing=False,
+                commit=False,
+            )
 
         db.commit()
-        return {"trial_to_active": trial_to_active, "past_due": past_due, "expired": expired}
+        return result
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

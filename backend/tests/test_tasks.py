@@ -100,6 +100,9 @@ def test_create_task_with_multi_assignee(
         is_active=True,
     )
     db.add(staff2)
+    db.flush()
+    from app.models.team import StaffOrgAssignment
+    db.add(StaffOrgAssignment(user_id=staff2.id, org_id=client_org.id))
     db.commit()
     db.refresh(staff2)
 
@@ -150,6 +153,9 @@ def test_update_task_assignee_ids_replaces_assignees(
         is_active=True,
     )
     db.add(staff2)
+    db.flush()
+    from app.models.team import StaffOrgAssignment
+    db.add(StaffOrgAssignment(user_id=staff2.id, org_id=client_org.id))
     db.commit()
     db.refresh(staff2)
 

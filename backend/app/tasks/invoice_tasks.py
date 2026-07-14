@@ -117,6 +117,7 @@ def auto_generate_invoices():
 
         uninvoiced_subs = db.query(Subscription).filter(
             Subscription.status == "active",
+            Subscription.start_date <= today,
             Subscription.id.notin_(invoiced_sub_ids | handled_ids),
         ).all()
 

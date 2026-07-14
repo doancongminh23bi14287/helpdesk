@@ -23,7 +23,14 @@ import {
   UserGroupIcon,
   ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline'
-import { Spinner, UserAvatar } from '@/components/ui'
+import {
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  ResponsiveTableViewport,
+  Spinner,
+  UserAvatar,
+} from '@/components/ui'
 import { StatusBadge } from '@/components/StatusBadge'
 import { useRole } from '@/hooks/useRole'
 import { useAuthStore } from '@/hooks/useAuth'
@@ -1711,8 +1718,69 @@ export default function ProjectDetailPage() {
                         : 'No tasks match the current filters.'}
                     </EmptyPanel>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
+                    <ResponsiveTableViewport
+                      mobile={(
+                        <MobileCardList ariaLabel="Project tasks" className="p-0">
+                          {filteredTasks.map((task) => (
+                            <MobileDataCard
+                              key={task.id}
+                              onClick={() => setSelectedTaskId(task.id)}
+                              ariaLabel={`Open task ${task.title}`}
+                              actions={!isCustomer ? (
+                                <>
+                                  <select
+                                    value={task.status}
+                                    disabled={updatingTask === task.id || task.status === 'cancelled'}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onChange={(event) => changeStatus(task.id, event.target.value)}
+                                    aria-label={`Change status for ${task.title}`}
+                                    className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                                  >
+                                    {TASK_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); setEditingTaskId(task.id) }}
+                                    className="min-h-11 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); cancelTask(task.id) }}
+                                    disabled={taskActionId === task.id || task.status === 'cancelled'}
+                                    className="min-h-11 rounded-md px-3 text-sm font-medium text-red-600 disabled:opacity-40"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : null}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <h3 className="text-base font-semibold text-slate-900">{task.title}</h3>
+                                  {task.description && <p className="mt-1 line-clamp-3 text-sm text-slate-500">{task.description}</p>}
+                                  <p className="mt-1 text-xs text-slate-400">{TASK_TYPES.find(([value]) => value === task.task_type)?.[1] ?? task.task_type}</p>
+                                </div>
+                                <TaskStatusBadge status={task.status} />
+                              </div>
+                              {!isCustomer && task.internal_note && (
+                                <p className="mt-3 rounded-md border border-amber-100 bg-amber-50 p-2 text-xs text-amber-700">Internal: {task.internal_note}</p>
+                              )}
+                              <dl className="mt-3 divide-y divide-slate-100">
+                                <MobileDataRow label="Assignee"><AssigneesPills assignees={task.assignees} /></MobileDataRow>
+                                <MobileDataRow label="Priority">
+                                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${PRIORITY_CLASSES[task.priority] ?? PRIORITY_CLASSES.medium}`}>{task.priority}</span>
+                                </MobileDataRow>
+                                {!isCustomer && <MobileDataRow label="Client">{task.is_client_visible ? 'Visible' : 'Internal'}</MobileDataRow>}
+                                <MobileDataRow label="Deadline">{fmtDate(task.due_date)}</MobileDataRow>
+                              </dl>
+                            </MobileDataCard>
+                          ))}
+                        </MobileCardList>
+                      )}
+                    >
+                      <table className="w-full min-w-[940px] text-sm">
                         <thead className="border-b border-slate-100 bg-slate-50">
                           <tr>
                             <th className="w-10 px-4 py-3" />
@@ -1780,7 +1848,7 @@ export default function ProjectDetailPage() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </ResponsiveTableViewport>
                   )}
                 </WorkspaceCard>
               )}

@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
 import { ShieldCheckIcon, CheckIcon } from '@heroicons/react/24/outline'
-import { Spinner } from '@/components/ui'
+import {
+  EmptyState,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  ResponsiveTableViewport,
+  Spinner,
+} from '@/components/ui'
 import { listSlaPolicies, updateSlaPolicy } from '@/api/sla'
 
 const PRIORITY_BADGE = {
@@ -64,7 +71,7 @@ export default function SlaPoliciesPage() {
   )
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="px-4 py-5 sm:p-6 max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -95,18 +102,52 @@ export default function SlaPoliciesPage() {
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Spinner className="w-6 h-6" />
-          </div>
+          <LoadingState rows={4} className="px-4" label="Loading SLA policies" />
         ) : policies.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <ShieldCheckIcon className="w-10 h-10 text-muted-foreground mb-3" />
-            <p className="font-medium text-foreground">No SLA policies found</p>
-            <p className="text-sm text-muted-foreground mt-1">Run database seeder to create default policies</p>
-          </div>
+          <EmptyState
+            icon={ShieldCheckIcon}
+            title="No SLA policies found"
+            description="SLA targets will appear here when configured."
+          />
         ) : (
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <ResponsiveTableViewport
+            mobile={(
+              <MobileCardList ariaLabel="SLA policies">
+                {policies.map((policy) => (
+                  <MobileDataCard key={policy.id}>
+                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${PRIORITY_BADGE[policy.priority] ?? 'bg-muted text-muted-foreground'}`}>
+                      {policy.priority}
+                    </span>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Response hours
+                        <input
+                          type="number"
+                          min="0.5"
+                          step="0.5"
+                          value={edits[policy.id]?.response_hours ?? policy.response_hours}
+                          onChange={(event) => handleChange(policy.id, 'response_hours', event.target.value)}
+                          className="mt-1.5 h-11 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Resolution hours
+                        <input
+                          type="number"
+                          min="0.5"
+                          step="0.5"
+                          value={edits[policy.id]?.resolution_hours ?? policy.resolution_hours}
+                          onChange={(event) => handleChange(policy.id, 'resolution_hours', event.target.value)}
+                          className="mt-1.5 h-11 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </label>
+                    </div>
+                  </MobileDataCard>
+                ))}
+              </MobileCardList>
+            )}
+          >
+          <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="text-left px-5 py-3 font-medium text-muted-foreground">Priority</th>
@@ -146,7 +187,7 @@ export default function SlaPoliciesPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </ResponsiveTableViewport>
         )}
       </div>
 

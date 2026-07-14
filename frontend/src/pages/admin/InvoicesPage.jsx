@@ -1,7 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { DocumentTextIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/Modal'
-import { Spinner } from '@/components/ui'
+import {
+  Button,
+  EmptyState,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  ResponsiveTableViewport,
+  Spinner,
+} from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
 import {
   listInvoices, getInvoice, sendInvoice, markInvoicePaid, cancelInvoice, deleteInvoice,
@@ -398,7 +407,7 @@ export default function AdminInvoicesPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="px-4 py-5 sm:p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -454,8 +463,70 @@ export default function AdminInvoicesPage() {
       {/* Table */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <ResponsiveTableViewport
+          mobile={loading ? (
+            <LoadingState rows={3} label="Loading invoices" />
+          ) : invoices.length === 0 ? (
+            <EmptyState
+              icon={DocumentTextIcon}
+              title="No invoices yet"
+              description="Generate invoices from subscriptions to get started."
+            />
+          ) : (
+            <MobileCardList ariaLabel="Invoices">
+              {invoices.map((inv) => {
+                const isActioning = actionLoading === inv.id
+                return (
+                  <MobileDataCard
+                    key={inv.id}
+                    onClick={(event) => handleRowClick(event, inv)}
+                    ariaLabel={`View invoice ${inv.invoice_number}`}
+                    className={inv.status === 'overdue' ? 'border-red-200 bg-red-50/40' : ''}
+                    actions={(
+                      <>
+                        {(inv.status === 'draft' || inv.status === 'sent') && (
+                          <Button type="button" size="sm" variant="outline" disabled={isActioning} onClick={() => handleSend(inv)}>
+                            {inv.status === 'sent' ? 'Resend' : 'Send'}
+                          </Button>
+                        )}
+                        {(inv.status === 'sent' || inv.status === 'overdue') && (
+                          <Button type="button" size="sm" variant="outline" disabled={isActioning} onClick={() => handleMarkPaid(inv)}>
+                            Mark paid
+                          </Button>
+                        )}
+                        {(inv.status === 'draft' || inv.status === 'sent') && (
+                          <Button type="button" size="sm" variant="ghost" className="text-red-600" disabled={isActioning} onClick={() => setCancelTarget(inv)}>
+                            Cancel
+                          </Button>
+                        )}
+                        {(inv.status === 'draft' || inv.status === 'cancelled') && (
+                          <Button type="button" size="sm" variant="ghost" className="text-red-600" disabled={isActioning} onClick={() => setDeleteTarget(inv)}>
+                            Delete
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono text-base font-semibold text-foreground">{inv.invoice_number}</p>
+                        <p className="mt-0.5 truncate text-sm text-muted-foreground">{inv.org_name ?? inv.org_id}</p>
+                      </div>
+                      <StatusBadge status={inv.status} />
+                    </div>
+                    <dl className="mt-3 divide-y divide-border">
+                      <MobileDataRow label="Plan">{inv.subscription_plan_name || 'Not specified'}</MobileDataRow>
+                      <MobileDataRow label="Issue date">{fmtDate(inv.issue_date)}</MobileDataRow>
+                      <MobileDataRow label="Due date">{fmtDate(inv.due_date)}</MobileDataRow>
+                      <MobileDataRow label="Total">{fmtVND(inv.total)}</MobileDataRow>
+                    </dl>
+                  </MobileDataCard>
+                )
+              })}
+            </MobileCardList>
+          )}
+        >
+        <table className="w-full min-w-[900px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Invoice #</th>
@@ -474,7 +545,7 @@ export default function AdminInvoicesPage() {
                 <tr key={i} className="border-b border-border">
                   {Array.from({ length: 8 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
-                      <div className="h-4 bg-muted rounded animate-pulse" />
+                      <div className="h-4 skeleton-shimmer rounded" />
                     </td>
                   ))}
                 </tr>
@@ -561,7 +632,7 @@ export default function AdminInvoicesPage() {
             </tbody>
           )}
         </table>
-        </div>
+        </ResponsiveTableViewport>
         {/* Summary row */}
         {!loading && invoices.length > 0 && (
           <div className="border-t border-border px-4 py-3 flex items-center gap-6 text-sm bg-muted/20">

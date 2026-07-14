@@ -1,47 +1,65 @@
 import { useState, useEffect } from 'react'
 import client from '@/api/client'
-import { keywords as mockKeywords, rankHistory as mockRankHistory, rankKeywords as mockRankKeywords, gscSummary as mockGscSummary } from '@/data/seoMockData'
+import { normalizeTrendData } from '@/lib/seoTrend'
+
+function emptyGscData() {
+  return {
+    keywords: [],
+    rankHistory: [],
+    rankKeywords: [],
+    gscSummary: { clicks: 0, impressions: 0, ctr: 0, avgPosition: 0, trend: [] },
+  }
+}
+
+function toNumber(value) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
 
 function toYYYYMMDD(date) {
-  return date.toISOString().slice(0, 10)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function mapQueryRows(rows) {
   if (!rows || rows.length === 0) return []
   return rows.map((row) => ({
     keyword:      row.keys?.[0] ?? '',
-    position:     Math.round(row.position ?? 99),
-    prevPosition: Math.round(row.position ?? 99),
+    position:     Math.round(toNumber(row.position) || 99),
+    prevPosition: Math.round(toNumber(row.position) || 99),
     change:       0,
-    volume:       row.impressions ?? 0,
+    volume:       toNumber(row.impressions),
     url:          row.keys?.[1] ?? '',
   }))
 }
 
 function mapDateRows(rows) {
   if (!rows || rows.length === 0) return []
-  return rows.map((row) => ({
-    date:        row.keys?.[0] ?? '',
-    clicks:      row.clicks ?? 0,
-    impressions: row.impressions ?? 0,
-    position:    row.position ?? 0,
-  }))
+  return rows
+    .map((row) => ({
+      date:        typeof row.keys?.[0] === 'string' ? row.keys[0] : '',
+      clicks:      toNumber(row.clicks),
+      impressions: toNumber(row.impressions),
+      position:    toNumber(row.position),
+    }))
+    .filter(({ date }) => date)
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 function buildSummary(queryRows, dateRows) {
-  if (!queryRows || queryRows.length === 0) {
-    return { clicks: 0, impressions: 0, ctr: 0, avgPosition: 0, sparkline: [] }
-  }
-  const totalClicks      = queryRows.reduce((s, r) => s + (r.clicks ?? 0), 0)
-  const totalImpressions = queryRows.reduce((s, r) => s + (r.impressions ?? 0), 0)
+  const rows = queryRows ?? []
+  const totalClicks      = rows.reduce((sum, row) => sum + toNumber(row.clicks), 0)
+  const totalImpressions = rows.reduce((sum, row) => sum + toNumber(row.impressions), 0)
   const avgCtr           = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : 0
-  const avgPosition      = queryRows.length > 0
-    ? (queryRows.reduce((s, r) => s + (r.position ?? 0), 0) / queryRows.length).toFixed(1)
+  const avgPosition      = rows.length > 0
+    ? (rows.reduce((sum, row) => sum + toNumber(row.position), 0) / rows.length).toFixed(1)
     : 0
-  const sparkline = dateRows && dateRows.length > 0
-    ? dateRows.map((r) => r.clicks)
-    : []
-  return { clicks: totalClicks, impressions: totalImpressions, ctr: Number(avgCtr), avgPosition: Number(avgPosition), sparkline }
+  const trend = normalizeTrendData(
+    (dateRows ?? []).map(({ date, clicks }) => ({ date, value: clicks })),
+  )
+  return { clicks: totalClicks, impressions: totalImpressions, ctr: Number(avgCtr), avgPosition: Number(avgPosition), trend }
 }
 
 export function useGscData() {
@@ -49,18 +67,14 @@ export function useGscData() {
   const [isConnected,  setIsConnected]  = useState(false)
   const [usingRealData, setUsingRealData] = useState(false)
   const [error,        setError]        = useState(null)
-  const [gscData,      setGscData]      = useState({
-    keywords:    mockKeywords,
-    rankHistory: mockRankHistory,
-    rankKeywords: mockRankKeywords,
-    gscSummary:  mockGscSummary,
-  })
+  const [gscData,      setGscData]      = useState(emptyGscData)
 
   useEffect(() => {
     let cancelled = false
 
     async function load() {
       setIsLoading(true)
+      setError(null)
       try {
         const statusRes = await client.get('/seo/gsc/status')
         const status = statusRes.data
@@ -69,7 +83,7 @@ export function useGscData() {
         if (!status.connected) {
           setIsConnected(false)
           setUsingRealData(false)
-          setGscData({ keywords: mockKeywords, rankHistory: mockRankHistory, rankKeywords: mockRankKeywords, gscSummary: mockGscSummary })
+          setGscData(emptyGscData())
           return
         }
 
@@ -77,7 +91,7 @@ export function useGscData() {
 
         const today = new Date()
         const start = new Date(today)
-        start.setDate(today.getDate() - 30)
+        start.setDate(today.getDate() - 29)
         const startStr = toYYYYMMDD(start)
         const endStr   = toYYYYMMDD(today)
 
@@ -106,10 +120,9 @@ export function useGscData() {
         })
       } catch (err) {
         if (cancelled) return
-        console.warn('[useGscData] API error, falling back to mock data:', err?.message)
         setError(err?.message ?? 'Unknown error')
         setUsingRealData(false)
-        setGscData({ keywords: mockKeywords, rankHistory: mockRankHistory, rankKeywords: mockRankKeywords, gscSummary: mockGscSummary })
+        setGscData(emptyGscData())
       } finally {
         if (!cancelled) setIsLoading(false)
       }

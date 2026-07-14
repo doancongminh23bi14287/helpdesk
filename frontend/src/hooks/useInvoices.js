@@ -1,34 +1,45 @@
-import { useState, useEffect } from 'react'
-import { erpClient, erpGet } from '@/erp'
+import { useEffect, useState } from 'react'
+import { listInvoices, listMyInvoices } from '@/api/invoices'
+import { useAuthStore } from '@/hooks/useAuth'
 
-// Same fields the InvoicesTab renders
-const INVOICE_FIELDS = JSON.stringify([
-  'name', 'status', 'customer', 'grand_total', 'outstanding_amount', 'due_date', 'subscription',
-])
-
-export function useInvoices(subscriptionName = null) {
-  const [data, setData]       = useState([])
+export function useInvoices(subscriptionId = null) {
+  const user = useAuthStore((state) => state.user)
+  const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
 
-    // When a subscriptionName is given, fetch only invoices for that subscription.
-    // Otherwise fetch all invoices without a subscription filter (preserves old behaviour).
-    const request = subscriptionName
-      ? erpClient.subscription.getInvoices(subscriptionName)
-      : erpGet('/Sales%20Invoice', { fields: INVOICE_FIELDS, limit: 50, order_by: 'modified desc' })
+    const request = user?.role === 'customer'
+      ? listMyInvoices()
+      : listInvoices({ per_page: 100 })
 
     request
-      .then(res => { if (!cancelled) setData(res.data ?? []) })
-      .catch(err => { if (!cancelled) setError(err.message) })
-      .finally(()  => { if (!cancelled) setLoading(false) })
+      .then((response) => {
+        if (cancelled) return
+        const items = Array.isArray(response) ? response : response?.items
+        setData(
+          subscriptionId == null
+            ? (items ?? [])
+            : (items ?? []).filter((invoice) => invoice.subscription_id === Number(subscriptionId)),
+        )
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err?.response?.data?.detail || err.message || 'Unable to load invoices')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
 
-    return () => { cancelled = true }
-  }, [subscriptionName])
+    return () => {
+      cancelled = true
+    }
+  }, [subscriptionId, user?.role])
 
   return { data, loading, error }
 }

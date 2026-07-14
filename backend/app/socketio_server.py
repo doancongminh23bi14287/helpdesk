@@ -11,12 +11,15 @@ forwards messages published by Celery tasks to the correct user rooms.
 """
 import json
 import logging
+from datetime import datetime, timezone
 import socketio
 import redis.asyncio as aioredis
-from app.core.security import decode_token
+from app.core.security import decode_token, is_user_blacklisted
+from app.core.redis_client import redis_client
 from app.config import settings
 from app.database import SessionLocal
 from app.models.user import User
+from app.models.user_session import UserSession
 from app.services.notify import NOTIFICATION_CHANNEL
 
 logger = logging.getLogger(__name__)
@@ -38,11 +41,28 @@ async def connect(sid, environ, auth):
         if claims.get("type") != "access":
             raise ConnectionRefusedError("Invalid token type")
         user_id = int(claims["sub"])
+        jti = claims.get("jti")
+        if not jti:
+            raise ConnectionRefusedError("Invalid token")
+    except ConnectionRefusedError:
+        raise
     except Exception:
         raise ConnectionRefusedError("Invalid token")
 
+    if is_user_blacklisted(user_id, redis_client):
+        raise ConnectionRefusedError("Session revoked")
+
     db = SessionLocal()
     try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        session = db.query(UserSession).filter(
+            UserSession.user_id == user_id,
+            UserSession.current_jti == jti,
+            UserSession.is_active.is_(True),
+            UserSession.expires_at > now,
+        ).first()
+        if not session:
+            raise ConnectionRefusedError("Session revoked or expired")
         user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
         if not user:
             raise ConnectionRefusedError("User not found or inactive")

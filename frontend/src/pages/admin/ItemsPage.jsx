@@ -1,7 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { PlusIcon, PencilIcon, CubeIcon } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/Modal'
-import { Spinner } from '@/components/ui'
+import {
+  Button,
+  EmptyState,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  ResponsiveTableViewport,
+  Spinner,
+} from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
 import { listItems, createItem, updateItem } from '@/api/items'
 import { formatCurrencyVND as fmtVND } from '@/lib/utils'
@@ -309,7 +318,7 @@ export default function ItemsPage() {
   const hasActiveFilter = search || filterType !== 'all' || filterStatus !== 'all'
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="px-4 py-5 sm:p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -399,8 +408,57 @@ export default function ItemsPage() {
         )}
 
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <ResponsiveTableViewport
+          mobile={loading ? (
+            <LoadingState rows={3} label="Loading items" />
+          ) : items.length === 0 ? (
+            <EmptyState icon={CubeIcon} title="No items yet" description="Create one to get started." />
+          ) : (
+            <MobileCardList ariaLabel="Items">
+              {items.map((item) => (
+                <MobileDataCard
+                  key={item.id}
+                  onClick={() => setEditItem(item)}
+                  ariaLabel={`Edit ${item.name}`}
+                  actions={(
+                    <>
+                      <label className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 accent-primary"
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelectOne(item.id)}
+                        />
+                        Select
+                      </label>
+                      <Button type="button" size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setEditItem(item) }}>
+                        Edit item
+                      </Button>
+                    </>
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-semibold text-foreground" title={item.name}>{item.name}</h3>
+                      <p className="mt-0.5 font-mono text-xs text-muted-foreground">{item.code}</p>
+                    </div>
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ITEM_STATUS_COLORS[String(item.is_active)] ?? 'bg-muted text-muted-foreground'}`}>
+                      {item.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  <dl className="mt-3 divide-y divide-border">
+                    <MobileDataRow label="Type">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${TYPE_COLORS[item.type] ?? 'bg-muted text-muted-foreground'}`}>{item.type}</span>
+                    </MobileDataRow>
+                    <MobileDataRow label="Unit price">{fmtVND(item.unit_price)}</MobileDataRow>
+                    <MobileDataRow label="Unit">{item.unit}</MobileDataRow>
+                  </dl>
+                </MobileDataCard>
+              ))}
+            </MobileCardList>
+          )}
+        >
+        <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="px-4 py-3 w-10">
@@ -427,7 +485,7 @@ export default function ItemsPage() {
                 <tr key={i} className="border-b border-border">
                   {Array.from({ length: 8 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
-                      <div className="h-4 bg-muted rounded animate-pulse" />
+                      <div className="h-4 skeleton-shimmer rounded" />
                     </td>
                   ))}
                 </tr>
@@ -523,7 +581,7 @@ export default function ItemsPage() {
             </tbody>
           )}
         </table>
-        </div>
+        </ResponsiveTableViewport>
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} />
       </div>
 

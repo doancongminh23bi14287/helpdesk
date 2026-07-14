@@ -1,67 +1,60 @@
 import { useEffect } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
+import { IconButton } from '@/components/ui-shadcn/button'
+import { cn } from '@/lib/utils'
 
 export default function Pagination({ page, pages, total, perPage, onPage, className = '' }) {
-  if (pages <= 1) return null
-  const start = (page - 1) * perPage + 1
-  const end = Math.min(page * perPage, total)
-
   useEffect(() => {
-    const handler = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
-      if (e.key === 'ArrowLeft' && page > 1) onPage(page - 1)
-      if (e.key === 'ArrowRight' && page < pages) onPage(page + 1)
+    if (pages <= 1) return undefined
+    const handler = (event) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) return
+      if (event.key === 'ArrowLeft' && page > 1) onPage(page - 1)
+      if (event.key === 'ArrowRight' && page < pages) onPage(page + 1)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [page, pages, onPage])
 
+  if (pages <= 1) return null
+
+  const start = (page - 1) * perPage + 1
+  const end = Math.min(page * perPage, total)
+
   return (
-    <div className={`flex items-center justify-between px-4 py-3 border-t border-border ${className}`}>
-      <p className="text-sm text-muted-foreground">
-        Showing {start}–{end} of {total}
-      </p>
+    <nav className={cn('flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between', className)} aria-label="Pagination">
+      <p className="metadata-text">Showing {start}–{end} of {total}</p>
       <div className="flex items-center gap-1">
-        <button
-          onClick={() => onPage(page - 1)}
-          disabled={page <= 1}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          aria-label="Previous page"
-        >
-          <ChevronLeftIcon className="w-4 h-4" />
-        </button>
-        {getPageRange(page, pages).map((p, i) =>
-          p === '...' ? (
-            <span key={`ellipsis-${i}`} className="px-2 text-muted-foreground text-sm">…</span>
+        <IconButton label="Previous page" onClick={() => onPage(page - 1)} disabled={page <= 1}>
+          <ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />
+        </IconButton>
+        {getPageRange(page, pages).map((item, index) =>
+          item === '...' ? (
+            <span key={`ellipsis-${index}`} className="px-2 text-sm text-muted-foreground">…</span>
           ) : (
             <button
-              key={p}
-              onClick={() => onPage(p)}
-              className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
-                p === page
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-foreground hover:bg-muted'
-              }`}
+              key={item}
+              type="button"
+              onClick={() => onPage(item)}
+              aria-current={item === page ? 'page' : undefined}
+              className={cn(
+                'h-8 min-w-8 rounded-md px-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+                item === page ? 'bg-sidebar-active text-white' : 'text-secondary-foreground hover:bg-surface-muted hover:text-foreground',
+              )}
             >
-              {p}
+              {item}
             </button>
-          )
+          ),
         )}
-        <button
-          onClick={() => onPage(page + 1)}
-          disabled={page >= pages}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          aria-label="Next page"
-        >
-          <ChevronRightIcon className="w-4 h-4" />
-        </button>
+        <IconButton label="Next page" onClick={() => onPage(page + 1)} disabled={page >= pages}>
+          <ChevronRightIcon className="h-4 w-4" aria-hidden="true" />
+        </IconButton>
       </div>
-    </div>
+    </nav>
   )
 }
 
 function getPageRange(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1)
   if (current <= 4) return [1, 2, 3, 4, 5, '...', total]
   if (current >= total - 3) return [1, '...', total - 4, total - 3, total - 2, total - 1, total]
   return [1, '...', current - 1, current, current + 1, '...', total]

@@ -2,43 +2,28 @@ import { cva } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const badgeVariants = cva(
-  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors',
+  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold',
   {
     variants: {
       variant: {
-        default:     'border-transparent bg-primary text-primary-foreground',
-        secondary:   'border-transparent bg-secondary text-secondary-foreground',
-        destructive: 'border-transparent bg-destructive text-destructive-foreground',
-        outline:     'text-foreground',
-        success:     'border border-foreground/20 bg-foreground/5 text-foreground',
-        warning:     'border border-foreground/30 bg-foreground/8 text-foreground',
-        info:        'border border-foreground/20 bg-foreground/5 text-foreground',
-        muted:       'border-transparent bg-muted text-muted-foreground',
+        default: 'border-transparent bg-primary text-primary-foreground',
+        secondary: 'border-transparent bg-surface-muted text-secondary-foreground',
+        destructive: 'border-danger/20 bg-danger-muted text-danger',
+        outline: 'border-border bg-surface text-foreground',
+        success: 'border-success/20 bg-success-muted text-success',
+        warning: 'border-warning/20 bg-warning-muted text-warning',
+        info: 'border-info/20 bg-info-muted text-info',
+        muted: 'border-transparent bg-surface-muted text-muted-foreground',
       },
     },
-    defaultVariants: { variant: 'default' },
-  }
+    defaultVariants: { variant: 'secondary' },
+  },
 )
 
-const statusVariantMap = {
-  Open:      'success',
-  Replied:   'info',
-  Resolved:  'muted',
-  Closed:    'muted',
-  High:      'destructive',
-  Urgent:    'destructive',
-  Medium:    'warning',
-  Low:       'muted',
-  Active:    'success',
-  Inactive:  'muted',
-  Cancelled: 'destructive',
-}
-
-export function Badge({ label, variant, className, ...props }) {
-  const resolvedVariant = variant ?? statusVariantMap[label] ?? 'secondary'
+export function Badge({ label, children, variant, className, ...props }) {
   return (
-    <span className={cn(badgeVariants({ variant: resolvedVariant }), className)} {...props}>
-      {label}
+    <span className={cn(badgeVariants({ variant }), className)} {...props}>
+      {children ?? label}
     </span>
   )
 }

@@ -33,7 +33,7 @@ export default function SystemStatusPage() {
   useEffect(() => { load() }, [])
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="px-4 py-5 sm:p-6 max-w-5xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-xl font-bold text-foreground">System Status</h1>

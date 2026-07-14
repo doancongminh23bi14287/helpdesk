@@ -144,3 +144,32 @@ def test_ai_health_public(client):
     assert "ai_enabled" in data
     assert "model" in data
     assert "groq_configured" in data
+
+def test_classify_sends_only_sanitized_content(
+    client, admin_token, db, ticket_for_ai
+):
+    import app.config as cfg
+
+    original = cfg.AI_FEATURES_ENABLED
+    cfg.AI_FEATURES_ENABLED = True
+    ticket_for_ai.subject = "Contact user@example.com"
+    ticket_for_ai.description = "password=supersecret123 server 10.0.0.1"
+    db.commit()
+    mock = AsyncMock(return_value=MOCK_GROQ_RESPONSE)
+    try:
+        with patch("app.services.ai.groq_client.chat_completion", mock):
+            response = client.post(
+                f"/api/ai/tickets/{ticket_for_ai.id}/classify",
+                headers=auth(admin_token),
+            )
+        assert response.status_code == 200
+        messages = mock.await_args.args[0]
+        payload = messages[1]["content"]
+        assert "[EMAIL]" in payload
+        assert "[SECRET]" in payload
+        assert "[IP]" in payload
+        assert "user@example.com" not in payload
+        assert "supersecret123" not in payload
+        assert "10.0.0.1" not in payload
+    finally:
+        cfg.AI_FEATURES_ENABLED = original

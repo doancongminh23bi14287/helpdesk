@@ -1,304 +1,235 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { erpClient } from '@/erp'
-import { useInvoices } from '@/hooks/useInvoices'
-import { Card, CardContent, Button, Spinner } from '@/components/ui'
-import { formatDate, cn } from '@/lib/utils'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeftIcon, CalendarIcon, ExclamationCircleIcon,
-  CheckCircleIcon, XCircleIcon, ArrowPathIcon,
+  ArrowLeftIcon,
+  CalendarDaysIcon,
+  CreditCardIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline'
+import { cancelSubscription, getSubscription } from '@/api/subscriptions'
+import { useInvoices } from '@/hooks/useInvoices'
+import { useAuthStore } from '@/hooks/useAuth'
+import {
+  Button,
+  Card,
+  CardContent,
+  ConfirmDialog,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageContainer,
+  PageHeader,
+  StatusBadge,
+} from '@/components/ui'
+import { formatDate } from '@/lib/utils'
 
-// ─── Status colours ───────────────────────────────────────────────────────────
-
-const SUB_STATUS = {
-  'Active':        'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-  'Cancelled':     'bg-zinc-100 text-zinc-500 border-zinc-200',
-  'Completed':     'bg-blue-500/10 text-blue-600 border-blue-500/20',
-  'Past Due Date': 'bg-red-500/10 text-red-600 border-red-500/20',
+function formatMoney(value) {
+  if (value == null) return '—'
+  return new Intl.NumberFormat('vi-VN').format(Number(value))
 }
 
-const INV_STATUS = {
-  'Paid':          'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-  'Unpaid':        'bg-amber-500/10 text-amber-600 border-amber-500/20',
-  'Overdue':       'bg-red-500/10 text-red-600 border-red-500/20',
-  'Partly Paid':   'bg-amber-500/10 text-amber-600 border-amber-500/20',
-  'Cancelled':     'bg-zinc-100 text-zinc-500 border-zinc-200',
-  'Draft':         'bg-zinc-100 text-zinc-500 border-zinc-200',
-}
-
-function StatusBadge({ status, map }) {
-  const cls = (map ?? SUB_STATUS)[status] ?? 'bg-zinc-100 text-zinc-500 border-zinc-200'
+function InfoItem({ label, value }) {
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-semibold border ${cls}`}>
-      {status ?? '—'}
-    </span>
-  )
-}
-
-// ─── Info row ─────────────────────────────────────────────────────────────────
-
-function InfoRow({ label, value }) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">{label}</p>
-      <p className="text-sm font-semibold text-foreground">{value || '—'}</p>
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-1 break-words text-sm font-medium text-foreground">{value ?? '—'}</dd>
     </div>
   )
 }
 
-// ─── Action button with loading + feedback ────────────────────────────────────
-
-function ActionButton({ label, icon: Icon, variant = 'outline', onConfirm, confirmMessage, disabled }) {
-  const [state, setState] = useState('idle') // idle | loading | done | error
-  const [errMsg, setErrMsg] = useState('')
-
-  const handleClick = async () => {
-    if (!window.confirm(confirmMessage)) return
-    setState('loading')
-    setErrMsg('')
-    try {
-      await onConfirm()
-      setState('done')
-      setTimeout(() => setState('idle'), 2000)
-    } catch (e) {
-      setState('error')
-      setErrMsg(e.message ?? 'Action failed')
-      setTimeout(() => setState('idle'), 3000)
-    }
+function InvoiceList({ invoices }) {
+  if (invoices.length === 0) {
+    return (
+      <EmptyState
+        icon={DocumentTextIcon}
+        title="No invoices for this subscription"
+        description="Generated invoices will appear here."
+        className="min-h-40"
+      />
+    )
   }
 
-  const icon = state === 'loading' ? <Spinner className="w-4 h-4" />
-    : state === 'done'    ? <CheckCircleIcon className="w-4 h-4" />
-    : state === 'error'   ? <XCircleIcon className="w-4 h-4" />
-    : <Icon className="w-4 h-4" />
-
   return (
-    <div className="flex flex-col gap-1">
-      <Button
-        variant={variant}
-        onClick={handleClick}
-        disabled={disabled || state === 'loading'}
-        className={cn(
-          'gap-2',
-          state === 'done'  && 'border-emerald-500 text-emerald-600',
-          state === 'error' && 'border-red-400 text-red-600',
-        )}
-      >
-        {icon}
-        {state === 'done' ? 'Done' : state === 'error' ? 'Failed' : label}
-      </Button>
-      {state === 'error' && errMsg && (
-        <p className="text-xs text-red-600">{errMsg}</p>
-      )}
-    </div>
+    <>
+      <div className="space-y-3 md:hidden">
+        {invoices.map((invoice) => (
+          <Card key={invoice.id}>
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-mono text-xs font-semibold text-foreground">{invoice.invoice_number}</p>
+                <StatusBadge status={invoice.status} />
+              </div>
+              <dl className="grid grid-cols-2 gap-3">
+                <InfoItem label="Total" value={formatMoney(invoice.total)} />
+                <InfoItem label="Due date" value={formatDate(invoice.due_date)} />
+              </dl>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
+        <table className="w-full min-w-[620px] text-sm">
+          <thead className="sticky top-0 bg-muted">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Invoice</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Status</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">Total</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">Due date</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {invoices.map((invoice) => (
+              <tr key={invoice.id} className="hover:bg-muted/40">
+                <td className="px-4 py-3 font-mono text-xs text-foreground">{invoice.invoice_number}</td>
+                <td className="px-4 py-3"><StatusBadge status={invoice.status} /></td>
+                <td className="px-4 py-3 text-right font-medium tabular-nums text-foreground">{formatMoney(invoice.total)}</td>
+                <td className="px-4 py-3 text-right text-muted-foreground">{formatDate(invoice.due_date)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
-export default function SubscriptionDetail({ subscriptionName: nameProp, onBack }) {
-  // Works both as a standalone component (nameProp + onBack)
-  // and as a route page (reads :name from URL, navigates on back).
-  const params  = useParams()
+export default function SubscriptionDetail({ subscriptionName: idProp, onBack }) {
+  const params = useParams()
   const navigate = useNavigate()
-  const name = nameProp ?? decodeURIComponent(params.name ?? '')
-
-  const [sub, setSub]       = useState(null)
+  const user = useAuthStore((state) => state.user)
+  const subscriptionId = Number(idProp ?? params.name)
+  const [subscription, setSubscription] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState(null)
+  const [error, setError] = useState(null)
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState(null)
+  const { data: invoices, loading: invoiceLoading, error: invoiceError } = useInvoices(subscriptionId)
 
-  const { data: invoices, loading: invLoading } = useInvoices(name)
-
-  const load = () => {
+  const load = useCallback(async () => {
+    if (!Number.isInteger(subscriptionId) || subscriptionId <= 0) {
+      setError('Invalid subscription identifier')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
-    erpClient.subscription.get(name)
-      .then((res) => setSub(res.data ?? res))
-      .catch((e)  => setError(e.message))
-      .finally(()  => setLoading(false))
-  }
+    try {
+      setSubscription(await getSubscription(subscriptionId))
+    } catch (err) {
+      setError(err?.response?.data?.detail || err.message || 'Unable to load subscription')
+    } finally {
+      setLoading(false)
+    }
+  }, [subscriptionId])
 
-  useEffect(() => { if (name) load() }, [name]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    load()
+  }, [load])
 
   const handleBack = onBack ?? (() => navigate('/subscriptions'))
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  const handleCancel = async () => {
+    setCancelling(true)
+    setCancelError(null)
+    try {
+      const updated = await cancelSubscription(subscriptionId)
+      setSubscription(updated)
+      setCancelOpen(false)
+    } catch (err) {
+      setCancelError(err?.response?.data?.detail || err.message || 'Unable to cancel subscription')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Spinner className="w-6 h-6" />
-      </div>
-    )
+    return <PageContainer><LoadingState label="Loading subscription" rows={6} /></PageContainer>
   }
 
-  // ── Error ──────────────────────────────────────────────────────────────────
-  if (error || !sub) {
+  if (error || !subscription) {
     return (
-      <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-4">
-        <button
-          onClick={handleBack}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
-        >
-          <ArrowLeftIcon className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+      <PageContainer>
+        <Button type="button" variant="ghost" onClick={handleBack}>
+          <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
           Back to subscriptions
-        </button>
-        <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
-          <div className="p-4 bg-destructive/10 rounded-2xl">
-            <ExclamationCircleIcon className="w-8 h-8 text-destructive" />
-          </div>
-          <div>
-            <p className="font-semibold text-foreground">Failed to load subscription</p>
-            <p className="text-sm text-muted-foreground mt-1">{error ?? 'Subscription not found'}</p>
-          </div>
-          <Button variant="outline" onClick={load} className="gap-2">
-            <ArrowPathIcon className="w-4 h-4" /> Retry
-          </Button>
-        </div>
-      </div>
+        </Button>
+        <ErrorState title="Unable to load subscription" description={error} onRetry={load} />
+      </PageContainer>
     )
   }
 
-  const plans = sub.plans ?? []
+  const canCancel = user?.role === 'admin' && !['cancelled', 'expired'].includes(subscription.status)
 
-  // ── Detail ─────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-6 animate-fade-in">
-      {/* Back link */}
-      <button
-        onClick={handleBack}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
-      >
-        <ArrowLeftIcon className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+    <PageContainer>
+      <Button type="button" variant="ghost" onClick={handleBack}>
+        <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
         Back to subscriptions
-      </button>
+      </Button>
 
-      {/* Header card */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div>
-                <p className="text-xs font-mono text-muted-foreground">{sub.name}</p>
-                <h1 className="font-display font-bold text-xl text-foreground mt-0.5">{sub.party}</h1>
-                <p className="text-xs text-muted-foreground mt-0.5">{sub.party_type}</p>
-              </div>
-              <StatusBadge status={sub.status} map={SUB_STATUS} />
+      <PageHeader
+        title={subscription.plan_name || `Subscription #${subscription.id}`}
+        description={subscription.org_name || `Organization #${subscription.org_id}`}
+        metadata={<StatusBadge status={subscription.status} />}
+        actions={canCancel ? (
+          <Button type="button" variant="outline" onClick={() => setCancelOpen(true)}>
+            Cancel subscription
+          </Button>
+        ) : null}
+      />
+
+      {cancelError && <ErrorState title="Cancellation failed" description={cancelError} />}
+
+      <Card>
+        <CardContent className="p-5 sm:p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
+              <CreditCardIcon className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
             </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-4 border-t border-border">
-              <InfoRow label="Start Date"       value={formatDate(sub.start_date)} />
-              <InfoRow label="End Date"         value={formatDate(sub.end_date)} />
-              <InfoRow label="Invoice Start"    value={formatDate(sub.current_invoice_start)} />
-              <InfoRow label="Invoice End"      value={formatDate(sub.current_invoice_end)} />
-              <InfoRow label="Company"          value={sub.company} />
-              <InfoRow label="Invoice At"       value={sub.generate_invoice_at} />
-              <InfoRow label="Auto-cancel"      value={sub.cancel_at_period_end ? 'Yes' : 'No'} />
-              <InfoRow label="Auto-submit"      value={sub.submit_invoice ? 'Yes' : 'No'} />
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Subscription details</h2>
+              <p className="text-sm text-muted-foreground">Contract and billing dates from CustomerHub.</p>
             </div>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-5 gap-y-5 sm:grid-cols-3 lg:grid-cols-4">
+            <InfoItem label="Billing cycle" value={subscription.billing_cycle} />
+            <InfoItem label="Amount" value={formatMoney(subscription.unit_price)} />
+            <InfoItem label="Start date" value={formatDate(subscription.start_date)} />
+            <InfoItem label="End date" value={formatDate(subscription.end_date)} />
+            <InfoItem label="Current period" value={`${formatDate(subscription.current_period_start)} – ${formatDate(subscription.current_period_end)}`} />
+            <InfoItem label="Next billing" value={formatDate(subscription.next_billing_date)} />
+            <InfoItem label="Payment due" value={`${subscription.due_days} days`} />
+            <InfoItem label="Tax rate" value={`${subscription.tax_rate}%`} />
+          </dl>
+        </CardContent>
+      </Card>
 
-            {/* Plans */}
-            {plans.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-border">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Plans</p>
-                <div className="flex flex-wrap gap-2">
-                  {plans.map((row, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-muted border border-border text-sm font-medium text-foreground"
-                    >
-                      {row.plan}
-                      <span className="text-xs text-muted-foreground">× {row.qty}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Actions */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.06 }}
-      >
-        <h2 className="font-display font-bold text-base text-foreground mb-3">Actions</h2>
-        <div className="flex flex-wrap gap-3">
-          <ActionButton
-            label="Cancel Subscription"
-            icon={XCircleIcon}
-            variant="outline"
-            confirmMessage="Are you sure you want to cancel this subscription? This cannot be undone."
-            onConfirm={() => erpClient.subscription.cancel(sub.name).then(load)}
-            disabled={sub.status === 'Cancelled'}
-          />
-          <ActionButton
-            label="Restart Subscription"
-            icon={ArrowPathIcon}
-            variant="outline"
-            confirmMessage="Restart this subscription from the next billing cycle?"
-            onConfirm={() => erpClient.subscription.restart(sub.name).then(load)}
-            disabled={sub.status === 'Active'}
-          />
+      <section className="space-y-3" aria-labelledby="subscription-invoices-title">
+        <div className="flex items-center gap-2">
+          <CalendarDaysIcon className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+          <h2 id="subscription-invoices-title" className="text-base font-semibold text-foreground">Invoice history</h2>
         </div>
-      </motion.div>
+        {invoiceLoading ? (
+          <LoadingState label="Loading invoices" rows={3} />
+        ) : invoiceError ? (
+          <ErrorState title="Unable to load invoices" description={invoiceError} />
+        ) : (
+          <InvoiceList invoices={invoices} />
+        )}
+      </section>
 
-      {/* Invoice history */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-      >
-        <h2 className="font-display font-bold text-base text-foreground mb-3">Invoice History</h2>
-        <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
-          {invLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Spinner className="w-5 h-5" />
-            </div>
-          ) : invoices.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-sm text-muted-foreground">No invoices for this subscription.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto w-full">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  {['Invoice', 'Status', 'Amount', 'Due Date'].map((h) => (
-                    <th
-                      key={h}
-                      className={cn(
-                        'px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground',
-                        h === 'Amount' && 'text-right',
-                      )}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {invoices.map((inv) => (
-                  <tr key={inv.name} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-5 py-3.5 font-mono text-xs text-foreground">{inv.name}</td>
-                    <td className="px-5 py-3.5">
-                      <StatusBadge status={inv.status} map={INV_STATUS} />
-                    </td>
-                    <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-foreground">
-                      {inv.grand_total?.toLocaleString() ?? '—'}
-                    </td>
-                    <td className="px-5 py-3.5 text-muted-foreground">{formatDate(inv.due_date)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          )}
-        </div>
-      </motion.div>
-    </div>
+      <ConfirmDialog
+        open={cancelOpen}
+        onClose={() => !cancelling && setCancelOpen(false)}
+        onConfirm={handleCancel}
+        title="Cancel subscription?"
+        description="The linked service will be marked cancelled. Existing invoices and history are retained."
+        confirmLabel="Cancel subscription"
+        destructive
+        isLoading={cancelling}
+      />
+    </PageContainer>
   )
 }

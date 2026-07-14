@@ -18,7 +18,7 @@ from app.models.email_thread import EmailThread
 from app.models.project import ProjectDocument
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin, require_staff_or_admin
-from app.core.scoping import get_ticket_in_scope, scope_tickets
+from app.core.scoping import assert_org_access, get_ticket_in_scope, scope_tickets
 from app.core.limiter import limiter
 from app import config
 from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload, AttachmentOut, LinkProjectPayload
@@ -144,9 +144,10 @@ def create_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # Customers can only raise tickets for their own org
+    # Every non-admin creator must have explicit access to the target organization.
     if user.role == "customer" and payload.org_id != user.org_id:
         raise HTTPException(status_code=403, detail="Cannot create ticket for another organization")
+    assert_org_access(payload.org_id, user, db)
 
     # Validate service belongs to org (only when service_id is provided)
     if payload.service_id is not None:
@@ -154,20 +155,33 @@ def create_ticket(
         if not service or service.org_id != payload.org_id:
             raise HTTPException(status_code=422, detail="Service does not belong to the specified organization")
 
-    # Validate project belongs to same org (when project_id is provided)
+    from app.models.project import Project, ProjectTask
+
+    project = None
     if payload.project_id is not None:
-        from app.models.project import Project
         project = db.query(Project).filter(Project.id == payload.project_id).first()
         if not project or project.org_id != payload.org_id:
             raise HTTPException(status_code=422, detail="Project does not belong to the specified organization")
+        if project.status in ("completed", "cancelled"):
+            raise HTTPException(status_code=422, detail="Completed or cancelled projects cannot receive new tickets")
+        if user.role == "customer" and project.visibility != "customer_visible":
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    # Validate task_id and auto-set project_id if needed
+    # Validate task and the project inferred from it as one relationship.
     eff_project_id = payload.project_id
     if payload.task_id is not None:
-        from app.models.project import ProjectTask
         task_obj = db.query(ProjectTask).filter(ProjectTask.id == payload.task_id).first()
         if not task_obj:
             raise HTTPException(status_code=422, detail="Task not found")
+        task_project = db.query(Project).filter(Project.id == task_obj.project_id).first()
+        if not task_project or task_project.org_id != payload.org_id:
+            raise HTTPException(status_code=422, detail="Task does not belong to the specified organization")
+        if task_project.status in ("completed", "cancelled") or task_obj.status in ("completed", "cancelled"):
+            raise HTTPException(status_code=422, detail="Completed or cancelled project tasks cannot receive new tickets")
+        if user.role == "customer" and (
+            task_project.visibility != "customer_visible" or not task_obj.is_client_visible
+        ):
+            raise HTTPException(status_code=404, detail="Task not found")
         if eff_project_id is None:
             eff_project_id = task_obj.project_id
         elif task_obj.project_id != eff_project_id:
@@ -195,6 +209,8 @@ def create_ticket(
     eff_mode = payload.assignment_mode
     if eff_mode is None:
         eff_mode = "manual" if eff_ids else "auto"
+    if user.role == "customer" and (eff_mode == "manual" or eff_ids):
+        raise HTTPException(status_code=403, detail="Customers cannot manually assign tickets")
 
     ticket = Ticket(
         org_id=payload.org_id,
@@ -582,10 +598,15 @@ def update_ticket(
 
     if "task_id" in changes:
         if changes["task_id"] is not None:
-            from app.models.project import ProjectTask as _PTask
+            from app.models.project import Project as _Project, ProjectTask as _PTask
             t_obj = db.query(_PTask).filter(_PTask.id == changes["task_id"]).first()
             if not t_obj:
                 raise HTTPException(status_code=422, detail="Task not found")
+            task_project = db.query(_Project).filter(_Project.id == t_obj.project_id).first()
+            if not task_project or task_project.org_id != ticket.org_id:
+                raise HTTPException(status_code=422, detail="Task does not belong to the ticket organization")
+            if task_project.status in ("completed", "cancelled") or t_obj.status in ("completed", "cancelled"):
+                raise HTTPException(status_code=422, detail="Completed or cancelled project tasks cannot receive new tickets")
             if ticket.project_id and t_obj.project_id != ticket.project_id:
                 raise HTTPException(status_code=422, detail="Task does not belong to the ticket's project")
             ticket.task_id = changes["task_id"]
@@ -956,6 +977,13 @@ async def upload_attachment(
 ):
     ticket = _get_ticket_in_scope(ticket_id, user, db)
     org_id = ticket.org_id
+    if reply_id is not None:
+        reply = db.query(TicketReply).filter(
+            TicketReply.id == reply_id,
+            TicketReply.ticket_id == ticket.id,
+        ).first()
+        if not reply:
+            raise HTTPException(status_code=422, detail="Reply does not belong to this ticket")
 
     file_data = await file.read()
     mime_type = file.content_type or "application/octet-stream"
@@ -1083,6 +1111,8 @@ def link_project_to_ticket(
         raise HTTPException(status_code=404, detail="Project not found")
     if project.org_id != ticket.org_id:
         raise HTTPException(status_code=404, detail="Project does not belong to the same organization")
+    if project.status in ("completed", "cancelled"):
+        raise HTTPException(status_code=422, detail="Completed or cancelled projects cannot receive new tickets")
     if ticket.project_id and ticket.project_id != payload.project_id:
         raise HTTPException(status_code=409, detail="Ticket is already linked to a different project")
 
@@ -1108,6 +1138,7 @@ def unlink_project_from_ticket(
 
     old_project_id = ticket.project_id
     ticket.project_id = None
+    ticket.task_id = None
     db.add(TicketActivity(ticket_id=ticket_id, actor_id=user.id, action="project_unlinked", from_value=str(old_project_id)))
     db.commit()
 

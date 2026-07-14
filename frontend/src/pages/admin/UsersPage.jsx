@@ -1,7 +1,22 @@
 import { useState, useEffect, useMemo } from 'react'
 import { PlusIcon, UserGroupIcon, KeyIcon, ClockIcon, CheckCircleIcon, XCircleIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/Modal'
-import { Spinner } from '@/components/ui'
+import {
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  ErrorState,
+  FilterBar,
+  Input,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  PageHeader,
+  ResponsiveTableViewport,
+  Select,
+  Spinner,
+} from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
 import { listUsers, createUser, updateUser, resetUserPassword, getUserLoginHistory, deleteUser } from '@/api/users'
 import { listOrganizations } from '@/api/organizations'
@@ -263,6 +278,7 @@ export default function UsersPage() {
   // Delete modal state
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [deactivateTarget, setDeactivateTarget] = useState(null)
 
   const orgMap = useMemo(() => Object.fromEntries(orgs.map((o) => [o.id, o.name])), [orgs])
 
@@ -310,11 +326,7 @@ export default function UsersPage() {
     }
   }
 
-  const handleToggleActive = async (u) => {
-    if (u.is_active) {
-      const confirmed = window.confirm('Deactivating will immediately log out this user. Continue?')
-      if (!confirmed) return
-    }
+  const updateActiveState = async (u) => {
     try {
       await updateUser(u.id, { is_active: !u.is_active })
       setError('')
@@ -322,6 +334,20 @@ export default function UsersPage() {
     } catch (err) {
       setError(err?.response?.data?.detail ?? 'Failed to update user status')
     }
+  }
+
+  const handleToggleActive = (u) => {
+    if (u.is_active) {
+      setDeactivateTarget(u)
+      return
+    }
+    updateActiveState(u)
+  }
+
+  const handleConfirmDeactivate = async () => {
+    const target = deactivateTarget
+    setDeactivateTarget(null)
+    if (target) await updateActiveState(target)
   }
 
   const handleResetPassword = async (u) => {
@@ -363,75 +389,109 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Users</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {total} total user{total !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          <PlusIcon className="w-4 h-4" />
-          Create User
-        </button>
-      </div>
+    <div className="px-4 py-5 sm:p-6 max-w-6xl mx-auto">
+      <PageHeader
+        className="mb-6"
+        title="Users"
+        description={`${total} total user${total !== 1 ? 's' : ''}`}
+        actions={(
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            <PlusIcon className="h-4 w-4" aria-hidden="true" />
+            Create User
+          </Button>
+        )}
+      />
 
       {/* Error Banner */}
-      {error && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
-          {error}
-        </div>
-      )}
-
+      {error && <ErrorState className="mb-4" title="Unable to load users" description={error} />}
       {/* Filters */}
-      <div className="flex gap-3 mb-4">
-        <input
-          type="text"
+      <FilterBar className="mb-4">
+        <Input
+          type="search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
           placeholder="Search by name or email…"
-          className="flex-1 max-w-xs px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="w-full sm:w-72"
+          aria-label="Search users"
         />
-        <select
-          value={filterRole}
-          onChange={(e) => setFilterRole(e.target.value)}
-          className="px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        >
+        <Select value={filterRole} onChange={(event) => setFilterRole(event.target.value)} aria-label="Filter users by role" className="w-full sm:w-44">
           <option value="all">All roles</option>
           <option value="admin">Admin</option>
           <option value="staff">Staff</option>
           <option value="customer">Customer</option>
-        </select>
-        <select
-          value={filterOrg}
-          onChange={(e) => setFilterOrg(e.target.value)}
-          className="px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        >
+        </Select>
+        <Select value={filterOrg} onChange={(event) => setFilterOrg(event.target.value)} aria-label="Filter users by organization" className="w-full sm:w-56">
           <option value="all">All organizations</option>
-          {orgs.map((o) => (
-            <option key={o.id} value={String(o.id)}>{o.name}</option>
+          {orgs.map((organization) => (
+            <option key={organization.id} value={String(organization.id)}>{organization.name}</option>
           ))}
-        </select>
+        </Select>
         {(search || filterRole !== 'all' || filterOrg !== 'all') && (
-          <button
-            onClick={() => { setSearch(''); setFilterRole('all'); setFilterOrg('all') }}
-            className="px-3 py-2 border border-input rounded-lg bg-background text-muted-foreground text-sm hover:text-foreground hover:bg-muted transition-colors"
-          >
+          <Button type="button" variant="outline" onClick={() => { setSearch(''); setFilterRole('all'); setFilterOrg('all') }}>
             Clear
-          </button>
+          </Button>
         )}
-      </div>
+      </FilterBar>
+
+
 
       {/* Table */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <ResponsiveTableViewport
+          mobile={loading ? (
+            <LoadingState rows={3} label="Loading users" />
+          ) : users.length === 0 ? (
+            <EmptyState icon={UserGroupIcon} title="No users found" description="Try adjusting your filters." />
+          ) : (
+            <MobileCardList ariaLabel="Users">
+              {users.map((u) => (
+                <MobileDataCard
+                  key={u.id}
+                  ariaLabel={`${u.full_name || u.email}, ${u.role}`}
+                  actions={(
+                    <>
+                      <Button type="button" variant="outline" size="sm" onClick={() => handleToggleActive(u)}>
+                        {u.is_active ? 'Deactivate' : 'Activate'}
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => handleResetPassword(u)}>
+                        Reset password
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => handleLoginHistory(u)}>
+                        Login history
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setDeleteTarget(u)} className="text-red-600">
+                        Delete
+                      </Button>
+                    </>
+                  )}
+                >
+                  <div className="mb-3 min-w-0">
+                    <h3 className="truncate text-base font-semibold text-foreground" title={u.full_name || u.email}>
+                      {u.full_name || 'Unnamed user'}
+                    </h3>
+                    <p className="mt-0.5 truncate text-sm text-muted-foreground" title={u.email}>{u.email}</p>
+                  </div>
+                  <dl className="divide-y divide-border">
+                    <MobileDataRow label="Role">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${ROLE_COLORS[u.role] ?? 'bg-muted text-muted-foreground'}`}>
+                        {u.role}
+                      </span>
+                    </MobileDataRow>
+                    <MobileDataRow label="Organization">{orgMap[u.org_id] ?? `Org #${u.org_id}`}</MobileDataRow>
+                    <MobileDataRow label="Contact">{u.linked_contact_name || 'Not linked'}</MobileDataRow>
+                    <MobileDataRow label="Status">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                        {u.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </MobileDataRow>
+                  </dl>
+                </MobileDataCard>
+              ))}
+            </MobileCardList>
+          )}
+        >
+        <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
@@ -449,7 +509,7 @@ export default function UsersPage() {
                 <tr key={i} className="border-b border-border">
                   {Array.from({ length: 7 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
-                      <div className="h-4 bg-muted rounded animate-pulse" />
+                      <div className="h-4 skeleton-shimmer rounded" />
                     </td>
                   ))}
                 </tr>
@@ -543,7 +603,7 @@ export default function UsersPage() {
             </tbody>
           )}
         </table>
-        </div>
+        </ResponsiveTableViewport>
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} />
       </div>
 
@@ -569,36 +629,26 @@ export default function UsersPage() {
         onClose={() => setLoginHistory(null)}
       />
 
-      {/* Delete Confirm Modal */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
-            <h2 className="text-base font-semibold text-gray-900">Delete user?</h2>
-            <p className="text-sm text-gray-600">
-              This will permanently delete <strong>{deleteTarget.email}</strong> and cannot be undone.
-              If they have open tickets, deletion will be blocked.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                className="btn-secondary"
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleting}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
-              >
-                {deleting ? 'Deleting…' : 'Delete permanently'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={Boolean(deactivateTarget)}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={handleConfirmDeactivate}
+        title="Deactivate user?"
+        description="Deactivating this account will immediately log out the user."
+        confirmLabel="Deactivate"
+        destructive
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete user?"
+        description={deleteTarget ? `This will permanently delete ${deleteTarget.email}. If they have open tickets, deletion will be blocked.` : ''}
+        confirmLabel="Delete permanently"
+        destructive
+        isLoading={deleting}
+      />
     </div>
   )
 }

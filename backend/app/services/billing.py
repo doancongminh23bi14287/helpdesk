@@ -38,6 +38,35 @@ def compute_period_end(start: date, billing_cycle: str) -> date:
         raise ValueError(f"Unknown billing_cycle: {billing_cycle!r}")
 
 
+def effective_subscription_status(
+    subscription: Subscription,
+    today: date | None = None,
+) -> str:
+    """Resolve contractual and billing dates into one effective status."""
+    today = today or date.today()
+    if subscription.status == "cancelled":
+        return "cancelled"
+    if subscription.start_date is not None and subscription.start_date > today:
+        return "scheduled"
+    if subscription.end_date is not None and subscription.end_date < today:
+        return "expired"
+    if subscription.status == "expired":
+        return "expired"
+    if (
+        subscription.status == "trial"
+        and subscription.trial_end_date is not None
+        and today < subscription.trial_end_date
+    ):
+        return "trial"
+
+    grace_cutoff = today - timedelta(days=7)
+    if subscription.next_billing_date < grace_cutoff:
+        return "expired"
+    if subscription.next_billing_date < today:
+        return "past_due"
+    return "active"
+
+
 def create_subscription(
     db: Session,
     org_id: int,
@@ -95,15 +124,16 @@ def create_subscription(
     from app.services.service_sync import sync_service_from_subscription
     sync_service_from_subscription(db, sub, create_if_missing=True)
 
-    try:
-        from app.services.invoice_service import create_invoice_from_subscription
-        create_invoice_from_subscription(sub.id, db)
-    except Exception as e:
-        logger.warning(
-            "First invoice creation failed for subscription %s: %s. "
-            "Invoice can be generated manually.",
-            sub.id, e,
-        )
+    if start_date <= date.today():
+        try:
+            from app.services.invoice_service import create_invoice_from_subscription
+            create_invoice_from_subscription(sub.id, db)
+        except Exception as e:
+            logger.warning(
+                "First invoice creation failed for subscription %s: %s. "
+                "Invoice can be generated manually.",
+                sub.id, e,
+            )
 
     return sub
 

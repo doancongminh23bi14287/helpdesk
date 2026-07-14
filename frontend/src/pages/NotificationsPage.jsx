@@ -41,7 +41,7 @@ export default function NotificationsPage() {
   const unread = notifications.filter((n) => !n.is_read).length
 
   return (
-    <div className="p-6 lg:p-8 max-w-3xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-3xl mx-auto animate-fade-in">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-display font-bold text-2xl lg:text-3xl text-foreground">Notifications</h1>

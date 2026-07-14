@@ -1,160 +1,218 @@
-"""
-CustomerHub — Post-submission AI Evaluation Analysis
-======================================================
-Computes the metrics designed in Thesis §IV.14.4 (originally planned for a
-100-ticket production study) on a smaller, honestly-labeled two-rater sample.
-"""
+"""Honest offline analysis for the two-rater CustomerHub AI dataset."""
 
-import sys
 import csv
-from collections import Counter, defaultdict
+import math
+import sys
+from collections import Counter
 
 try:
-    from sklearn.metrics import cohen_kappa_score, precision_recall_fscore_support, accuracy_score
+    from sklearn.metrics import cohen_kappa_score
     HAVE_SKLEARN = True
 except ImportError:
     HAVE_SKLEARN = False
-    print("[warning] scikit-learn not found — falling back to manual formulas.\n"
-          "          Install with: pip install scikit-learn --break-system-packages\n")
 
 
-def manual_kappa(a, b):
-    labels = sorted(set(a) | set(b))
-    n = len(a)
-    po = sum(1 for x, y in zip(a, b) if x == y) / n
-    pa = Counter(a)
-    pb = Counter(b)
-    pe = sum((pa[l] / n) * (pb[l] / n) for l in labels)
-    if pe == 1:
-        return 1.0
-    return (po - pe) / (1 - pe)
+REQUIRED_FIELDS = (
+    "rater1_category",
+    "rater1_priority",
+    "rater2_category",
+    "rater2_priority",
+    "model_category",
+    "model_priority",
+)
 
 
-def manual_prf_macro(y_true, y_pred):
-    labels = sorted(set(y_true) | set(y_pred))
-    precisions, recalls, f1s = [], [], []
-    for lab in labels:
-        tp = sum(1 for t, p in zip(y_true, y_pred) if t == lab and p == lab)
-        fp = sum(1 for t, p in zip(y_true, y_pred) if t != lab and p == lab)
-        fn = sum(1 for t, p in zip(y_true, y_pred) if t == lab and p != lab)
-        prec = tp / (tp + fp) if (tp + fp) else 0.0
-        rec = tp / (tp + fn) if (tp + fn) else 0.0
-        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
-        precisions.append(prec); recalls.append(rec); f1s.append(f1)
-    return (sum(precisions) / len(labels), sum(recalls) / len(labels),
-            sum(f1s) / len(labels), labels, precisions, recalls, f1s)
+def manual_kappa(first, second):
+    labels = sorted(set(first) | set(second))
+    size = len(first)
+    observed = sum(a == b for a, b in zip(first, second)) / size
+    first_counts = Counter(first)
+    second_counts = Counter(second)
+    expected = sum(
+        (first_counts[label] / size) * (second_counts[label] / size)
+        for label in labels
+    )
+    return 1.0 if expected == 1 else (observed - expected) / (1 - expected)
 
 
-def kappa_interpretation(k):
-    if k < 0:      return "poor (worse than chance) — do not present this as reliable ground truth"
-    if k < 0.20:   return "slight"
-    if k < 0.40:   return "fair"
-    if k < 0.60:   return "moderate"
-    if k < 0.80:   return "substantial"
+def kappa_interpretation(value):
+    if value < 0:
+        return "poor"
+    if value < 0.20:
+        return "slight"
+    if value < 0.40:
+        return "fair"
+    if value < 0.60:
+        return "moderate"
+    if value < 0.80:
+        return "substantial"
     return "almost perfect"
+
+
+def wilson_interval(correct, total, z=1.96):
+    if total == 0:
+        return 0.0, 0.0
+    proportion = correct / total
+    denominator = 1 + z * z / total
+    center = (proportion + z * z / (2 * total)) / denominator
+    margin = (
+        z
+        * math.sqrt(
+            proportion * (1 - proportion) / total
+            + z * z / (4 * total * total)
+        )
+        / denominator
+    )
+    return max(0.0, center - margin), min(1.0, center + margin)
 
 
 def load_rows(path):
     rows = []
-    with open(path, newline='', encoding='utf-8') as f:
-        for row in csv.DictReader(f):
-            if not row.get('ticket_id', '').strip():
+    with open(path, newline="", encoding="utf-8") as source:
+        for row in csv.DictReader(source):
+            ticket_id = row.get("ticket_id", "").strip()
+            if not ticket_id:
                 continue
-            missing = [k for k in ('rater1_category', 'rater1_priority',
-                                    'rater2_category', 'rater2_priority',
-                                    'model_category', 'model_priority')
-                       if not row.get(k, '').strip()]
+            missing = [field for field in REQUIRED_FIELDS if not row.get(field, "").strip()]
             if missing:
-                print(f"[skip] {row['ticket_id']}: missing {missing}")
+                print(f"[skip] {ticket_id}: missing {missing}")
                 continue
-            for k in ('rater1_category', 'rater1_priority', 'rater2_category',
-                      'rater2_priority', 'model_category', 'model_priority'):
-                row[k] = row[k].strip().lower()
+            for key, value in list(row.items()):
+                if key.startswith(("rater", "model_", "adjudicated_")) and value:
+                    row[key] = value.strip().lower()
             rows.append(row)
     return rows
 
 
-def majority_label(a, b):
-    return a if a == b else a
+def classification_metrics(truth, predicted):
+    labels = sorted(set(truth) | set(predicted))
+    per_class = {}
+    for label in labels:
+        true_positive = sum(t == label and p == label for t, p in zip(truth, predicted))
+        false_positive = sum(t != label and p == label for t, p in zip(truth, predicted))
+        false_negative = sum(t == label and p != label for t, p in zip(truth, predicted))
+        support = sum(t == label for t in truth)
+        precision = true_positive / (true_positive + false_positive) if true_positive + false_positive else 0.0
+        recall = true_positive / (true_positive + false_negative) if true_positive + false_negative else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        per_class[label] = {
+            "support": support,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+        }
+
+    correct = sum(t == p for t, p in zip(truth, predicted))
+    count = len(truth)
+    return {
+        "labels": labels,
+        "accuracy": correct / count if count else 0.0,
+        "correct": correct,
+        "macro_precision": sum(v["precision"] for v in per_class.values()) / len(per_class),
+        "macro_recall": sum(v["recall"] for v in per_class.values()) / len(per_class),
+        "macro_f1": sum(v["f1"] for v in per_class.values()) / len(per_class),
+        "per_class": per_class,
+    }
 
 
-def report(rows, field, label_name):
-    r1 = [r[f'rater1_{field}'] for r in rows]
-    r2 = [r[f'rater2_{field}'] for r in rows]
-    model = [r[f'model_{field}'] for r in rows]
-    truth = [majority_label(a, b) for a, b in zip(r1, r2)]
-    agree_n = sum(1 for a, b in zip(r1, r2) if a == b)
+def report(rows, field, title):
+    first = [row[f"rater1_{field}"] for row in rows]
+    second = [row[f"rater2_{field}"] for row in rows]
+    agreement = sum(a == b for a, b in zip(first, second))
+    kappa = (
+        cohen_kappa_score(first, second)
+        if HAVE_SKLEARN
+        else manual_kappa(first, second)
+    )
 
-    print(f"\n{'=' * 60}")
-    print(f"  {label_name.upper()}  (N = {len(rows)})")
-    print('=' * 60)
-    print(f"Rater agreement: {agree_n}/{len(rows)} tickets "
-          f"({100 * agree_n / len(rows):.1f}%)")
+    evaluated = []
+    disagreements = []
+    adjudicated_key = f"adjudicated_{field}"
+    for row in rows:
+        rater1 = row[f"rater1_{field}"]
+        rater2 = row[f"rater2_{field}"]
+        adjudicated = row.get(adjudicated_key, "").strip()
+        if rater1 == rater2:
+            truth = rater1
+            source = "consensus"
+        elif adjudicated:
+            truth = adjudicated
+            source = "adjudicated"
+        else:
+            disagreements.append(row)
+            continue
+        evaluated.append((row, truth, row[f"model_{field}"], source))
 
-    if HAVE_SKLEARN:
-        kappa = cohen_kappa_score(r1, r2)
-    else:
-        kappa = manual_kappa(r1, r2)
-    print(f"Cohen's kappa (rater1 vs rater2): {kappa:.3f}  "
-          f"[{kappa_interpretation(kappa)}]")
+    truth = [item[1] for item in evaluated]
+    predicted = [item[2] for item in evaluated]
+    metrics = classification_metrics(truth, predicted)
+    low, high = wilson_interval(metrics["correct"], len(evaluated))
 
-    if agree_n < len(rows):
-        print(f"[note] {len(rows) - agree_n} disagreements resolved by taking "
-              f"rater1 as ground truth. List them and re-check by hand before "
-              f"presenting — a third opinion on disagreements strengthens this.")
+    print(f"\n{'=' * 72}\n{title.upper()}\n{'=' * 72}")
+    print(f"Human agreement: {agreement}/{len(rows)} ({agreement / len(rows):.1%})")
+    print(f"Cohen's kappa: {kappa:.3f} [{kappa_interpretation(kappa)}]")
+    print(
+        f"Model evaluation coverage: {len(evaluated)}/{len(rows)} "
+        f"(consensus plus explicit adjudication)"
+    )
+    if disagreements:
+        print(
+            f"Excluded unresolved disagreements: "
+            f"{', '.join(row['ticket_id'] for row in disagreements)}"
+        )
 
-    if HAVE_SKLEARN:
-        acc = accuracy_score(truth, model)
-        prec, rec, f1, _ = precision_recall_fscore_support(
-            truth, model, average='macro', zero_division=0)
-    else:
-        acc = sum(1 for t, m in zip(truth, model) if t == m) / len(truth)
-        prec, rec, f1, labels, precs, recs, f1s = manual_prf_macro(truth, model)
+    print(
+        f"Accuracy: {metrics['accuracy']:.3f} "
+        f"({metrics['correct']}/{len(evaluated)}), Wilson 95% CI [{low:.3f}, {high:.3f}]"
+    )
+    print(f"Macro precision: {metrics['macro_precision']:.3f}")
+    print(f"Macro recall:    {metrics['macro_recall']:.3f}")
+    print(f"Macro F1:        {metrics['macro_f1']:.3f}")
 
-    print(f"\nModel accuracy vs ground truth: {acc:.3f}  ({acc*100:.1f}%)")
-    print(f"Macro precision: {prec:.3f}")
-    print(f"Macro recall:    {rec:.3f}")
-    print(f"Macro F1:        {f1:.3f}")
+    print("\nPer-class metrics:")
+    for label in metrics["labels"]:
+        item = metrics["per_class"][label]
+        print(
+            f"  {label:<18} support={item['support']:<3} "
+            f"precision={item['precision']:.3f} "
+            f"recall={item['recall']:.3f} f1={item['f1']:.3f}"
+        )
 
-    print(f"\nPer-class breakdown:")
-    classes = sorted(set(truth) | set(model))
-    for c in classes:
-        tp = sum(1 for t, m in zip(truth, model) if t == c and m == c)
-        support = sum(1 for t in truth if t == c)
-        pred_n = sum(1 for m in model if m == c)
-        p = tp / pred_n if pred_n else 0.0
-        r = tp / support if support else 0.0
-        print(f"  {c:<20} support={support:<3} precision={p:.2f}  recall={r:.2f}")
+    print("\nConfusion matrix (rows=true, columns=predicted):")
+    print("  true\\pred".ljust(20) + " ".join(label[:10].rjust(10) for label in metrics["labels"]))
+    for actual in metrics["labels"]:
+        counts = [
+            sum(t == actual and p == predicted_label for t, p in zip(truth, predicted))
+            for predicted_label in metrics["labels"]
+        ]
+        print(actual[:18].ljust(20) + " ".join(str(value).rjust(10) for value in counts))
 
-    errors = [r['ticket_id'] for r, t, m in zip(rows, truth, model) if t != m]
-    print(f"\nMisclassified ticket IDs ({len(errors)}): {', '.join(errors) if errors else 'none'}")
-    print("  -> Look at these by hand: are they the 'mixed-concern' tickets\n"
-          "     your thesis's qualitative finding already predicted?")
+    if disagreements:
+        print("\nUnresolved disagreement review (no ticket text or PII):")
+        for row in disagreements:
+            print(
+                f"  {row['ticket_id']}: rater1={row[f'rater1_{field}']}, "
+                f"rater2={row[f'rater2_{field}']}, model={row[f'model_{field}']}"
+            )
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python analyze_eval.py <your_data.csv>")
-        sys.exit(1)
-
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: python analyze_eval.py <fully_labeled.csv>")
     rows = load_rows(sys.argv[1])
     if not rows:
-        print("No complete rows found. Fill in every column of the CSV first.")
-        sys.exit(1)
-
-    print(f"Loaded {len(rows)} fully-labeled tickets from {sys.argv[1]}")
-
-    report(rows, 'category', 'Category classification')
-    report(rows, 'priority', 'Priority classification')
-
-    print(f"\n{'=' * 60}")
-    print("  SUMMARY FOR SLIDE B2 / Q&A")
-    print('=' * 60)
-    print("Copy the accuracy, macro precision/recall, and kappa numbers above")
-    print("into slide B2 (box 03/04). State the sample size and that raters")
-    print("were you + [name/role of rater 2], labeling independently and blind")
-    print("to the model's output and to each other's labels.")
+        raise SystemExit("No complete rows found")
+    print(f"Loaded {len(rows)} fully labeled, unique ticket rows from {sys.argv[1]}")
+    if len({row["ticket_id"] for row in rows}) != len(rows):
+        raise SystemExit("Duplicate ticket IDs detected; evaluation aborted")
+    report(rows, "category", "Category classification")
+    report(rows, "priority", "Priority classification")
+    print(
+        "\nMethod note: unresolved rater disagreements are never silently assigned "
+        "to rater 1. Add adjudicated_category/adjudicated_priority columns only "
+        "after a documented third-opinion review."
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

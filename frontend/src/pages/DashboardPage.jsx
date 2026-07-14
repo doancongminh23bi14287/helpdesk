@@ -3,7 +3,19 @@ import { Link } from 'react-router-dom'
 import { useTickets } from '@/hooks/useTickets'
 import { useServices } from '@/hooks/useServices'
 import { useAuthStore } from '@/hooks/useAuth'
-import { Spinner } from '@/components/ui'
+import {
+  Button,
+  EmptyState,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  PageHeader,
+  PriorityBadge,
+  ResponsiveTableViewport,
+  Spinner,
+  StatusBadge,
+} from '@/components/ui'
 import { formatDate, formatDateTime, daysUntil, formatVND, formatCurrencyVND } from '@/lib/utils'
 import { getMySubscriptions, listSubscriptions } from '@/api/subscriptions'
 import { listMyInvoices, listInvoices } from '@/api/invoices'
@@ -29,47 +41,20 @@ import {
 import { StatusBadge as ProjectStatusBadge, ProgressBar } from './ProjectsPage'
 import { useTranslation } from '@/lib/i18n'
 
-// Status palette mirrors the brief: active/running → cyan,
-// warning/expiring → amber, danger/breached → red, neutral → slate.
-const TICKET_STATUS_STYLES = {
-  Open:          'bg-blue-50 text-blue-700',
-  'In Progress': 'bg-amber-50 text-amber-700',
-  Waiting:       'bg-purple-50 text-purple-700',
-  Resolved:      'bg-green-50 text-green-700',
-  Closed:        'bg-gray-100 text-gray-500',
-}
-
-const PRIORITY_STYLES = {
-  Low:    'bg-gray-100 text-gray-500',
-  Medium: 'bg-yellow-50 text-yellow-700',
-  High:   'bg-orange-50 text-orange-700',
-  Urgent: 'bg-red-50 text-red-700',
-}
-
-function StatusBadge({ label }) {
-  const cls = TICKET_STATUS_STYLES[label] ?? 'bg-gray-100 text-gray-500'
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
-}
-
-function PriorityBadge({ label }) {
-  const cls = PRIORITY_STYLES[label] ?? 'bg-gray-100 text-gray-600'
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
-}
-
 function StatCard({ icon: Icon, label, value, color, hint, loading }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 flex items-start justify-between hover:border-gray-200 transition-colors">
+    <div className="bg-white rounded-xl border border-gray-100 p-6 flex items-start justify-between gap-4 hover:border-gray-200 transition-colors">
       <div>
         <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">{label}</p>
         {loading ? (
-          <div className="h-8 w-14 bg-gray-100 rounded animate-pulse" />
+          <div className="h-8 w-14 skeleton-shimmer rounded" />
         ) : (
-          <p className="text-3xl font-semibold text-gray-900">{value}</p>
+          <p className="text-3xl font-semibold leading-none text-gray-900 sm:text-4xl">{value}</p>
         )}
         {hint && <p className="text-sm text-gray-400 mt-1">{hint}</p>}
       </div>
-      <div className={`p-2 rounded-lg flex-shrink-0 ${color}`}>
-        <Icon className="w-5 h-5" />
+      <div className={`p-2.5 rounded-lg flex-shrink-0 ${color}`}>
+        <Icon className="w-6 h-6" />
       </div>
     </div>
   )
@@ -88,6 +73,7 @@ function SubscriptionSummaryWidget() {
 
   const active   = subs.filter(s => s.status === 'active').length
   const trial    = subs.filter(s => s.status === 'trial').length
+  const scheduled = subs.filter(s => s.status === 'scheduled').length
   const past_due = subs.filter(s => s.status === 'past_due').length
 
   return (
@@ -103,6 +89,7 @@ function SubscriptionSummaryWidget() {
       <div className="flex items-center gap-4 text-sm">
         {active > 0 && <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5" /><span className="font-semibold">{active}</span> active</span>}
         {trial > 0 && <span><span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1.5" /><span className="font-semibold">{trial}</span> trial</span>}
+        {scheduled > 0 && <span><span className="inline-block w-2 h-2 rounded-full bg-sky-500 mr-1.5" /><span className="font-semibold">{scheduled}</span> scheduled</span>}
         {past_due > 0 && <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1.5" /><span className="font-semibold">{past_due}</span> past due</span>}
       </div>
     </div>
@@ -206,7 +193,7 @@ function AdminStats({ activeProjects = null, projectsLoading = false }) {
     })
   }, [])
 
-  const skeletonCls = 'h-8 w-16 bg-slate-100 rounded animate-pulse mt-1'
+  const skeletonCls = 'h-8 w-16 skeleton-shimmer rounded mt-1'
 
   // Each card keeps the same white surface and subtle border but is
   // differentiated by three layers: the icon-chip colour, a thin coloured
@@ -214,18 +201,18 @@ function AdminStats({ activeProjects = null, projectsLoading = false }) {
   // the "all four look identical" problem without resorting to full
   // colour-tinted card backgrounds.
   const AdminMetricCard = ({ icon: Icon, label, value, hint, chipCls }) => (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 flex items-start justify-between hover:border-gray-200 transition-colors">
+    <div className="bg-white rounded-xl border border-gray-100 p-6 flex items-start justify-between gap-4 hover:border-gray-200 transition-colors">
       <div>
         <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">{label}</p>
         {loading ? (
           <div className={skeletonCls} />
         ) : (
-          <p className="text-3xl font-semibold text-gray-900">{value}</p>
+          <p className="text-3xl font-semibold leading-none text-gray-900 sm:text-4xl">{value}</p>
         )}
         <p className="text-sm text-gray-400 mt-1">{hint}</p>
       </div>
-      <div className={`p-2 rounded-lg flex-shrink-0 ${chipCls}`}>
-        <Icon className="w-5 h-5" aria-hidden="true" />
+      <div className={`p-2.5 rounded-lg flex-shrink-0 ${chipCls}`}>
+        <Icon className="w-6 h-6" aria-hidden="true" />
       </div>
     </div>
   )
@@ -429,10 +416,8 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
-      {/* Page header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 className="page-title">{t('dashboard.title')}</h1>
-        <p className="text-xs text-gray-400 mt-0.5">{t('dashboard.overview')}</p>
+      <div className="border-b border-border bg-surface px-4 py-4 sm:px-6">
+        <PageHeader title={t('dashboard.title')} description={t('dashboard.overview')} />
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin p-6 space-y-6">
@@ -532,17 +517,43 @@ export default function DashboardPage() {
             </Link>
           </div>
           {ticketsLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Spinner className="w-5 h-5" />
-            </div>
+            <LoadingState rows={3} className="px-5" label="Loading recent tickets" />
           ) : recentTickets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-2">
-              <TicketIcon className="w-8 h-8 text-gray-200" />
-              <p className="text-sm text-gray-400">{t('dashboard.noTickets')}</p>
-            </div>
+            <EmptyState
+              icon={TicketIcon}
+              title={t('dashboard.noTickets')}
+              description="New support requests will appear here."
+              action={(
+                <Button asChild size="sm">
+                  <Link to="/tickets/new">Create ticket</Link>
+                </Button>
+              )}
+            />
           ) : (
-            <div className="overflow-x-auto">
-            <table className="w-full">
+            <ResponsiveTableViewport
+              mobile={(
+                <MobileCardList ariaLabel="Recent tickets">
+                  {recentTickets.map((ticket) => (
+                    <Link key={ticket.id} to={`/tickets/${ticket.id}`} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <MobileDataCard>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-mono text-xs text-muted-foreground">Ticket #{ticket.id}</p>
+                            <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-foreground">{ticket.subject}</h3>
+                          </div>
+                          <StatusBadge label={ticket.status} />
+                        </div>
+                        <dl className="mt-3 divide-y divide-border">
+                          <MobileDataRow label="Priority"><PriorityBadge label={ticket.priority} /></MobileDataRow>
+                          <MobileDataRow label="Updated">{formatDateTime(ticket.modified ?? ticket.updated_at)}</MobileDataRow>
+                        </dl>
+                      </MobileDataCard>
+                    </Link>
+                  ))}
+                </MobileCardList>
+              )}
+            >
+            <table className="w-full min-w-[640px]">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2.5 w-32">#</th>
@@ -584,7 +595,7 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
-            </div>
+            </ResponsiveTableViewport>
           )}
         </div>
 

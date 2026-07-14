@@ -4,7 +4,14 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-import { Spinner } from '@/components/ui'
+import {
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  PageHeader,
+  ResponsiveTableViewport,
+  Spinner,
+} from '@/components/ui'
 import { useRole } from '@/hooks/useRole'
 import AiStatusBadge from '@/components/ai/AiStatusBadge'
 import { getTicketAnalytics, getSLAAnalytics, getAgentAnalytics, getRevenueAnalytics } from '@/api/analytics'
@@ -133,8 +140,30 @@ function AgentTable({ agents }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full text-sm">
+    <div className="overflow-hidden rounded-xl border border-border">
+      <ResponsiveTableViewport
+        mobile={(
+          <MobileCardList ariaLabel="Agent performance">
+            {sorted.map((agent) => (
+              <MobileDataCard key={agent.user_id}>
+                <h3 className="text-base font-semibold text-foreground">{agent.name}</h3>
+                <dl className="mt-3 divide-y divide-border">
+                  <MobileDataRow label="Open"><span className="text-blue-600">{agent.tickets_open ?? 0}</span></MobileDataRow>
+                  <MobileDataRow label="Assigned">{agent.tickets_assigned ?? 0}</MobileDataRow>
+                  <MobileDataRow label="Resolved"><span className="text-emerald-600">{agent.tickets_resolved ?? 0}</span></MobileDataRow>
+                  <MobileDataRow label="Avg resolution">{agent.avg_resolution_hours != null ? `${agent.avg_resolution_hours.toFixed(1)}h` : 'Not available'}</MobileDataRow>
+                  <MobileDataRow label="SLA rate">
+                    <span className={slaColor(agent.sla_compliance_rate ?? 0)}>
+                      {agent.sla_compliance_rate != null ? `${agent.sla_compliance_rate.toFixed(1)}%` : 'Not available'}
+                    </span>
+                  </MobileDataRow>
+                </dl>
+              </MobileDataCard>
+            ))}
+          </MobileCardList>
+        )}
+      >
+      <table className="w-full min-w-[760px] text-sm">
         <thead className="bg-muted/50">
           <tr>
             {AGENT_COLS.map((col) => (
@@ -166,6 +195,7 @@ function AgentTable({ agents }) {
           ))}
         </tbody>
       </table>
+      </ResponsiveTableViewport>
     </div>
   )
 }
@@ -286,14 +316,11 @@ export default function AnalyticsDashboard() {
 
   return (
     <div className="p-6 space-y-8 max-w-screen-xl mx-auto">
-      {/* ── Page header ── */}
-      <div>
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-foreground">Analytics Dashboard</h1>
-          <AiStatusBadge />
-        </div>
-        <p className="text-sm text-muted-foreground mt-1">Ticket metrics, SLA compliance, and agent performance.</p>
-      </div>
+      <PageHeader
+        title="Analytics Dashboard"
+        description="Ticket metrics, SLA compliance, and agent performance."
+        metadata={<AiStatusBadge />}
+      />
 
       {/* ── Filters ── */}
       <div className="bg-card border border-border rounded-xl p-4">
@@ -522,8 +549,24 @@ export default function AnalyticsDashboard() {
 
             {/* SLA by priority table */}
             {slaByPriority.length > 0 && (
-              <div className="overflow-x-auto rounded-xl border border-border">
-                <table className="w-full text-sm">
+              <div className="overflow-hidden rounded-xl border border-border">
+                <ResponsiveTableViewport
+                  mobile={(
+                    <MobileCardList ariaLabel="SLA by priority">
+                      {slaByPriority.map((row) => (
+                        <MobileDataCard key={row.priority}>
+                          <h3 className="text-base font-semibold text-foreground">{row.priority}</h3>
+                          <dl className="mt-3 divide-y divide-border">
+                            <MobileDataRow label="Met"><span className="text-emerald-600">{row.met}</span></MobileDataRow>
+                            <MobileDataRow label="Breached"><span className="text-red-500">{row.breached}</span></MobileDataRow>
+                            <MobileDataRow label="Rate"><span className={slaColor(row.rate)}>{row.rate.toFixed(1)}%</span></MobileDataRow>
+                          </dl>
+                        </MobileDataCard>
+                      ))}
+                    </MobileCardList>
+                  )}
+                >
+                <table className="w-full min-w-[520px] text-sm">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Priority</th>
@@ -545,6 +588,7 @@ export default function AnalyticsDashboard() {
                     ))}
                   </tbody>
                 </table>
+                </ResponsiveTableViewport>
               </div>
             )}
           </>
@@ -608,8 +652,22 @@ export default function AnalyticsDashboard() {
               )}
 
               {(revenueData?.by_org ?? []).length > 0 && (
-                <div className="overflow-x-auto rounded-xl border border-border">
-                  <table className="w-full text-sm">
+                <div className="overflow-hidden rounded-xl border border-border">
+                  <ResponsiveTableViewport
+                    mobile={(
+                      <MobileCardList ariaLabel="Revenue by organization">
+                        {revenueData.by_org.map((row) => (
+                          <MobileDataCard key={row.org_id}>
+                            <h3 className="text-base font-semibold text-foreground">{row.org_name}</h3>
+                            <dl className="mt-3 divide-y divide-border">
+                              <MobileDataRow label="Total">{fmtVND(row.total)}</MobileDataRow>
+                            </dl>
+                          </MobileDataCard>
+                        ))}
+                      </MobileCardList>
+                    )}
+                  >
+                  <table className="w-full min-w-[480px] text-sm">
                     <thead className="bg-muted/50">
                       <tr>
                         <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Organization</th>
@@ -625,6 +683,7 @@ export default function AnalyticsDashboard() {
                       ))}
                     </tbody>
                   </table>
+                  </ResponsiveTableViewport>
                 </div>
               )}
             </>

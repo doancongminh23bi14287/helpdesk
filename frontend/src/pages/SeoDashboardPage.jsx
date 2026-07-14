@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush,
 } from 'recharts'
-import { ArrowUpIcon, ArrowDownIcon, MinusIcon, PrinterIcon, BeakerIcon, LinkIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
-import { ga4Summary as ga4MockSummary } from '@/data/seoMockData'
+import { ArrowUpIcon, ArrowDownIcon, MinusIcon, PrinterIcon, LinkIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowsPointingOutIcon, ChartBarIcon } from '@heroicons/react/24/outline'
+import TrendSparkline from '@/components/seo/TrendSparkline'
 import { useGscData } from '@/hooks/useGscData'
 import client from '@/api/client'
+import { fillDailyTrend } from '@/lib/seoTrend'
+import { Button, EmptyState, MobileCardList, MobileDataCard, MobileDataRow, Modal, PageHeader, ResponsiveTableViewport } from '@/components/ui'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -18,37 +19,6 @@ function fmt(n) {
 
 // ── Banners ───────────────────────────────────────────────────────────────────
 
-function PrototypeBanner() {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-300">
-      <BeakerIcon className="w-5 h-5 flex-shrink-0 text-amber-500" />
-      <div className="min-w-0">
-        <span className="font-semibold text-sm">Prototype — sample data only.</span>
-        <span className="text-sm ml-1.5">
-          Connect Google Search Console above to see live data.
-        </span>
-      </div>
-      <span className="ml-auto flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-200 text-amber-700 dark:bg-amber-800 dark:text-amber-200">
-        Preview
-      </span>
-    </div>
-  )
-}
-
-function AccumulatingBanner() {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:border-blue-700 dark:text-blue-300">
-      <CheckCircleIcon className="w-5 h-5 flex-shrink-0 text-blue-500" />
-      <div className="min-w-0">
-        <span className="font-semibold text-sm">Connected — data đang tích lũy.</span>
-        <span className="text-sm ml-1.5">
-          Thường mất 2–4 tuần để GSC có đủ dữ liệu cho site mới.
-        </span>
-      </div>
-    </div>
-  )
-}
-
 function LiveBadge() {
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400">
@@ -58,29 +28,9 @@ function LiveBadge() {
   )
 }
 
-// ── Mini sparkline using Recharts AreaChart ───────────────────────────────────
-
-function Sparkline({ data, color }) {
-  const pts = data.map((v, i) => ({ i, v }))
-  return (
-    <ResponsiveContainer width="100%" height={48}>
-      <AreaChart data={pts} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
-        <defs>
-          <linearGradient id={`spark-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor={color} stopOpacity={0.3} />
-            <stop offset="95%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5}
-              fill={`url(#spark-${color.replace('#', '')})`} dot={false} />
-      </AreaChart>
-    </ResponsiveContainer>
-  )
-}
-
 // ── KPI card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ title, badge, metrics, sparkline, sparkColor }) {
+function KpiCard({ title, badge, metrics, trend, sparkColor, trendLabel, isLoading, error }) {
   return (
     <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -100,7 +50,7 @@ function KpiCard({ title, badge, metrics, sparkline, sparkColor }) {
           </div>
         ))}
       </div>
-      <Sparkline data={sparkline} color={sparkColor} />
+      <TrendSparkline data={trend} color={sparkColor} valueLabel={trendLabel} isLoading={isLoading} error={error} />
     </div>
   )
 }
@@ -130,121 +80,222 @@ function ChangePill({ change }) {
 function KeywordsTable({ keywords }) {
   if (!keywords || keywords.length === 0) {
     return (
-      <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
-        Chưa có dữ liệu keyword. GSC cần thêm thời gian để tích lũy.
+      <div className="rounded-xl border border-border bg-card">
+        <EmptyState
+          icon={ChartBarIcon}
+          title="No keyword data yet"
+          description="Google Search Console needs more time to accumulate keyword performance data."
+        />
       </div>
     )
   }
+
+  const mobileCards = (
+    <MobileCardList ariaLabel="Tracked keywords">
+      {keywords.map((row) => (
+        <MobileDataCard key={row.keyword}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="break-words text-sm font-semibold text-foreground">{row.keyword}</p>
+              <p className="mt-1 break-all text-xs text-muted-foreground">{row.url || 'No landing page'}</p>
+            </div>
+            <span className={
+              'inline-flex h-9 min-w-9 flex-none items-center justify-center rounded-lg px-2 text-sm font-bold ' +
+              (row.position <= 3
+                ? 'bg-success-muted text-success'
+                : row.position <= 10
+                  ? 'bg-warning-muted text-warning'
+                  : 'bg-muted text-muted-foreground')
+            }>
+              #{row.position}
+            </span>
+          </div>
+          <dl className="mt-3 border-t border-border pt-2">
+            <MobileDataRow label="Change"><ChangePill change={row.change} /></MobileDataRow>
+            <MobileDataRow label="Volume">{row.volume.toLocaleString()}</MobileDataRow>
+          </dl>
+        </MobileDataCard>
+      ))}
+    </MobileCardList>
+  )
+
   return (
-    <div className="bg-card border border-border rounded-xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-border">
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="border-b border-border px-4 py-4 sm:px-5">
         <h2 className="text-sm font-semibold text-foreground">Tracked Keywords</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">Position as of today vs. 30 days ago</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Position as of today vs. 30 days ago</p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[560px]">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              <th className="text-left px-5 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Keyword</th>
-              <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Pos.</th>
-              <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Change</th>
-              <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Volume</th>
-              <th className="text-left px-5 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">URL</th>
+      <ResponsiveTableViewport mobile={mobileCards}>
+        <table className="w-full min-w-[560px] text-sm">
+          <thead className="bg-muted/30">
+            <tr className="border-b border-border">
+              <th className="sticky top-0 text-left px-5 py-2.5 text-xs font-medium text-muted-foreground uppercase">Keyword</th>
+              <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase">Pos.</th>
+              <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase">Change</th>
+              <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase">Volume</th>
+              <th className="text-left px-5 py-2.5 text-xs font-medium text-muted-foreground uppercase">URL</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {keywords.map((row) => (
-              <tr key={row.keyword} className="hover:bg-muted/20 transition-colors">
+              <tr key={row.keyword} className="transition-colors hover:bg-muted/20">
                 <td className="px-5 py-3 font-medium text-foreground">{row.keyword}</td>
                 <td className="px-4 py-3 text-center">
-                  <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold ${
-                    row.position <= 3 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                    : row.position <= 10 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                    : 'bg-muted text-muted-foreground'
-                  }`}>
+                  <span className={
+                    'inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold ' +
+                    (row.position <= 3
+                      ? 'bg-success-muted text-success'
+                      : row.position <= 10
+                        ? 'bg-warning-muted text-warning'
+                        : 'bg-muted text-muted-foreground')
+                  }>
                     {row.position}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-center">
-                  <ChangePill change={row.change} />
-                </td>
-                <td className="px-4 py-3 text-right text-muted-foreground tabular-nums">{row.volume.toLocaleString()}</td>
-                <td className="px-5 py-3 text-muted-foreground text-xs truncate max-w-[180px]">{row.url}</td>
+                <td className="px-4 py-3 text-center"><ChangePill change={row.change} /></td>
+                <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{row.volume.toLocaleString()}</td>
+                <td className="max-w-[180px] truncate px-5 py-3 text-xs text-muted-foreground">{row.url}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </ResponsiveTableViewport>
     </div>
   )
 }
 
 // ── Rank history chart ────────────────────────────────────────────────────────
 
+function RankChartCanvas({ rankHistory, rankKeywords, isClicksChart, height, showBrush = false }) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <LineChart data={rankHistory} margin={{ top: 16, right: 16, left: -8, bottom: showBrush ? 8 : 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+        <XAxis
+          dataKey="date"
+          tick={{ fontSize: 11, fill: 'hsl(var(--text-muted))' }}
+          tickLine={false}
+          minTickGap={24}
+        />
+        <YAxis
+          reversed={!isClicksChart}
+          domain={isClicksChart ? ['auto', 'auto'] : [1, 30]}
+          tick={{ fontSize: 11, fill: 'hsl(var(--text-muted))' }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(value) => isClicksChart ? fmt(value) : '#' + value}
+        />
+        <Tooltip
+          formatter={(value, name) => [isClicksChart ? fmt(value) : '#' + value, name]}
+          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))' }}
+        />
+        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+        {rankKeywords.map(({ key, color }) => (
+          <Line
+            key={key}
+            type="monotone"
+            dataKey={key}
+            stroke={color}
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+        ))}
+        {showBrush && (
+          <Brush
+            dataKey="date"
+            height={28}
+            travellerWidth={10}
+            stroke="hsl(var(--info))"
+            fill="hsl(var(--surface-muted))"
+          />
+        )}
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
+
 function RankChart({ rankHistory, rankKeywords, usingRealData }) {
+  const [expanded, setExpanded] = useState(false)
   const isClicksChart = usingRealData && rankKeywords?.length === 1 && rankKeywords[0].key === 'clicks'
+
   if (!rankHistory || rankHistory.length === 0) {
     return (
-      <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
-        Chưa có dữ liệu lịch sử ranking.
+      <div className="rounded-xl border border-border bg-card">
+        <EmptyState
+          icon={ChartBarIcon}
+          title="No ranking history"
+          description="Ranking and click trends will appear after Search Console returns daily data."
+        />
       </div>
     )
   }
+
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <div className="mb-1">
-        <h2 className="text-sm font-semibold text-foreground">
-          {isClicksChart ? 'Clicks Over Time' : 'Keyword Rankings Over Time'}
-        </h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {isClicksChart
-            ? 'Daily clicks from Google Search Console.'
-            : 'Lower position = better rank. Y-axis is inverted so improvements go up.'}
-        </p>
-      </div>
-      <ResponsiveContainer width="100%" height={280}>
-        <LineChart data={rankHistory} margin={{ top: 16, right: 8, left: -16, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
-          <XAxis
-            dataKey="date"
-            tick={{ fontSize: 11, fill: 'var(--color-muted-foreground, #6B7280)' }}
-            tickLine={false}
-            interval={6}
+    <>
+      <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              {isClicksChart ? 'Clicks Over Time' : 'Keyword Rankings Over Time'}
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {isClicksChart
+                ? 'Daily clicks from Google Search Console.'
+                : 'Lower position means a better rank. Improvements move upward.'}
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setExpanded(true)} aria-label="Open chart fullscreen">
+            <ArrowsPointingOutIcon className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Expand</span>
+          </Button>
+        </div>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Open chart fullscreen"
+          onClick={() => setExpanded(true)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setExpanded(true)
+            }
+          }}
+          className="h-[340px] min-w-0 cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-[380px]"
+        >
+          <RankChartCanvas
+            rankHistory={rankHistory}
+            rankKeywords={rankKeywords}
+            isClicksChart={isClicksChart}
+            height="100%"
           />
-          <YAxis
-            reversed={!isClicksChart}
-            domain={isClicksChart ? ['auto', 'auto'] : [1, 30]}
-            tick={{ fontSize: 11, fill: 'var(--color-muted-foreground, #6B7280)' }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => isClicksChart ? fmt(v) : `#${v}`}
+        </div>
+      </section>
+
+      <Modal
+        open={expanded}
+        onClose={() => setExpanded(false)}
+        title={isClicksChart ? 'Clicks Over Time' : 'Keyword Rankings Over Time'}
+        description="Drag the range selector below the chart to zoom into a date range."
+        size="full"
+      >
+        <div className="h-[calc(100dvh-11rem)] min-h-[360px] w-full">
+          <RankChartCanvas
+            rankHistory={rankHistory}
+            rankKeywords={rankKeywords}
+            isClicksChart={isClicksChart}
+            height="100%"
+            showBrush
           />
-          <Tooltip
-            formatter={(value, name) => [isClicksChart ? fmt(value) : `#${value}`, name]}
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--border)' }}
-          />
-          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
-          {rankKeywords.map(({ key, color }) => (
-            <Line
-              key={key}
-              type="monotone"
-              dataKey={key}
-              stroke={color}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4 }}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+        </div>
+      </Modal>
+    </>
   )
 }
 
 // ── White-label report block ──────────────────────────────────────────────────
 
-function WhiteLabelReport({ ga4Summary }) {
-  const { keywords, gscSummary } = useGscData()
+function WhiteLabelReport({ ga4Summary, gscSummary, keywords }) {
   const handlePrint = () => window.print()
 
   return (
@@ -517,7 +568,7 @@ function GscConnectionCard() {
 
 // ── GA4 connection card ───────────────────────────────────────────────────────
 
-function Ga4ConnectionCard({ onDataChange }) {
+function Ga4ConnectionCard({ onReportStateChange }) {
   const [status, setStatus]     = useState(null)
   const [flash, setFlash]       = useState(null)
   const [busy, setBusy]         = useState(false)
@@ -525,19 +576,33 @@ function Ga4ConnectionCard({ onDataChange }) {
   const [selectingProperty, setSelectingProperty] = useState(false)
 
   const fetchStatus = useCallback(async () => {
+    onReportStateChange({ report: null, isLoading: true, error: null })
     try {
       const { data } = await client.get('/seo/ga4/status')
       setStatus(data)
       if (data.connected && data.property_id) {
         try {
           const { data: report } = await client.get('/seo/ga4/report')
-          onDataChange(report)
-        } catch { /* property set but no data yet */ }
+          onReportStateChange({ report, isLoading: false, error: null })
+        } catch (err) {
+          onReportStateChange({
+            report: null,
+            isLoading: false,
+            error: err?.message ?? 'Không thể tải dữ liệu GA4',
+          })
+        }
+      } else {
+        onReportStateChange({ report: null, isLoading: false, error: null })
       }
-    } catch {
+    } catch (err) {
       setStatus({ connected: false })
+      onReportStateChange({
+        report: null,
+        isLoading: false,
+        error: err?.message ?? 'Không thể kiểm tra kết nối GA4',
+      })
     }
-  }, [onDataChange])
+  }, [onReportStateChange])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -574,7 +639,7 @@ function Ga4ConnectionCard({ onDataChange }) {
       await client.delete('/seo/ga4/disconnect')
       setFlash({ type: 'success', msg: 'GA4 disconnected.' })
       setStatus({ connected: false })
-      onDataChange(null)
+      onReportStateChange({ report: null, isLoading: false, error: null })
     } catch (err) {
       setFlash({ type: 'error', msg: err?.response?.data?.detail ?? 'Disconnect failed.' })
     } finally {
@@ -708,35 +773,46 @@ function Ga4ConnectionCard({ onDataChange }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SeoDashboardPage() {
-  const { isConnected, isLoading, usingRealData, keywords, rankHistory, rankKeywords, gscSummary } = useGscData()
-  const [ga4Report, setGa4Report] = useState(null)
+  const {
+    isLoading: isGscLoading,
+    error: gscError,
+    usingRealData,
+    keywords,
+    rankHistory,
+    rankKeywords,
+    gscSummary,
+  } = useGscData()
+  const [ga4ReportState, setGa4ReportState] = useState({
+    report: null,
+    isLoading: true,
+    error: null,
+  })
+  const [trendEndDate] = useState(() => new Date())
 
-  const ga4Summary = ga4Report?.summary ?? ga4MockSummary
-  const ga4Sparkline = ga4Report?.sparkline?.length
-    ? ga4Report.sparkline.map(d => d.v)
-    : ga4MockSummary.sparkline
+  const { report: ga4Report, isLoading: isGa4Loading, error: ga4Error } = ga4ReportState
+  const ga4Summary = ga4Report?.summary ?? {
+    sessions: 0,
+    users: 0,
+    engagementRate: 0,
+    avgSessionDuration: 0,
+  }
+  const gscTrend = fillDailyTrend(gscSummary.trend, { endDate: trendEndDate })
+  const ga4DailyRows = ga4Report?.trend ?? ga4Report?.sparkline ?? []
+  const ga4Trend = fillDailyTrend(ga4DailyRows, { endDate: trendEndDate })
 
   const hasData = keywords && keywords.length > 0
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">SEO Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Search performance, keyword rankings, and client reporting.</p>
-        </div>
-        {usingRealData && hasData && <LiveBadge />}
-      </div>
-
-      {/* Banner logic */}
-      {isLoading ? null : !isConnected ? (
-        <PrototypeBanner />
-      ) : null}
+      <PageHeader
+        title="SEO Dashboard"
+        description="Search performance, keyword rankings, and client reporting."
+        metadata={usingRealData && hasData ? <LiveBadge /> : null}
+      />
 
       {/* Connection cards */}
       <GscConnectionCard />
-      <Ga4ConnectionCard onDataChange={setGa4Report} />
+      <Ga4ConnectionCard onReportStateChange={setGa4ReportState} />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -749,8 +825,11 @@ export default function SeoDashboardPage() {
             { label: 'CTR',             value: `${gscSummary.ctr}%` },
             { label: 'Avg. Position',   value: gscSummary.avgPosition ? `#${gscSummary.avgPosition}` : '—' },
           ]}
-          sparkline={gscSummary.sparkline?.length ? gscSummary.sparkline : [0]}
+          trend={gscTrend}
           sparkColor="#F59E0B"
+          trendLabel="Clicks"
+          isLoading={isGscLoading}
+          error={gscError}
         />
         <KpiCard
           title="Google Analytics 4"
@@ -761,8 +840,11 @@ export default function SeoDashboardPage() {
             { label: 'Engagement Rate',  value: `${ga4Summary.engagementRate}%` },
             { label: 'Avg. per Session', value: Math.round(ga4Summary.sessions / 30) + '/day' },
           ]}
-          sparkline={ga4Sparkline}
+          trend={ga4Trend}
           sparkColor="#0EA5E9"
+          trendLabel="Sessions"
+          isLoading={isGa4Loading}
+          error={ga4Error}
         />
       </div>
 
@@ -773,7 +855,7 @@ export default function SeoDashboardPage() {
       <KeywordsTable keywords={keywords} />
 
       {/* White-label report */}
-      <WhiteLabelReport ga4Summary={ga4Summary} />
+      <WhiteLabelReport ga4Summary={ga4Summary} gscSummary={gscSummary} keywords={keywords} />
     </div>
   )
 }

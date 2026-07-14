@@ -13,6 +13,7 @@ from app.models.subscription import Subscription, SubscriptionPlan
 from app.models.item import Item
 
 _STATUS_MAP = {
+    "scheduled": "inactive",
     "trial":     "active",
     "active":    "active",
     "past_due":  "past_due",
@@ -27,6 +28,7 @@ def sync_service_from_subscription(
     db: Session,
     subscription: Subscription,
     create_if_missing: bool = True,
+    commit: bool = True,
 ) -> "Service | None":
     """
     Find the Service linked to `subscription` (via subscription_id) and sync:
@@ -53,9 +55,14 @@ def sync_service_from_subscription(
     svc_type = (
         item.type if item and item.type in _VALID_SERVICE_TYPES else "other"
     )
-    svc_status = _STATUS_MAP.get(subscription.status, "active")
+    svc_status_source = subscription.status
+    if subscription.status == "active" and subscription.start_date is not None:
+        from datetime import date as _date
+        if subscription.start_date > _date.today():
+            svc_status_source = "scheduled"
+    svc_status = _STATUS_MAP.get(svc_status_source, "active")
     monthly_cost = float(subscription.unit_price) if subscription.unit_price is not None else None
-    expiry_date = subscription.current_period_end
+    expiry_date = subscription.end_date or subscription.current_period_end
 
     svc = (
         db.query(Service)
@@ -97,6 +104,9 @@ def sync_service_from_subscription(
         svc.billing_cycle = subscription.billing_cycle
         svc.expiry_date = expiry_date
 
-    db.commit()
-    db.refresh(svc)
+    if commit:
+        db.commit()
+        db.refresh(svc)
+    else:
+        db.flush()
     return svc

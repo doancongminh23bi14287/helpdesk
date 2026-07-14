@@ -13,6 +13,6 @@ _INJECTION_PATTERNS = re.compile(
 def check_prompt_injection(text: str) -> bool:
     """Return True if text looks like a prompt injection attempt."""
     if _INJECTION_PATTERNS.search(text):
-        logger.warning("Prompt injection detected in input (first 120 chars): %.120s", text)
+        logger.warning("Prompt injection detected in AI input")
         return True
     return False

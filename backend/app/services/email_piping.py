@@ -183,6 +183,41 @@ def _resolve_ticket_id(msg, subject: str, db: Session) -> int | None:
     return None
 
 
+def _sender_can_reply_to_ticket(
+    ticket: Ticket,
+    sender_user: User | None,
+    from_email: str,
+    db: Session,
+) -> bool:
+    """Authorize an inbound sender before appending to an existing ticket.
+
+    Threading headers and subject references are routing hints, not proof of
+    authorization. Customers may only reply to tickets they raised. Internal
+    users must be active and have access to the ticket's organization.
+    """
+    normalized_email = (from_email or "").strip().lower()
+
+    if sender_user:
+        if not sender_user.is_active:
+            return False
+        if sender_user.role == "admin":
+            return True
+        if sender_user.role == "staff":
+            from app.models.team import StaffOrgAssignment
+
+            return db.query(StaffOrgAssignment).filter(
+                StaffOrgAssignment.user_id == sender_user.id,
+                StaffOrgAssignment.org_id == ticket.org_id,
+            ).first() is not None
+        return sender_user.id == ticket.raised_by and sender_user.org_id == ticket.org_id
+
+    return bool(
+        normalized_email
+        and ticket.raised_by_email
+        and normalized_email == ticket.raised_by_email.strip().lower()
+    )
+
+
 def _record_inbound_thread(
     db: Session,
     ticket_id: int,
@@ -276,12 +311,15 @@ def process_inbox(db: Session) -> int:
 
                 # Resolve ticket via 3-priority strategy
                 ticket_id = _resolve_ticket_id(msg, subject, db)
+                rerouted_reason = None
 
                 if ticket_id is not None:
                     existing = db.query(Ticket).filter(
                         Ticket.id == ticket_id, Ticket.is_deleted == False
                     ).first()
-                    if existing:
+                    if existing and _sender_can_reply_to_ticket(
+                        existing, sender_user, from_email, db
+                    ):
                         reply = TicketReply(
                             ticket_id=ticket_id,
                             author_id=raised_by,
@@ -301,6 +339,9 @@ def process_inbox(db: Session) -> int:
                         mail.store(uid, "+FLAGS", "\\Seen")
                         processed += 1
                         continue
+                    elif existing:
+                        rerouted_reason = "sender not authorized for referenced ticket"
+                        ticket_id = None
                     else:
                         _log(db, message_id, from_email, subject, None, "error",
                              f"Referenced ticket #{ticket_id} not found")
@@ -324,7 +365,15 @@ def process_inbox(db: Session) -> int:
                 _record_inbound_thread(
                     db, ticket.id, message_id, in_reply_to_hdr, references_hdr
                 )
-                _log(db, message_id, from_email, subject, ticket.id, "created", None)
+                _log(
+                    db,
+                    message_id,
+                    from_email,
+                    subject,
+                    ticket.id,
+                    "created",
+                    rerouted_reason,
+                )
                 db.commit()
                 mail.store(uid, "+FLAGS", "\\Seen")
                 processed += 1
@@ -350,6 +399,6 @@ def _log(db: Session, message_id, from_email, subject, ticket_id, action, detail
         subject=subject,
         ticket_id=ticket_id,
         action=action,
-        detail=detail,
+        detail=str(detail)[:255] if detail is not None else None,
     )
     db.add(log)

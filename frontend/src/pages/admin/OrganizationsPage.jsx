@@ -1,7 +1,29 @@
 import { useState, useEffect } from 'react'
 import { PlusIcon, PencilIcon, BuildingOffice2Icon, TrashIcon, UserCircleIcon, MapPinIcon } from '@heroicons/react/24/outline'
-import { Modal } from '@/components/ui/Modal'
-import { Spinner, PageShell, PageHeader } from '@/components/ui'
+import {
+  Button,
+  DataTable,
+  DataTableScroll,
+  EmptyState,
+  ErrorState,
+  FilterBar,
+  FormField,
+  IconButton,
+  Input,
+  Modal,
+  ModalFooter,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  PageHeader,
+  ResponsiveTableViewport,
+  PageShell,
+  Select,
+  Spinner,
+  StatusBadge,
+  Textarea,
+} from '@/components/ui'
 import Pagination from '@/components/ui/Pagination'
 import { listOrganizations, createOrganization, updateOrganization } from '@/api/organizations'
 import {
@@ -11,11 +33,6 @@ import {
 } from '@/api/items'
 import { createUser } from '@/api/users'
 import { SEARCH_DEBOUNCE_MS, PAGE_SIZE } from '@/lib/constants'
-
-const STATUS_COLORS = {
-  active:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  inactive: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-}
 
 const ROLE_COLORS = {
   primary:   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -29,65 +46,52 @@ const EMPTY_ORG_FORM = { name: '', code: '', contact_email: '', phone: '', statu
 function OrgForm({ initial = EMPTY_ORG_FORM, onSubmit, onCancel, loading, isEdit }) {
   const [form, setForm] = useState(initial)
   const [error, setError] = useState('')
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const set = (key) => (event) => setForm((value) => ({ ...value, [key]: event.target.value }))
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const handleSubmit = async (event) => {
+    event.preventDefault()
     setError('')
     if (!form.name.trim()) { setError('Name is required'); return }
     if (!form.code.trim()) { setError('Code is required'); return }
-    try { await onSubmit(form) } catch (err) { setError(err?.response?.data?.detail ?? 'An error occurred') }
+    try {
+      await onSubmit(form)
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail ?? 'An error occurred')
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">{error}</div>}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">Name <span className="text-red-500">*</span></label>
-          <input type="text" value={form.name} onChange={set('name')} placeholder="Company name"
-            className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">Code <span className="text-red-500">*</span></label>
-          <input type="text" value={form.code} onChange={set('code')} placeholder="ORG-001" disabled={isEdit}
-            className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed" />
-        </div>
+      {error && <ErrorState title="Unable to save organization" description={error} />}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <FormField label="Name" required>
+          <Input type="text" value={form.name} onChange={set('name')} placeholder="Company name" />
+        </FormField>
+        <FormField label="Code" required helperText={isEdit ? 'Organization codes cannot be changed.' : undefined}>
+          <Input type="text" value={form.code} onChange={set('code')} placeholder="ORG-001" disabled={isEdit} />
+        </FormField>
+        <FormField label="Contact Email">
+          <Input type="email" value={form.contact_email} onChange={set('contact_email')} placeholder="contact@company.com" />
+        </FormField>
+        <FormField label="Phone">
+          <Input type="text" value={form.phone} onChange={set('phone')} placeholder="+84 000 000 000" />
+        </FormField>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">Contact Email</label>
-          <input type="email" value={form.contact_email} onChange={set('contact_email')} placeholder="contact@company.com"
-            className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">Phone</label>
-          <input type="text" value={form.phone} onChange={set('phone')} placeholder="+84 000 000 000"
-            className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-1.5">Status</label>
-        <select value={form.status} onChange={set('status')}
-          className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+      <FormField label="Status">
+        <Select value={form.status} onChange={set('status')}>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
-        </select>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-1.5">Notes</label>
-        <textarea value={form.notes} onChange={set('notes')} rows={2} placeholder="Optional notes..."
-          className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
-      </div>
-      <div className="flex gap-3 pt-2">
-        <button type="button" onClick={onCancel}
-          className="flex-1 px-4 py-2 border border-input rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors">Cancel</button>
-        <button type="submit" disabled={loading}
-          className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
-          {loading && <Spinner className="w-3.5 h-3.5" />}
+        </Select>
+      </FormField>
+      <FormField label="Notes" helperText="Optional">
+        <Textarea value={form.notes} onChange={set('notes')} rows={3} placeholder="Notes about this organization" />
+      </FormField>
+      <ModalFooter>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Cancel</Button>
+        <Button type="submit" isLoading={loading} loadingText={isEdit ? 'Saving…' : 'Creating…'}>
           {isEdit ? 'Save Changes' : 'Create Organization'}
-        </button>
-      </div>
+        </Button>
+      </ModalFooter>
     </form>
   )
 }
@@ -316,8 +320,38 @@ function ContactsTab({ orgId }) {
           <p className="text-sm text-muted-foreground">No contacts yet</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <ResponsiveTableViewport
+          mobile={(
+            <MobileCardList ariaLabel="Organization contacts" className="p-0">
+              {contacts.map((c) => (
+                <MobileDataCard
+                  key={c.id}
+                  actions={(
+                    <>
+                      {!c.is_portal_user && (
+                        <Button type="button" size="sm" variant="outline" onClick={() => setPortalContact(c)}>
+                          Create portal user
+                        </Button>
+                      )}
+                      <Button type="button" size="sm" variant="outline" onClick={() => setEditContact(c)}>Edit</Button>
+                      <Button type="button" size="sm" variant="ghost" className="text-red-600" onClick={() => setDeleteTarget(c.id)}>Delete</Button>
+                    </>
+                  )}
+                >
+                  <h4 className="text-base font-semibold text-foreground">{c.name}</h4>
+                  <dl className="mt-2 divide-y divide-border">
+                    <MobileDataRow label="Role">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${ROLE_COLORS[c.role] ?? ROLE_COLORS.other}`}>{c.role}</span>
+                    </MobileDataRow>
+                    <MobileDataRow label="Email">{c.email || 'Not provided'}</MobileDataRow>
+                    <MobileDataRow label="Portal user">{c.is_portal_user ? c.user_email : 'Not created'}</MobileDataRow>
+                  </dl>
+                </MobileDataCard>
+              ))}
+            </MobileCardList>
+          )}
+        >
+        <table className="w-full min-w-[640px] text-sm">
           <thead><tr className="border-b border-border bg-muted/40">
             <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
             <th className="text-left px-3 py-2 font-medium text-muted-foreground">Role</th>
@@ -353,7 +387,7 @@ function ContactsTab({ orgId }) {
             ))}
           </tbody>
         </table>
-        </div>
+        </ResponsiveTableViewport>
       )}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Contact">
         <ContactForm onSubmit={handleAdd} onCancel={() => setAddOpen(false)} loading={saving} isEdit={false} />
@@ -423,8 +457,33 @@ function AddressesTab({ orgId }) {
           <p className="text-sm text-muted-foreground">No addresses yet</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <ResponsiveTableViewport
+          mobile={(
+            <MobileCardList ariaLabel="Organization addresses" className="p-0">
+              {addresses.map((a) => (
+                <MobileDataCard
+                  key={a.id}
+                  actions={(
+                    <>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setEditAddr(a)}>Edit</Button>
+                      <Button type="button" size="sm" variant="ghost" className="text-red-600" onClick={() => setDeleteTarget(a.id)}>Delete</Button>
+                    </>
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <h4 className="text-base font-semibold text-foreground">{a.label}</h4>
+                    {a.is_default && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Default</span>}
+                  </div>
+                  <dl className="mt-2 divide-y divide-border">
+                    <MobileDataRow label="Address">{fmtAddr(a) || 'Not provided'}</MobileDataRow>
+                    <MobileDataRow label="Country">{a.country}</MobileDataRow>
+                  </dl>
+                </MobileDataCard>
+              ))}
+            </MobileCardList>
+          )}
+        >
+        <table className="w-full min-w-[560px] text-sm">
           <thead><tr className="border-b border-border bg-muted/40">
             <th className="text-left px-3 py-2 font-medium text-muted-foreground">Label</th>
             <th className="text-left px-3 py-2 font-medium text-muted-foreground">Address</th>
@@ -452,7 +511,7 @@ function AddressesTab({ orgId }) {
             ))}
           </tbody>
         </table>
-        </div>
+        </ResponsiveTableViewport>
       )}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Address">
         <AddressForm onSubmit={handleAdd} onCancel={() => setAddOpen(false)} loading={saving} />
@@ -559,36 +618,68 @@ export default function OrganizationsPage() {
         title="Organizations"
         subtitle="Manage customer organizations"
         actions={(
-          <button onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-            <PlusIcon className="w-4 h-4" aria-hidden="true" />Create Organization
-          </button>
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            <PlusIcon className="h-4 w-4" aria-hidden="true" />
+            Create Organization
+          </Button>
         )}
       />
 
       {/* Search */}
-      <div className="flex gap-3 mb-4">
-        <input
-          type="text"
+      <FilterBar>
+        <Input
+          type="search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
           placeholder="Search by name, code, or email…"
-          className="flex-1 max-w-xs px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="w-full sm:w-80"
+          aria-label="Search organizations"
         />
-        {search && (
-          <button
-            onClick={() => setSearch('')}
-            className="px-3 py-2 border border-input rounded-lg bg-background text-muted-foreground text-sm hover:text-foreground hover:bg-muted transition-colors"
-          >
-            Clear
-          </button>
-        )}
-      </div>
+        {search && <Button type="button" variant="outline" onClick={() => setSearch('')}>Clear</Button>}
+      </FilterBar>
 
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <DataTable ariaLabel="Organizations">
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} className="border-t-0 border-b border-border" />
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <ResponsiveTableViewport
+          mobile={loading ? (
+            <LoadingState rows={3} label="Loading organizations" />
+          ) : orgs.length === 0 ? (
+            <EmptyState
+              icon={BuildingOffice2Icon}
+              title={search ? 'No matching organizations' : 'No organizations yet'}
+              description={search ? 'Try changing or clearing your search.' : 'Create one to get started.'}
+            />
+          ) : (
+            <MobileCardList ariaLabel="Organizations">
+              {orgs.map((org) => (
+                <MobileDataCard
+                  key={org.id}
+                  onClick={() => setDetailOrg(org)}
+                  ariaLabel={`View ${org.name}`}
+                  actions={(
+                    <Button type="button" size="sm" variant="outline" onClick={() => setDetailOrg(org)}>
+                      View details
+                    </Button>
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-semibold text-foreground" title={org.name}>{org.name}</h3>
+                      <p className="mt-0.5 font-mono text-xs text-muted-foreground">{org.code}</p>
+                    </div>
+                    <StatusBadge status={org.status} />
+                  </div>
+                  <dl className="mt-3 divide-y divide-border">
+                    <MobileDataRow label="Email">{org.contact_email || 'Not provided'}</MobileDataRow>
+                    <MobileDataRow label="Contacts">{org.contacts_count ?? 0}</MobileDataRow>
+                    <MobileDataRow label="Addresses">{org.addresses_count ?? 0}</MobileDataRow>
+                  </dl>
+                </MobileDataCard>
+              ))}
+            </MobileCardList>
+          )}
+        >
+        <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Code</th>
@@ -605,7 +696,7 @@ export default function OrganizationsPage() {
                 <tr key={i} className="border-b border-border">
                   {Array.from({ length: 6 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
-                      <div className="h-4 bg-muted rounded animate-pulse" />
+                      <div className="h-4 skeleton-shimmer rounded" />
                     </td>
                   ))}
                 </tr>
@@ -615,11 +706,11 @@ export default function OrganizationsPage() {
             <tbody>
               <tr>
                 <td colSpan={6}>
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <BuildingOffice2Icon className="w-10 h-10 text-muted-foreground mb-3" />
-                    <p className="font-medium text-foreground">No organizations yet</p>
-                    <p className="text-sm text-muted-foreground mt-1">Create one to get started</p>
-                  </div>
+                  <EmptyState
+                    icon={BuildingOffice2Icon}
+                    title={search ? 'No matching organizations' : 'No organizations yet'}
+                    description={search ? 'Try changing or clearing your search.' : 'Create one to get started.'}
+                  />
                 </td>
               </tr>
             </tbody>
@@ -634,26 +725,28 @@ export default function OrganizationsPage() {
                     {org.contacts_count ?? 0} / {org.addresses_count ?? 0}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[org.status] ?? 'bg-muted text-muted-foreground'}`}>
-                      {org.status}
-                    </span>
+                    <StatusBadge status={org.status} />
                   </td>
                   <td className="px-4 py-3">
-                    <button onClick={(e) => { e.stopPropagation(); setDetailOrg(org) }}
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                      <PencilIcon className="w-4 h-4" />
-                    </button>
+                    <IconButton label={`Edit ${org.name}`} onClick={(event) => { event.stopPropagation(); setDetailOrg(org) }}>
+                      <PencilIcon className="h-4 w-4" aria-hidden="true" />
+                    </IconButton>
                   </td>
                 </tr>
               ))}
             </tbody>
           )}
         </table>
-        </div>
+        </ResponsiveTableViewport>
         <Pagination page={page} pages={pages} total={total} perPage={PER_PAGE} onPage={setPage} />
-      </div>
+      </DataTable>
 
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create Organization">
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Create Organization"
+        description="Add a customer organization to CustomerHub."
+      >
         <OrgForm onSubmit={handleCreate} onCancel={() => setCreateOpen(false)} loading={saving} isEdit={false} />
       </Modal>
 

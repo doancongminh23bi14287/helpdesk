@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app import config
 from app.core.deps import require_staff_or_admin
 from app.core.redis_client import redis_client
+from app.core.scoping import assert_org_access, get_accessible_org_ids
 from app.database import get_db
 from app.models.ga4_connection import Ga4Connection
 from app.models.user import User
@@ -22,11 +23,19 @@ _STATE_TTL = 600  # seconds
 
 
 def _resolve_org(user: User, db: Session, org_id: Optional[int]) -> int:
-    if user.role == "admin" and org_id:
+    """Resolve the selected organization using the shared tenant access policy."""
+    if org_id is not None:
+        assert_org_access(org_id, user, db)
         return org_id
-    if user.org_id:
+
+    accessible = get_accessible_org_ids(user, db)
+    if accessible is None:
+        if user.org_id is None:
+            raise HTTPException(status_code=400, detail="org_id required")
         return user.org_id
-    raise HTTPException(status_code=400, detail="org_id required")
+    if not accessible:
+        raise HTTPException(status_code=403, detail="No accessible organizations")
+    return accessible[0]
 
 
 def _conn_or_404(org_id: int, db: Session) -> Ga4Connection:
@@ -49,7 +58,7 @@ def get_connect_url(
 
     target_org = _resolve_org(user, db, org_id)
     state = secrets.token_urlsafe(32)
-    redis_client.setex(f"ga4:state:{state}", _STATE_TTL, str(target_org))
+    redis_client.setex(f"ga4:state:{state}", _STATE_TTL, f"{target_org}:{user.id}")
 
     from app.services import ga4 as ga4_svc
     url = ga4_svc.build_auth_url(state)
@@ -70,12 +79,17 @@ def oauth_callback(
     if error or not code or not state:
         return RedirectResponse(f"{frontend_base}/seo?ga4_error={error or 'missing_params'}")
 
-    org_id_raw = redis_client.get(f"ga4:state:{state}")
-    if not org_id_raw:
+    stored = redis_client.get(f"ga4:state:{state}")
+    if not stored:
         return RedirectResponse(f"{frontend_base}/seo?ga4_error=invalid_state")
     redis_client.delete(f"ga4:state:{state}")
 
-    org_id = int(org_id_raw)
+    try:
+        org_id_raw, user_id_raw = stored.split(":", 1)
+        org_id = int(org_id_raw)
+        user_id = int(user_id_raw)
+    except (AttributeError, TypeError, ValueError):
+        return RedirectResponse(f"{frontend_base}/seo?ga4_error=invalid_state")
     from app.services import ga4 as ga4_svc
     try:
         tokens = ga4_svc.exchange_code(code)
@@ -91,6 +105,7 @@ def oauth_callback(
         conn.refresh_token = tokens["refresh_token"]
         conn.access_token = tokens.get("access_token")
         conn.token_expiry = expiry
+        conn.connected_by = user_id
         conn.status = "connected"
     else:
         conn = Ga4Connection(
@@ -98,6 +113,7 @@ def oauth_callback(
             refresh_token=tokens["refresh_token"],
             access_token=tokens.get("access_token"),
             token_expiry=expiry,
+            connected_by=user_id,
         )
         db.add(conn)
     db.commit()
@@ -174,7 +190,7 @@ def select_property(
 
 @router.get("/report")
 def get_report(
-    start_date: str = Query("30daysAgo"),
+    start_date: str = Query("29daysAgo"),
     end_date: str = Query("today"),
     org_id: Optional[int] = Query(None),
     user: User = Depends(require_staff_or_admin),
@@ -201,12 +217,12 @@ def get_report(
             ],
         })
 
-        # Daily sessions for sparkline
+        # Daily sessions for the trend chart
         daily_resp = ga4_svc.run_report(token, conn.property_id, {
             "dateRanges": [{"startDate": start_date, "endDate": end_date}],
             "dimensions": [{"name": "date"}],
             "metrics": [{"name": "sessions"}],
-            "orderBys": [{"dimension": {"dimensionName": "date"}}],
+            "orderBys": [{"dimension": {"dimensionName": "date"}, "desc": False}],
         })
 
     except Exception as exc:
@@ -223,16 +239,18 @@ def get_report(
             "avgSessionDuration": round(float(vals[3]["value"]), 1),
         }
 
-    # Parse sparkline
-    sparkline = []
+    # Keep the daily series separate from aggregate summary metrics.
+    trend = []
     for row in daily_resp.get("rows", []):
         date_str = row["dimensionValues"][0]["value"]
         sessions = int(float(row["metricValues"][0]["value"]))
-        sparkline.append({"date": f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}", "v": sessions})
+        trend.append({"date": f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}", "value": sessions})
+
+    trend.sort(key=lambda point: point["date"])
 
     return {
         "summary": summary,
-        "sparkline": sparkline,
+        "trend": trend,
         "property_id": conn.property_id,
         "property_name": conn.property_name,
     }

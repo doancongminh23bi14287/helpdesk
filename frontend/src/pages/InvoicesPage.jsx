@@ -2,7 +2,17 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DocumentTextIcon } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/Modal'
-import { Spinner } from '@/components/ui'
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  MobileCardList,
+  MobileDataCard,
+  MobileDataRow,
+  ResponsiveTableViewport,
+  Spinner,
+} from '@/components/ui'
 import { listMyInvoices, downloadInvoicePdf } from '@/api/invoices'
 import { useAuthStore } from '@/hooks/useAuth'
 import { formatCurrencyVND as fmtVND, formatDate as fmtDate } from '@/lib/utils'
@@ -143,7 +153,7 @@ export default function InvoicesPage() {
   }, [])
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="px-4 py-5 sm:p-6 max-w-6xl mx-auto">
       <div className="mb-6">
         <h1 className="text-xl font-bold text-foreground">Invoices</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Your organisation's invoices</p>
@@ -151,31 +161,49 @@ export default function InvoicesPage() {
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Spinner className="w-6 h-6" />
-          </div>
+          <LoadingState rows={4} className="px-4" label="Loading invoices" />
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <DocumentTextIcon className="w-10 h-10 text-muted-foreground mb-3" />
-            <p className="font-medium text-foreground">Could not load invoices</p>
-            <p className="text-sm text-muted-foreground mt-1">{error}</p>
-            <button
-              type="button"
-              onClick={load}
-              className="mt-4 px-3 py-2 border border-input rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
-            >
-              Retry
-            </button>
-          </div>
+          <ErrorState title="Could not load invoices" description={error} onRetry={load} className="m-4" />
         ) : invoices.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <DocumentTextIcon className="w-10 h-10 text-muted-foreground mb-3" />
-            <p className="font-medium text-foreground">No invoices found</p>
-            <p className="text-sm text-muted-foreground mt-1">Your invoices will appear here once generated</p>
-          </div>
+          <EmptyState
+            icon={DocumentTextIcon}
+            title="No invoices found"
+            description="Your invoices will appear here once generated."
+          />
         ) : (
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <ResponsiveTableViewport
+            mobile={(
+              <MobileCardList ariaLabel="Invoices">
+                {invoices.map((inv) => (
+                  <MobileDataCard
+                    key={inv.id}
+                    onClick={() => setSelected(inv)}
+                    ariaLabel={`View invoice ${inv.invoice_number}`}
+                    actions={(
+                      <Button type="button" size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setSelected(inv) }}>
+                        View details
+                      </Button>
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Invoice</p>
+                        <h3 className="font-mono text-base font-semibold text-foreground">{inv.invoice_number}</h3>
+                      </div>
+                      <StatusBadge status={inv.status} />
+                    </div>
+                    <dl className="mt-3 divide-y divide-border">
+                      <MobileDataRow label="Plan">{inv.subscription_plan_name || 'Not specified'}</MobileDataRow>
+                      <MobileDataRow label="Issue date">{fmtDate(inv.issue_date)}</MobileDataRow>
+                      <MobileDataRow label="Due date">{fmtDate(inv.due_date)}</MobileDataRow>
+                      <MobileDataRow label="Total">{fmtVND(inv.total)}</MobileDataRow>
+                    </dl>
+                  </MobileDataCard>
+                ))}
+              </MobileCardList>
+            )}
+          >
+          <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Invoice #</th>
@@ -203,7 +231,7 @@ export default function InvoicesPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </ResponsiveTableViewport>
         )}
       </div>
 

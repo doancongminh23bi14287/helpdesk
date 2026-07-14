@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Spinner } from '@/components/ui'
+import {
+  MobileCardList,
+  MobileDataCard,
+  ResponsiveTableViewport,
+  Spinner,
+} from '@/components/ui'
 import { createItem, createContact } from '@/api/items'
 import { createOrganization } from '@/api/organizations'
 import { createUser } from '@/api/users'
@@ -166,8 +171,53 @@ function Step1Items({ onBack, onNext, onSkip }) {
       />
       <ErrorBanner message={error} />
 
-      <div className="overflow-x-auto rounded-xl border border-border">
-        <table className="w-full text-sm">
+      <div className="overflow-hidden rounded-xl border border-border">
+        <ResponsiveTableViewport
+          mobile={(
+            <MobileCardList ariaLabel="Service items">
+              {items.map((item) => (
+                <MobileDataCard
+                  key={item.id}
+                  actions={(
+                    <button type="button" onClick={() => removeItem(item.id)} className="min-h-11 px-3 text-sm font-medium text-red-600">
+                      Remove item
+                    </button>
+                  )}
+                >
+                  <div className="grid grid-cols-1 gap-3">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Code
+                      <input type="text" value={item.code} onChange={(event) => updateItem(item.id, 'code', event.target.value)} className="mt-1.5 h-11 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                    </label>
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Name
+                      <input type="text" value={item.name} onChange={(event) => updateItem(item.id, 'name', event.target.value)} className="mt-1.5 h-11 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Category
+                        <select value={item.category} onChange={(event) => updateItem(item.id, 'category', event.target.value)} className="mt-1.5 h-11 w-full rounded-md border border-input bg-background px-2 text-base text-foreground">
+                          <option value="saas">saas</option><option value="hosting">hosting</option><option value="support">support</option><option value="license">license</option><option value="other">other</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Billing cycle
+                        <select value={item.billing_cycle} onChange={(event) => updateItem(item.id, 'billing_cycle', event.target.value)} className="mt-1.5 h-11 w-full rounded-md border border-input bg-background px-2 text-base text-foreground">
+                          <option value="month">month</option><option value="year">year</option><option value="one_time">one_time</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Price (VND)
+                      <input type="number" min={0} value={item.unit_price} onChange={(event) => updateItem(item.id, 'unit_price', event.target.value)} className="mt-1.5 h-11 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                    </label>
+                  </div>
+                </MobileDataCard>
+              ))}
+            </MobileCardList>
+          )}
+        >
+        <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Code</th>
@@ -244,6 +294,7 @@ function Step1Items({ onBack, onNext, onSkip }) {
             ))}
           </tbody>
         </table>
+        </ResponsiveTableViewport>
       </div>
 
       <button
@@ -683,7 +734,7 @@ export default function SetupWizard() {
   const goBack = () => setStep(s => s - 1)
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="px-4 py-5 sm:p-6 max-w-3xl mx-auto">
       {/* Page Title */}
       <div className="mb-6">
         <h1 className="text-xl font-bold text-foreground">First-Time Setup Wizard</h1>

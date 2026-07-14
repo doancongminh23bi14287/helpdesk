@@ -10,7 +10,7 @@ from app.models.team import StaffOrgAssignment
 from app.core.redis_client import redis_client
 from app.core.constants import (
     ASSIGN_WORKLOAD_WEIGHT, ASSIGN_SKILL_WEIGHT, ASSIGN_ONLINE_WEIGHT,
-    ASSIGN_ONLINE_WINDOW_SECONDS, ASSIGN_LOCK_TTL_SECONDS,
+    ASSIGN_LOCK_TTL_SECONDS,
     SKILL_HISTORICAL_WEIGHT, SKILL_BASELINE_WEIGHT,
     HISTORICAL_POINT_PER_TICKET, SKILL_COLDSTART_THRESHOLD,
 )
@@ -79,11 +79,22 @@ def _skill_score(agent_id: int, ticket: Ticket, db: Session) -> float:
 
 def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
     """Compute raw + normalised scores for all staff candidates assigned to ticket's org."""
-    from app.models.project import ProjectTask
+    from app.models.project import ProjectMember, ProjectTask
 
     assigned_user_ids = db.query(StaffOrgAssignment.user_id).filter(
         StaffOrgAssignment.org_id == ticket.org_id
     ).subquery()
+    project_member_ids = None
+    if ticket.project_id:
+        member_ids = [
+            row.user_id
+            for row in db.query(ProjectMember.user_id).filter(
+                ProjectMember.project_id == ticket.project_id,
+                ProjectMember.role == "staff",
+            ).all()
+        ]
+        if member_ids:
+            project_member_ids = set(member_ids)
 
     candidates = db.query(User).filter(
         User.id.in_(select(assigned_user_ids)),
@@ -91,9 +102,10 @@ def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
         User.is_active == True,
     ).all()
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     rows = []
     for agent in candidates:
+        if project_member_ids is not None and agent.id not in project_member_ids:
+            continue
         # Workload = active project tasks; fallback to active tickets via ticket_assignees
         task_count = db.query(func.count(ProjectTask.id)).filter(
             ProjectTask.assignee_id == agent.id,
@@ -111,10 +123,9 @@ def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
                 Ticket.is_deleted == False,  # noqa: E712
             ).scalar() or 0
 
+        # Login time is not presence. Keep the score field stable but neutral
+        # until heartbeat-backed presence and privacy policy are implemented.
         online = 0
-        if agent.last_login_at:
-            diff = (now - agent.last_login_at).total_seconds()
-            online = 1 if diff <= ASSIGN_ONLINE_WINDOW_SECONDS else 0
 
         rows.append({
             "user_id": agent.id,
