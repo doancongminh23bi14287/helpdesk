@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.models.ticket import Ticket, TicketAssignee
 from app.models.project import Project, TaskAssignee
-from app.models.team import StaffOrgAssignment
 from app.models.user import User
 
 
@@ -37,19 +36,10 @@ def validate_assignee_ids(
             detail=f"Assignee(s) must be active staff: {invalid}",
         )
 
-    assigned_ids = {
-        row.user_id
-        for row in db.query(StaffOrgAssignment).filter(
-            StaffOrgAssignment.user_id.in_(unique_ids),
-            StaffOrgAssignment.org_id == org_id,
-        ).all()
-    }
-    unauthorized = sorted(set(unique_ids) - assigned_ids)
-    if unauthorized:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Assignee(s) are not assigned to organization {org_id}: {unauthorized}",
-        )
+    # Ticket/manual assignment only requires an active staff account.
+    # Org membership is handled by ticket scoping and project membership policies,
+    # and direct assignee visibility is expected to work across org boundaries.
+    _ = org_id
     return users
 
 
