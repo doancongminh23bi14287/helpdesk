@@ -21,6 +21,17 @@ def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _origin_from_url(url: str) -> str | None:
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url.strip())
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    except Exception:
+        return None
+    return None
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -33,10 +44,14 @@ def _env_bool(name: str, default: bool = False) -> bool:
 # validate_production_config() by setting TESTING=true in the environment.
 TESTING: bool = "pytest" in sys.modules
 
-CORS_ORIGINS: list[str] = _split_csv(
+_configured_cors_origins = _split_csv(
     os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:8001")
 )
 FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+_frontend_origin = _origin_from_url(FRONTEND_URL)
+CORS_ORIGINS: list[str] = list(dict.fromkeys(
+    _configured_cors_origins + ([_frontend_origin] if _frontend_origin else [])
+))
 EMAIL_FEATURES_ENABLED: bool = _env_bool("EMAIL_FEATURES_ENABLED", False)
 
 IMAP_HOST: str = os.getenv("IMAP_HOST", "mail.example.com")

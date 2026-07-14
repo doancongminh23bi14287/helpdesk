@@ -190,6 +190,32 @@ def test_production_config_rejects_missing_email_credentials_when_enabled():
     assert "SMTP_PASS" in proc.stderr
 
 
+def test_production_config_includes_frontend_origin_from_frontend_url():
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(BACKEND_DIR),
+        "ENV": "production",
+        "JWT_SECRET": "x" * 32,
+        "DATABASE_URL": "mysql+pymysql://u:p@db/app",
+        "DB_URL": "",
+        "REDIS_HOST": "redis",
+        "REDIS_PORT": "6379",
+        "FRONTEND_URL": "https://helpdesk-swart-nu.vercel.app",
+        "CORS_ORIGINS": "https://api.example.com",
+        "SMTP_PASS": "smtp",
+        "IMAP_PASS": "imap",
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", "import app.config as c; print(c.CORS_ORIGINS)"] ,
+        cwd=str(BACKEND_DIR),
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "https://helpdesk-swart-nu.vercel.app" in proc.stdout
+
+
 def test_production_config_rejects_wildcard_cors(monkeypatch):
     env = {
         **os.environ,

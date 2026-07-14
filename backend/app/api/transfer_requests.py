@@ -1,5 +1,6 @@
 """Ticket transfer request endpoints — staff-to-staff handoff with mutual consent."""
 from datetime import datetime, timezone
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -15,6 +16,7 @@ from app.services.assignment import set_ticket_assignees
 from app.services.notify import create_notification
 
 router = APIRouter(prefix="/api/tickets", tags=["transfer-requests"])
+logger = logging.getLogger(__name__)
 
 
 class TransferRequestCreate(BaseModel):
@@ -90,12 +92,18 @@ def get_transfer_request(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    get_ticket_in_scope(ticket_id, user, db)  # raises 404 if out of scope
-    req = db.query(TicketTransferRequest).filter(
-        TicketTransferRequest.ticket_id == ticket_id,
-        TicketTransferRequest.status == "pending",
-    ).first()
-    return _req_out(req) if req else None
+    try:
+        get_ticket_in_scope(ticket_id, user, db)  # raises 404 if out of scope
+        req = db.query(TicketTransferRequest).filter(
+            TicketTransferRequest.ticket_id == ticket_id,
+            TicketTransferRequest.status == "pending",
+        ).first()
+        return _req_out(req) if req else None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("transfer-request lookup failed", extra={"ticket_id": ticket_id, "user_id": user.id})
+        return None
 
 
 @router.put("/{ticket_id}/transfer-request/{req_id}/accept")
