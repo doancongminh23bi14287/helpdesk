@@ -31,6 +31,16 @@ def validate_project_links(db: Session, org_id: int, service_id: int | None, sub
             raise HTTPException(status_code=422, detail="Subscription does not belong to the project organization")
 
 
+def ensure_project_allows_workflow(project: Project, action: str) -> None:
+    """Reject workflow mutations on completed/cancelled projects."""
+    if project.status in {"completed", "cancelled"}:
+        status_label = "Cancelled" if project.status == "cancelled" else "Completed"
+        raise HTTPException(
+            status_code=409,
+            detail=f"{status_label} projects cannot {action}.",
+        )
+
+
 def calculate_project_progress(db: Session, project_id: int) -> float:
     """Return percent of non-cancelled tasks completed (0.0 when no active tasks)."""
     tasks = db.query(ProjectTask).filter(ProjectTask.project_id == project_id).all()
@@ -111,6 +121,7 @@ def cancel_project(db: Session, project: Project) -> Project:
 
 def create_project_task(db: Session, project: Project, payload: ProjectTaskCreate, created_by: int) -> ProjectTask:
     """Create a task under a project and recompute project progress."""
+    ensure_project_allows_workflow(project, "receive new tasks")
     task = ProjectTask(
         project_id=project.id,
         title=payload.title.strip(),
@@ -142,6 +153,10 @@ def _validate_task_transition(current_status: str, next_status: str) -> None:
 
 def update_project_task(db: Session, task: ProjectTask, payload: ProjectTaskUpdate) -> ProjectTask:
     """Apply a partial update to a task, validating any status transition."""
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_allows_workflow(project, "receive task updates")
     data = payload.model_dump(exclude_unset=True)
     if "status" in data and data["status"] is not None:
         _validate_task_transition(task.status, data["status"])
@@ -158,6 +173,10 @@ def update_project_task(db: Session, task: ProjectTask, payload: ProjectTaskUpda
 
 def update_project_task_status(db: Session, task: ProjectTask, status: str) -> ProjectTask:
     """Transition a task to a new status (validated) and recompute progress."""
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_allows_workflow(project, "receive task updates")
     _validate_task_transition(task.status, status)
     task.status = status
     task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None) if status == "completed" else None
@@ -168,6 +187,10 @@ def update_project_task_status(db: Session, task: ProjectTask, status: str) -> P
 
 def cancel_project_task(db: Session, task: ProjectTask) -> ProjectTask:
     """Cancel a task and recompute project progress without it."""
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_allows_workflow(project, "receive task updates")
     task.status = "cancelled"
     task.completed_at = None
     db.flush()

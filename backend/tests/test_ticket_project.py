@@ -289,3 +289,20 @@ def test_document_list_includes_source_and_ticket_attachment_id(
     assert doc["source"] == "ticket_attachment"
     assert doc["ticket_attachment_id"] == att.id
     assert doc["ticket_id"] == ticket_id
+
+
+def test_link_project_rejects_cancelled_project(client, db, admin_token, client_org, service, admin_user):
+    data = _create_ticket(client, admin_token, client_org.id, service.id, assignment_mode="none")
+    ticket_id = data["id"]
+    from app.models.project import Project
+    project = Project(org_id=client_org.id, name="Cancelled Link", project_type="seo", status="cancelled", visibility="customer_visible", created_by=admin_user.id)
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    r = client.post(
+        f"/api/tickets/{ticket_id}/link-project",
+        json={"project_id": project.id},
+        headers=_auth(admin_token),
+    )
+    assert r.status_code == 422, r.text

@@ -2,7 +2,7 @@ from io import BytesIO
 from typing import List, Optional
 from math import ceil
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -388,6 +388,7 @@ def delete_invoice_line(
 @router.put("/{invoice_id}/send", response_model=InvoiceOut)
 @limiter.limit("5/minute")
 def send_invoice_endpoint(
+    request: Request,
     invoice_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),

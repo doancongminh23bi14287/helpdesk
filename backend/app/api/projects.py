@@ -45,6 +45,7 @@ from app.services.projects import (
     cancel_project_task,
     create_project,
     create_project_task,
+    ensure_project_allows_workflow,
     update_project,
     update_project_task,
     update_project_task_status,
@@ -369,6 +370,7 @@ def create_project_task_endpoint(
     project = assert_project_access(project_id, user, db)
     if not _can_manage_project(project, user, db):
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_allows_workflow(project, "receive new tasks")
     task = create_project_task(db, project, payload, created_by=user.id)
     db.flush()
 
@@ -420,6 +422,7 @@ async def upload_project_document(
     project = assert_project_access(project_id, user, db)
     if not _can_manage_project(project, user, db):
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_allows_workflow(project, "receive workflow data")
 
     data = await file.read()
     stored = save_attachment(
@@ -564,6 +567,7 @@ def add_project_member(
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="User is already a member of this project")
+    ensure_project_allows_workflow(project, "receive new assignments")
 
     member = ProjectMember(
         project_id=project.id,
@@ -595,6 +599,7 @@ def remove_project_member(
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
+    ensure_project_allows_workflow(project, "receive workflow changes")
 
     db.delete(member)
     db.commit()
@@ -608,6 +613,7 @@ def get_project_task(
 ):
     task = assert_project_task_access(task_id, user, db)
     project = db.query(Project).filter(Project.id == task.project_id).first()
+    ensure_project_allows_workflow(project, "receive task comments")
     _assert_customer_project_member(project, user, db)
     return _task_detail_dict(task, db, user)
 
@@ -624,6 +630,7 @@ def update_project_task_endpoint(
     project = db.query(Project).filter(Project.id == task.project_id).first()
     if not project or not _can_manage_project(project, user, db):
         raise HTTPException(status_code=404, detail="Project task not found")
+    ensure_project_allows_workflow(project, "receive task updates")
 
     old_status = task.status
     task = update_project_task(db, task, payload)
@@ -658,6 +665,10 @@ def update_project_task_status_endpoint(
 ):
     _require_internal(user)
     task = assert_project_task_access(task_id, user, db)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_allows_workflow(project, "receive task updates")
     task = update_project_task_status(db, task, payload.status)
     db.commit()
     db.refresh(task)
@@ -673,6 +684,10 @@ def delete_project_task(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can cancel project tasks")
     task = assert_project_task_access(task_id, user, db)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_allows_workflow(project, "receive task updates")
     task = cancel_project_task(db, task)
     db.commit()
     db.refresh(task)
@@ -808,6 +823,7 @@ def get_project_discussion(
     from app.models.ticket import Ticket, TicketReply
 
     project = assert_project_access(project_id, user, db)
+    ensure_project_allows_workflow(project, "receive workflow data")
 
     ticket_query = db.query(Ticket).filter(
         Ticket.project_id == project.id,
@@ -1020,6 +1036,9 @@ def submit_task_approval(
             raise HTTPException(status_code=404, detail="Task not found")
     else:
         task = assert_project_task_access(task_id, user, db)
+
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    ensure_project_allows_workflow(project, "receive task approvals")
 
     action = payload.action
 

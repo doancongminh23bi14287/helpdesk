@@ -2,7 +2,7 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app import config
@@ -75,6 +75,7 @@ def get_prediction(
 @router.post("/tickets/{ticket_id}/classify", response_model=AiPredictionOut)
 @limiter.limit("10/minute")
 async def classify_ticket_now(
+    request: Request,
     ticket_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_staff_or_admin),
@@ -101,6 +102,7 @@ async def classify_ticket_now(
 @router.post("/tickets/{ticket_id}/suggest-reply", response_model=AiReplyOut)
 @limiter.limit("10/minute")
 async def suggest_reply(
+    request: Request,
     ticket_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_staff_or_admin),
@@ -197,6 +199,7 @@ def get_summary(
 @router.post("/tickets/{ticket_id}/summarize", response_model=AiSummaryOut)
 @limiter.limit("6/minute")
 async def summarize_ticket(
+    request: Request,
     ticket_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_staff_or_admin),

@@ -281,3 +281,44 @@ def test_reply_activity_is_logged(client, db, customer_token, customer_user, cli
     ).all()
     assert len(activities) == 1
     assert activities[0].actor_id == customer_user.id
+
+
+def test_first_public_staff_reply_sets_first_responded_at_once(
+    client, db, client_org, service, customer_user, staff_user, staff_token, staff_assignment
+):
+    ticket = make_ticket(db, client_org, service, customer_user)
+    ticket.first_responded_at = None
+    db.commit()
+
+    r1 = client.post(
+        f"/api/tickets/{ticket.id}/replies",
+        json={"content": "First public reply", "is_internal": False},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r1.status_code == 201, r1.text
+    db.refresh(ticket)
+    first = ticket.first_responded_at
+    assert first is not None
+
+    r2 = client.post(
+        f"/api/tickets/{ticket.id}/replies",
+        json={"content": "Second public reply", "is_internal": False},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r2.status_code == 201, r2.text
+    db.refresh(ticket)
+    assert ticket.first_responded_at == first
+
+
+def test_internal_note_does_not_set_first_responded_at(
+    client, db, client_org, service, customer_user, staff_user, staff_token, staff_assignment
+):
+    ticket = make_ticket(db, client_org, service, customer_user)
+    r = client.post(
+        f"/api/tickets/{ticket.id}/replies",
+        json={"content": "Internal note", "is_internal": True},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert r.status_code == 201, r.text
+    db.refresh(ticket)
+    assert ticket.first_responded_at is None

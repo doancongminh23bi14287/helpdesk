@@ -133,6 +133,23 @@ def _get_ticket_in_scope(ticket_id: int, user: User, db: Session) -> Ticket:
     return get_ticket_in_scope(ticket_id, user, db)
 
 
+def _utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _apply_status_timestamp_policy(ticket: Ticket, current_status: str, new_status: str) -> None:
+    if current_status == new_status:
+        return
+    if current_status == "Resolved" and new_status != "Resolved":
+        ticket.resolved_at = None
+    if current_status == "Closed" and new_status != "Closed":
+        ticket.closed_at = None
+    if new_status == "Resolved":
+        ticket.resolved_at = _utcnow_naive()
+    elif new_status == "Closed":
+        ticket.closed_at = _utcnow_naive()
+
+
 # ── POST /api/tickets ─────────────────────────────────────────────────────────
 
 @router.post("", status_code=201, response_model=TicketOut)
@@ -543,9 +560,10 @@ def update_ticket(
         )
         db.add(activity)
         ticket.status = new_status
+        _apply_status_timestamp_policy(ticket, current_status, new_status)
 
         # SLA pause/resume
-        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        now_utc = _utcnow_naive()
         if new_status == "Waiting" and ticket.sla_paused_at is None:
             ticket.sla_paused_at = now_utc
         elif new_status == "In Progress" and ticket.sla_paused_at is not None:
@@ -758,6 +776,7 @@ def hard_delete_ticket(
 @router.post("/{ticket_id}/replies", status_code=201, response_model=TicketReplyOut)
 @limiter.limit("20/minute")
 def add_reply(
+    request: Request,
     ticket_id: int,
     payload: TicketReplyCreate,
     background_tasks: BackgroundTasks,
@@ -784,7 +803,7 @@ def add_reply(
         old_status = ticket.status
         # Resume SLA if coming back from Waiting
         if old_status == "Waiting" and ticket.sla_paused_at is not None:
-            pause_duration = datetime.now(timezone.utc).replace(tzinfo=None) - ticket.sla_paused_at
+            pause_duration = _utcnow_naive() - ticket.sla_paused_at
             duration_seconds = int(pause_duration.total_seconds())
             if ticket.resolution_by:
                 ticket.resolution_by = ticket.resolution_by + pause_duration
@@ -795,6 +814,10 @@ def add_reply(
             )
             ticket.sla_paused_at = None
         ticket.status = "In Progress"
+        if old_status == "Resolved":
+            ticket.resolved_at = None
+        elif old_status == "Closed":
+            ticket.closed_at = None
         reopen_activity = TicketActivity(
             ticket_id=ticket_id,
             actor_id=user.id,
@@ -804,6 +827,9 @@ def add_reply(
             detail="auto-reopened by customer reply",
         )
         db.add(reopen_activity)
+
+    if not is_internal and user.role != "customer" and ticket.first_responded_at is None:
+        ticket.first_responded_at = _utcnow_naive()
 
     # Log replied activity
     reply_activity = TicketActivity(

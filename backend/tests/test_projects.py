@@ -335,3 +335,18 @@ def test_other_org_project_document_returns_404_for_customer(
 
     assert listed.status_code == 404
     assert downloaded.status_code == 404
+
+
+def test_cancelled_project_rejects_new_tasks(client, db, admin_token, admin_user, client_org):
+    project = Project(org_id=client_org.id, name="Cancelled SEO", visibility="customer_visible", created_by=admin_user.id, status="cancelled")
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    r = client.post(
+        f"/api/projects/{project.id}/tasks",
+        json=_task_payload(),
+        headers=_auth(admin_token),
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "Cancelled projects cannot receive new tasks."

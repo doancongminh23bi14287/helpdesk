@@ -3,7 +3,7 @@ import logging
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -51,6 +51,7 @@ def _conn_or_404(org_id: int, db: Session) -> Ga4Connection:
 @router.get("/connect")
 @limiter.limit("5/minute")
 def get_connect_url(
+    request: Request,
     org_id: Optional[int] = Query(None),
     user: User = Depends(require_staff_or_admin),
     db: Session = Depends(get_db),

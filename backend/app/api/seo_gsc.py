@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from typing import List
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -64,6 +64,7 @@ def _resolve_org(user: User, db: Session, org_id: Optional[int]) -> int:
 @router.get("/connect")
 @limiter.limit("5/minute")
 def get_connect_url(
+    request: Request,
     org_id: Optional[int] = Query(None),
     user: User = Depends(require_staff_or_admin),
     db: Session = Depends(get_db),

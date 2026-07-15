@@ -89,6 +89,11 @@ def set_ticket_assignees(
 
     # Member sync when ticket belongs to a project
     if ticket.project_id:
+        project = db.query(Project).filter(Project.id == ticket.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from app.services.projects import ensure_project_allows_workflow
+        ensure_project_allows_workflow(project, "receive new assignments")
         for uid in user_ids:
             _upsert_project_member(db, ticket.project_id, uid, assigned_by)
         removed = old_user_ids - set(user_ids)
@@ -124,6 +129,8 @@ def set_task_assignees(
     project = db.query(Project).filter(Project.id == task.project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    from app.services.projects import ensure_project_allows_workflow
+    ensure_project_allows_workflow(project, "receive new assignments")
     users = validate_assignee_ids(db, user_ids, project.org_id)
 
     old_rows = db.query(TaskAssignee).filter(TaskAssignee.task_id == task.id).all()
