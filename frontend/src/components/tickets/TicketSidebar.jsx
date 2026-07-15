@@ -59,6 +59,99 @@ function SummaryText({ value }) {
   )
 }
 
+function AssignmentCard({
+  ticket,
+  isStaffOrAdmin,
+  isAdmin,
+  isStaff,
+  user,
+  staffList,
+  transferReq,
+  updating,
+  error,
+  onAssign,
+  onOpenTransfer,
+  onAcceptTransfer,
+  onDeclineTransfer,
+}) {
+  if (!isStaffOrAdmin) return null
+  const current = ticket.assignees?.length
+    ? ticket.assignees
+    : ticket.assignee_id
+      ? [{ user_id: ticket.assignee_id, full_name: ticket.assignee_name, email: ticket.assignee_email, is_primary: true }]
+      : []
+
+  return (
+    <SectionCard title="Assignment">
+      <div className="space-y-3">
+        {current.length > 0 ? (
+          <div className="space-y-2">
+            {current.map((assignee) => (
+              <div key={assignee.user_id} className="flex items-center gap-2 rounded-md bg-surface-muted px-3 py-2">
+                <UserCircleIcon className="h-5 w-5 flex-none text-muted-foreground" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">{assignee.full_name || assignee.email || `Staff #${assignee.user_id}`}</p>
+                  {assignee.email && <p className="truncate text-[11px] text-muted-foreground">{assignee.email}</p>}
+                </div>
+                {assignee.is_primary && <span className="text-[11px] font-medium text-info">Primary</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md bg-surface-muted px-3 py-2 text-xs font-medium text-muted-foreground">
+            Unassigned
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <Select
+              value={ticket.assignee_id ?? ''}
+              onChange={(event) => onAssign(event.target.value)}
+              disabled={updating}
+              aria-label="Assign ticket"
+              className="flex-1"
+            >
+              <option value="">Unassigned</option>
+              {staffList.map((staff) => (
+                <option key={staff.id} value={staff.id}>{staff.full_name || staff.email}</option>
+              ))}
+            </Select>
+            {updating && <Spinner className="h-4 w-4 flex-none" />}
+          </div>
+        )}
+
+        {error && <p className="text-xs text-danger" role="alert">{error}</p>}
+
+        {isStaff && transferReq?.to_staff_id === user?.id && (
+          <div className="space-y-2 rounded-md bg-warning-muted p-3">
+            <p className="text-xs text-secondary-foreground">
+              {transferReq.from_staff_name} requested a transfer to you.
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={onAcceptTransfer}>Accept</Button>
+              <Button type="button" size="sm" variant="outline" onClick={onDeclineTransfer}>Decline</Button>
+            </div>
+          </div>
+        )}
+
+        {isStaff && transferReq?.from_staff_id === user?.id && (
+          <p className="rounded-md bg-info-muted px-3 py-2 text-xs text-info">
+            Waiting for {transferReq.to_staff_name} to accept the transfer.
+          </p>
+        )}
+
+        {isStaff && !transferReq && Number(ticket.assignee_id) === Number(user?.id) && (
+          <Button type="button" variant="outline" size="sm" className="w-full" onClick={onOpenTransfer}>
+            <UserPlusIcon className="h-4 w-4" aria-hidden="true" />
+            Request transfer
+          </Button>
+        )}
+      </div>
+    </SectionCard>
+  )
+}
+
 function AiCard({ ticket, predictionSetter, summary, loading, cooldown, onSummarize }) {
   return (
     <SectionCard
