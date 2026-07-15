@@ -415,8 +415,10 @@ def test_create_ticket_empty_ticket_type_defaults_to_question(
 
 
 def test_ticket_status_timestamps_reset_on_reopen_and_update_on_close(
-    client, admin_token, staff_token, client_org, service, staff_assignment
+    client, admin_token, staff_token, client_org, service, staff_assignment, db
 ):
+    from app.models.ticket import Ticket
+
     r = create_ticket(client, admin_token, client_org.id, service.id, "Lifecycle ticket")
     assert r.status_code == 201, r.text
     ticket_id = r.json()["id"]
@@ -425,24 +427,28 @@ def test_ticket_status_timestamps_reset_on_reopen_and_update_on_close(
     assert r.status_code == 200, r.text
     r = client.put(f"/api/tickets/{ticket_id}", json={"status": "Resolved"}, headers=auth(staff_token))
     assert r.status_code == 200, r.text
-    first_resolved = r.json()["resolved_at"]
+    db_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    first_resolved = db_ticket.resolved_at
     assert first_resolved is not None
-    assert r.json()["closed_at"] is None
+    assert db_ticket.closed_at is None
 
     r = client.put(f"/api/tickets/{ticket_id}", json={"status": "In Progress"}, headers=auth(staff_token))
     assert r.status_code == 200, r.text
-    assert r.json()["resolved_at"] is None
+    db.refresh(db_ticket)
+    assert db_ticket.resolved_at is None
 
     r = client.put(f"/api/tickets/{ticket_id}", json={"status": "Resolved"}, headers=auth(staff_token))
     assert r.status_code == 200, r.text
-    assert r.json()["resolved_at"] is not None
-    assert r.json()["resolved_at"] != first_resolved
+    db.refresh(db_ticket)
+    assert db_ticket.resolved_at is not None
+    assert db_ticket.resolved_at != first_resolved
 
     r = client.put(f"/api/tickets/{ticket_id}", json={"status": "Closed"}, headers=auth(staff_token))
     assert r.status_code == 200, r.text
-    closed_at = r.json()["closed_at"]
-    assert closed_at is not None
+    db.refresh(db_ticket)
+    assert db_ticket.closed_at is not None
 
     r = client.put(f"/api/tickets/{ticket_id}", json={"status": "Open"}, headers=auth(admin_token))
     assert r.status_code == 200, r.text
-    assert r.json()["closed_at"] is None
+    db.refresh(db_ticket)
+    assert db_ticket.closed_at is None

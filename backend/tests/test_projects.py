@@ -191,7 +191,7 @@ def test_cancelled_tasks_excluded_and_all_active_completed_sets_project_complete
     assert project.status == "completed"
 
 
-def test_adding_open_task_to_completed_project_reopens_project(client, admin_token, db, client_org, admin_user):
+def test_completed_project_rejects_new_tasks(client, admin_token, db, client_org, admin_user):
     project = Project(
         org_id=client_org.id,
         name="Reopen SEO",
@@ -209,10 +209,8 @@ def test_adding_open_task_to_completed_project_reopens_project(client, admin_tok
         headers=_auth(admin_token),
     )
 
-    assert r.status_code == 201, r.text
-    db.refresh(project)
-    assert float(project.progress_percent) == 0
-    assert project.status == "open"
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "Completed projects cannot receive new tasks."
 
 
 def test_staff_and_customer_task_permissions(
