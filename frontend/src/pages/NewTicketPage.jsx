@@ -294,9 +294,9 @@ export default function NewTicketPage() {
         description="Provide the details our support team needs to route and resolve the request."
       />
 
-      <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-5">
+      <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-5 pb-10">
         <Card className="-mx-4 rounded-none border-x-0 shadow-none sm:mx-0 sm:rounded-lg sm:border-x sm:shadow-sm">
-          <CardContent className="space-y-6 p-4 sm:p-6">
+          <CardContent className="space-y-6 px-4 py-4 sm:px-6 sm:py-5">
             <FormField label="Subject" required error={errors.subject} id="ticket-subject">
               <Input
                 value={form.subject}
@@ -464,7 +464,7 @@ export default function NewTicketPage() {
           </div>
         )}
 
-        <FormActions className="pb-2">
+        <FormActions className="pb-0">
           <Button
             type="button"
             variant="outline"

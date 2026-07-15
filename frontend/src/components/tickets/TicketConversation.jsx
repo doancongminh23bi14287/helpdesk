@@ -234,12 +234,11 @@ export function TicketConversation({
 
   return (
     <Card className="flex h-full min-h-[28rem] flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2.5 sm:px-5">
         <div className="min-w-0">
-          <h2 id="conversation-title" className="section-title">Conversation</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Original request and replies in chronological order.</p>
+          <h2 id="conversation-title" className="section-title">Conversation ({itemCount})</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Replies in chronological order</p>
         </div>
-        <span className="text-xs text-muted-foreground">{itemCount} message{itemCount === 1 ? '' : 's'}</span>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -247,7 +246,7 @@ export function TicketConversation({
           ref={scrollRef}
           onScroll={handleScroll}
           className={cn(
-            'ticket-conversation-scrollbar h-full min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5',
+            'ticket-conversation-scrollbar h-full min-h-0 overflow-y-auto overscroll-y-auto px-4 py-4 sm:px-5 sm:py-5',
             itemCount === 0 && 'pb-5',
           )}
         >
