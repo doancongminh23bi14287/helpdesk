@@ -416,7 +416,7 @@ export default function SubscriptionsPage() {
         listSubscriptions(params),
         listItems(),
         listOrganizations({ per_page: 200 }),
-        listServices(),
+        listServices({ lifecycle: 'all' }),
       ])
       setSubscriptions(Array.isArray(subsData?.items) ? subsData.items : [])
       setTotal(subsData?.total ?? 0)

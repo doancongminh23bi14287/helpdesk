@@ -154,6 +154,8 @@ def create_ticket(
         service = db.query(Service).filter(Service.id == payload.service_id).first()
         if not service or service.org_id != payload.org_id:
             raise HTTPException(status_code=422, detail="Service does not belong to the specified organization")
+        if service.is_archived:
+            raise HTTPException(status_code=422, detail="Archived services cannot receive new tickets")
 
     from app.models.project import Project, ProjectTask
 

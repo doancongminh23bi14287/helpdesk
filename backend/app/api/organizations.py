@@ -159,4 +159,4 @@ def get_org_services(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     _check_org_access(org_id, user, db)
-    return db.query(Service).filter(Service.org_id == org_id).all()
+    return db.query(Service).filter(Service.org_id == org_id, Service.is_archived.is_(False)).all()

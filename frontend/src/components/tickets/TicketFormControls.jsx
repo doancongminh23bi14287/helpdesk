@@ -6,7 +6,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 
-import { Badge, IconButton } from '@/components/ui'
+import { Badge, IconButton, StatusBadge } from '@/components/ui'
 import { cn, daysUntil, formatDate } from '@/lib/utils'
 
 const PRIORITIES = [
@@ -183,16 +183,20 @@ export function TicketAttachmentPicker({ files, onAdd, onRemove, error }) {
 
 export function ServicePreview({ service }) {
   const remainingDays = daysUntil(service.expiry_date)
-  const isAtRisk = remainingDays !== null && remainingDays <= 30
+  const isArchived = Boolean(service.is_archived)
+  const isAtRisk = !isArchived && remainingDays !== null && remainingDays <= 30 && remainingDays >= 0
+  const status = isArchived
+    ? 'archived'
+    : (remainingDays !== null && remainingDays < 0 ? 'expired' : service.status)
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs">
       <Badge variant="secondary">{service.type || 'Service'}</Badge>
-      <span className="font-medium capitalize text-foreground">{service.status?.replace('_', ' ') || 'Unknown status'}</span>
-      {remainingDays !== null && (
+      <StatusBadge status={status} />
+      {!isArchived && remainingDays !== null && remainingDays >= 0 && (
         <span className={cn('inline-flex items-center gap-1', isAtRisk ? 'text-warning' : 'text-secondary-foreground')}>
           {isAtRisk && <ExclamationTriangleIcon className="h-3.5 w-3.5" aria-hidden="true" />}
-          {remainingDays < 0 ? 'Expired' : `Expires ${formatDate(service.expiry_date)}`}
+          {remainingDays === 0 ? 'Expires today' : `Expires ${formatDate(service.expiry_date)}`}
         </span>
       )}
     </div>

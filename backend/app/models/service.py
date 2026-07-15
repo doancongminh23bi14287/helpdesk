@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, String, Enum, Date, DateTime, DECIMAL, ForeignKey
+from sqlalchemy import BigInteger, Column, String, Enum, Date, DateTime, DECIMAL, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -27,5 +27,8 @@ class Service(Base):
     monthly_cost = Column(DECIMAL(15, 2), default=0)
     billing_cycle = Column(Enum("monthly", "quarterly", "yearly"), default="monthly")
     subscription_id = Column(BigInteger, ForeignKey("subscriptions.id"), nullable=True, unique=True)
+    is_archived = Column(Boolean, nullable=False, default=False, server_default='0')
+    archived_at = Column(DateTime)
+    archived_by_id = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())

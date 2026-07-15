@@ -1,8 +1,9 @@
 # backend/app/schemas/organization.py
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime, date
+from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OrganizationCreate(BaseModel):
@@ -50,3 +51,19 @@ class ServiceOut(BaseModel):
     disk_usage: Optional[str] = None
     monthly_cost: Optional[float] = None
     subscription_id: Optional[int] = None
+    is_archived: bool = False
+    archived_at: Optional[datetime] = None
+    archived_by_id: Optional[int] = None
+    can_hard_delete: bool = False
+    dependency_reason: Optional[str] = None
+    dependency_details: list[str] = Field(default_factory=list)
+
+
+class ServiceUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[Literal["saas", "hosting", "domain", "support", "other"]] = None
+    domain: Optional[str] = None
+    expiry_date: Optional[date] = None
+    disk_usage: Optional[str] = None
+    monthly_cost: Optional[Decimal] = None
+    billing_cycle: Optional[Literal["monthly", "quarterly", "yearly"]] = None

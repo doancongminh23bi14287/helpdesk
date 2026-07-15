@@ -20,6 +20,7 @@ const STATUS_VARIANTS = {
   scheduled: 'info',
   past_due: 'warning',
   expired: 'destructive',
+  archived: 'muted',
   inactive: 'muted',
   suspended: 'warning',
   draft: 'muted',
@@ -32,6 +33,7 @@ const LABELS = {
   on_hold: 'On Hold',
   scheduled: 'Scheduled',
   past_due: 'Past Due',
+  archived: 'Archived',
 }
 
 export function StatusBadge({ status, label, className = '' }) {

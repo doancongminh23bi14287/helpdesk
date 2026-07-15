@@ -5,10 +5,52 @@ export { getOrgServices } from './organizations'
 
 /**
  * List services scoped to current user's role.
+ * @param {{ lifecycle?: 'active' | 'archived' | 'all' }} params
  * @returns {Promise<Array>}
  */
-export async function listServices() {
-  const res = await client.get('/services')
+export async function listServices(params = {}) {
+  const res = await client.get('/services', { params })
+  return res.data
+}
+
+/**
+ * Update a service (admin only).
+ * @param {string|number} id
+ * @param {Object} data
+ * @returns {Promise<Object>}
+ */
+export async function updateService(id, data) {
+  const res = await client.put(`/services/${id}`, data)
+  return res.data
+}
+
+/**
+ * Archive a service (admin only).
+ * @param {string|number} id
+ * @returns {Promise<Object>}
+ */
+export async function archiveService(id) {
+  const res = await client.put(`/services/${id}/archive`)
+  return res.data
+}
+
+/**
+ * Restore an archived service (admin only).
+ * @param {string|number} id
+ * @returns {Promise<Object>}
+ */
+export async function restoreService(id) {
+  const res = await client.put(`/services/${id}/restore`)
+  return res.data
+}
+
+/**
+ * Permanently delete a service when there are no dependencies.
+ * @param {string|number} id
+ * @returns {Promise<Object>}
+ */
+export async function deleteServicePermanently(id) {
+  const res = await client.delete(`/services/${id}/permanent`)
   return res.data
 }
 
