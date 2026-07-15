@@ -180,6 +180,27 @@
     border-radius: 9999px;
     background-color: hsl(var(--border));
   }
+  .ticket-conversation-scrollbar {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .ticket-conversation-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .ticket-conversation-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .ticket-conversation-scrollbar::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-clip: padding-box;
+    background-color: hsl(var(--border));
+  }
+  .ticket-conversation-scrollbar:hover::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--text-muted));
+  }
 }
 
 /* Temporary compatibility bridge for pages not migrated in phase 1. */

@@ -58,6 +58,7 @@ export default function TicketDetailPage() {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   const [statusUpdating, setStatusUpdating] = useState(false)
+  const [conversationScrollSignal, setConversationScrollSignal] = useState(0)
 
   const [attachments, setAttachments] = useState([])
   const [replyFiles, setReplyFiles] = useState([])
@@ -173,6 +174,7 @@ export default function TicketDetailPage() {
     try {
       const created = await reply(message.trim(), isInternal)
       appendReply?.(created)
+      setConversationScrollSignal((value) => value + 1)
 
       if (replyFiles.length > 0) {
         const results = await Promise.allSettled(
@@ -329,9 +331,10 @@ export default function TicketDetailPage() {
     : replies
 
   return (
-    <div className="bg-background">
+    <div className="flex min-h-full flex-col bg-background">
       <TicketDetailHeader
         ticket={ticket}
+        sla={sla}
         isStaffOrAdmin={isStaffOrAdmin}
         statusUpdating={statusUpdating}
         validNext={validNext}
@@ -339,13 +342,14 @@ export default function TicketDetailPage() {
         aiPrediction={aiPrediction}
       />
 
-      <main className="mx-auto grid w-full max-w-content grid-cols-1 items-start gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[minmax(0,3.1fr)_minmax(18rem,1fr)] lg:gap-5 lg:py-5">
-        <div className="min-w-0">
+      <main className="mx-auto flex min-h-0 w-full max-w-content flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:min-h-[calc(100dvh-10rem)] lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(18rem,1fr)] lg:items-stretch lg:gap-5 lg:py-5">
+        <div className="flex min-w-0 min-h-0 flex-col">
           <TicketConversation
             ticket={ticket}
             replies={visibleReplies}
             attachments={attachments}
             currentUserId={user?.id}
+            currentUserName={user?.full_name || user?.email || 'You'}
             message={message}
             onMessageChange={setMessage}
             isInternal={isInternal}
@@ -361,35 +365,36 @@ export default function TicketDetailPage() {
             error={sendError || uploadError}
             isStaffOrAdmin={isStaffOrAdmin}
             isClosed={isClosed}
+            scrollSignal={conversationScrollSignal}
           />
         </div>
 
-        <div className="lg:sticky lg:top-4">
+        <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
           <TicketSidebar
-          ticket={ticket}
-          sla={sla}
-          activities={activities}
-          isStaffOrAdmin={isStaffOrAdmin}
-          isAdmin={isAdmin}
-          isStaff={isStaff}
-          user={user}
-          staffList={staffList}
-          transferReq={transferReq}
-          assignUpdating={assignUpdating}
-          assignmentError={assignmentError}
-          projectActionLoading={projectActionLoading}
-          onAssign={handleAssign}
-          onOpenTransfer={() => setShowTransferDialog(true)}
-          onAcceptTransfer={handleAcceptTransfer}
-          onDeclineTransfer={handleDeclineTransfer}
-          onCreateProject={handleCreateProject}
-          onOpenLinkProject={() => setShowLinkProjectDialog(true)}
-          onUnlinkProject={() => setShowUnlinkConfirm(true)}
-          onPredictionChange={setAiPrediction}
-          summary={summary}
-          summaryLoading={summaryLoading}
-          cooldown={cooldown}
-          onSummarize={handleSummarize}
+            ticket={ticket}
+            sla={sla}
+            activities={activities}
+            isStaffOrAdmin={isStaffOrAdmin}
+            isAdmin={isAdmin}
+            isStaff={isStaff}
+            user={user}
+            staffList={staffList}
+            transferReq={transferReq}
+            assignUpdating={assignUpdating}
+            assignmentError={assignmentError}
+            projectActionLoading={projectActionLoading}
+            onAssign={handleAssign}
+            onOpenTransfer={() => setShowTransferDialog(true)}
+            onAcceptTransfer={handleAcceptTransfer}
+            onDeclineTransfer={handleDeclineTransfer}
+            onCreateProject={handleCreateProject}
+            onOpenLinkProject={() => setShowLinkProjectDialog(true)}
+            onUnlinkProject={() => setShowUnlinkConfirm(true)}
+            onPredictionChange={setAiPrediction}
+            summary={summary}
+            summaryLoading={summaryLoading}
+            cooldown={cooldown}
+            onSummarize={handleSummarize}
           />
         </div>
       </main>
