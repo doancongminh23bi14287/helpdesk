@@ -7,6 +7,7 @@ import {
 } from '@heroicons/react/24/outline'
 import AiReplyDraft from '@/components/ai/AiReplyDraft'
 import { Button, ErrorState, Textarea } from '@/components/ui'
+import { cn } from '@/lib/utils'
 
 const ACCEPTED_FILES = 'image/*,.pdf,.zip,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.txt,.csv'
 
@@ -14,6 +15,26 @@ function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+function ToggleButton({ active, onClick, children, icon, ariaLabel }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors',
+        active
+          ? 'bg-surface text-foreground shadow-sm'
+          : 'text-muted-foreground hover:bg-surface-muted hover:text-foreground',
+      )}
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
+  )
 }
 
 export function TicketComposer({
@@ -38,51 +59,16 @@ export function TicketComposer({
   return (
     <section
       aria-labelledby="reply-composer-title"
-      className={embedded ? 'space-y-0' : 'rounded-lg border border-border bg-surface'}
+      className={cn(
+        'rounded-2xl border border-border bg-surface shadow-sm',
+        embedded ? 'shadow-none' : '',
+      )}
     >
-      <div className={embedded ? 'space-y-3 sm:flex sm:items-center sm:justify-between sm:space-y-0' : 'space-y-3 border-b border-border px-4 py-3 sm:flex sm:items-center sm:justify-between sm:space-y-0 sm:px-5'}>
-        <div>
-          <h2 id="reply-composer-title" className="text-sm font-semibold text-foreground">
-            {isInternal ? 'Add internal note' : 'Reply to customer'}
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {isInternal ? 'Only staff and administrators can see this note.' : 'This message will be visible to the customer.'}
-          </p>
-        </div>
-
-        {isStaffOrAdmin && (
-          <div className="flex w-full rounded-md border border-border bg-surface-muted p-1 sm:inline-flex sm:w-auto" role="group" aria-label="Message visibility">
-            <button
-              type="button"
-              onClick={() => onInternalChange(false)}
-              aria-pressed={!isInternal}
-              className={
-                'min-h-9 flex-1 rounded px-3 py-1.5 text-xs font-medium transition sm:flex-none ' +
-                (!isInternal ? 'bg-surface text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')
-              }
-            >
-              Public reply
-            </button>
-            <button
-              type="button"
-              onClick={() => onInternalChange(true)}
-              aria-label="Internal note"
-              aria-pressed={isInternal}
-              className={
-                'inline-flex min-h-9 flex-1 items-center justify-center gap-1 rounded px-3 py-1.5 text-xs font-medium transition sm:flex-none ' +
-                (isInternal ? 'bg-warning-muted text-warning shadow-sm' : 'text-muted-foreground hover:text-foreground')
-              }
-            >
-              <LockClosedIcon className="h-3.5 w-3.5" aria-hidden="true" />
-              Internal
-            </button>
-          </div>
-        )}
-      </div>
-
-      <form ref={formRef} onSubmit={onSubmit} className={embedded ? 'space-y-3 pt-3' : 'space-y-3 px-4 py-4 sm:px-5'}>
-        {isStaffOrAdmin && <AiReplyDraft ticketId={ticketId} onUseDraft={onMessageChange} />}
-
+      <form
+        ref={formRef}
+        onSubmit={onSubmit}
+        className={cn('space-y-3', embedded ? 'p-3 sm:p-4' : 'px-4 py-4 sm:px-5')}
+      >
         <Textarea
           id="ticket-reply"
           value={message}
@@ -98,8 +84,9 @@ export function TicketComposer({
               if (canSend) formRef.current?.requestSubmit()
             }
           }}
-          placeholder={isInternal ? 'Write an internal note...' : 'Write a reply...'}
-          rows={5}
+          placeholder={isInternal ? 'Write an internal note…' : 'Write a reply…'}
+          rows={embedded ? 4 : 5}
+          className="min-h-[7rem] resize-none border-border bg-background text-sm leading-6"
           aria-label={isInternal ? 'Internal note' : 'Public reply'}
         />
 
@@ -138,26 +125,55 @@ export function TicketComposer({
           }}
         />
 
-        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:flex">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="min-h-11 sm:min-h-0"
+            className="h-9 px-3"
             onClick={() => inputRef.current?.click()}
+            aria-label="Attach files"
+            title="Attach files"
           >
             <PaperClipIcon className="h-4 w-4" aria-hidden="true" />
-            Attach
+            <span className="hidden sm:inline">Attach</span>
           </Button>
-          <span className="hidden text-xs text-muted-foreground sm:inline">Enter to send, Shift+Enter for a new line</span>
+
+          {isStaffOrAdmin && (
+            <div className="inline-flex rounded-md border border-border bg-surface-muted p-1">
+              <ToggleButton
+                active={!isInternal}
+                onClick={() => onInternalChange(false)}
+                ariaLabel="Public reply"
+              >
+                Public
+              </ToggleButton>
+              <ToggleButton
+                active={isInternal}
+                onClick={() => onInternalChange(true)}
+                ariaLabel="Internal note"
+                icon={<LockClosedIcon className="h-3.5 w-3.5" aria-hidden="true" />}
+              >
+                Internal
+              </ToggleButton>
+            </div>
+          )}
+
+          {isStaffOrAdmin && <AiReplyDraft ticketId={ticketId} onUseDraft={onMessageChange} compact />}
+
+          <span className="hidden text-[11px] text-muted-foreground md:inline" title="Enter to send, Shift+Enter for a new line">
+            Enter to send
+          </span>
+
           <Button
             type="submit"
-            className="min-h-11 w-full sm:ml-auto sm:min-h-0 sm:w-auto"
+            className="ml-auto h-9 px-4"
             disabled={!canSend || sending}
             isLoading={sending}
+            title="Enter to send, Shift+Enter for a new line"
           >
             {!sending && <PaperAirplaneIcon className="h-4 w-4" aria-hidden="true" />}
-            {isInternal ? 'Add note' : 'Send reply'}
+            Send
           </Button>
         </div>
       </form>

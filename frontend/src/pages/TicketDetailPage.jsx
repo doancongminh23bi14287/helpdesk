@@ -339,7 +339,7 @@ export default function TicketDetailPage() {
         aiPrediction={aiPrediction}
       />
 
-      <main className="mx-auto grid w-full max-w-content grid-cols-1 items-start gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[minmax(0,6.8fr)_minmax(280px,3.2fr)] lg:gap-5 lg:py-5">
+      <main className="mx-auto grid w-full max-w-content grid-cols-1 items-start gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[minmax(0,3.1fr)_minmax(18rem,1fr)] lg:gap-5 lg:py-5">
         <div className="min-w-0">
           <TicketConversation
             ticket={ticket}

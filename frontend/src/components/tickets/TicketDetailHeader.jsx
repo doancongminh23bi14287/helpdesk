@@ -61,11 +61,14 @@ export function TicketDetailHeader({
           <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {ticket.ticket_type && <span>{ticket.ticket_type}</span>}
             {ticket.source && <span className="capitalize">{ticket.source}</span>}
+            {ticket.raised_by_name && <span>• {ticket.raised_by_name}</span>}
+            {ticket.service_name && <span>• {ticket.service_name}</span>}
+            {ticket.project_name && <span>• {ticket.project_name}</span>}
           </div>
           <h1 className="max-w-4xl break-words text-xl font-semibold leading-7 text-foreground">
             {ticket.subject}
           </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <PriorityBadge priority={ticket.priority} />
             {ticket.assignee_name && (
               <span className="text-xs text-secondary-foreground">Assigned to {ticket.assignee_name}</span>
