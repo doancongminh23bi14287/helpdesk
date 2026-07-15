@@ -756,6 +756,7 @@ def hard_delete_ticket(
 # ── POST /api/tickets/{id}/replies ────────────────────────────────────────────
 
 @router.post("/{ticket_id}/replies", status_code=201, response_model=TicketReplyOut)
+@limiter.limit("20/minute")
 def add_reply(
     ticket_id: int,
     payload: TicketReplyCreate,

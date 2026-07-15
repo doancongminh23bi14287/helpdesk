@@ -77,6 +77,7 @@ FILES_ROOT: str = os.getenv("FILES_ROOT", str(pathlib.Path.home() / "helpdesk-sy
 STORAGE_BACKEND: str = os.getenv("STORAGE_BACKEND", "local")
 
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+TOKEN_ENCRYPTION_KEY: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")
 AI_FEATURES_ENABLED: bool = _env_bool("AI_FEATURES_ENABLED", False)
 AI_MODEL: str = os.getenv("AI_MODEL", "llama-3.1-8b-instant")
 
@@ -119,6 +120,7 @@ settings = types.SimpleNamespace(
     FILES_ROOT=FILES_ROOT,
     STORAGE_BACKEND=STORAGE_BACKEND,
     GROQ_API_KEY=GROQ_API_KEY,
+    TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY,
     AI_FEATURES_ENABLED=AI_FEATURES_ENABLED,
     AI_MODEL=AI_MODEL,
     GSC_CLIENT_ID=GSC_CLIENT_ID,
@@ -156,6 +158,10 @@ def validate_production_config() -> None:
         return
     if not os.getenv("DATABASE_URL") and not os.getenv("DB_URL"):
         raise ValueError("FATAL: DATABASE_URL or DB_URL must be set in production.")
+    if (GSC_CLIENT_ID or GSC_CLIENT_SECRET) and not TOKEN_ENCRYPTION_KEY:
+        raise ValueError(
+            "FATAL: TOKEN_ENCRYPTION_KEY must be set when Google OAuth integrations are enabled."
+        )
     if "REDIS_URL" not in os.environ and (
         "REDIS_HOST" not in os.environ or "REDIS_PORT" not in os.environ
     ):

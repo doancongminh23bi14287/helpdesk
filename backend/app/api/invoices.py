@@ -12,6 +12,7 @@ from app.models.invoice import Invoice, InvoiceLine
 from app.models.organization import Organization
 from app.models.user import User
 from app.core.deps import get_current_user, require_admin
+from app.core.limiter import limiter
 from app.core.scoping import scope_invoices, assert_org_access
 from app.schemas.invoice import InvoiceCreate, InvoiceOut, InvoiceLineOut, InvoiceLineIn, InvoiceUpdate, CancelPayload, PaymentCreate, PaymentOut
 from app.services.invoice_service import (
@@ -385,6 +386,7 @@ def delete_invoice_line(
 
 
 @router.put("/{invoice_id}/send", response_model=InvoiceOut)
+@limiter.limit("5/minute")
 def send_invoice_endpoint(
     invoice_id: int,
     db: Session = Depends(get_db),

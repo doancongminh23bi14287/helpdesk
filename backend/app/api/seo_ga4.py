@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app import config
 from app.core.deps import require_staff_or_admin
 from app.core.redis_client import redis_client
+from app.core.limiter import limiter
 from app.core.scoping import assert_org_access, get_accessible_org_ids
 from app.database import get_db
 from app.models.ga4_connection import Ga4Connection
@@ -48,6 +49,7 @@ def _conn_or_404(org_id: int, db: Session) -> Ga4Connection:
 # ── 1. GET /connect ────────────────────────────────────────────────────────────
 
 @router.get("/connect")
+@limiter.limit("5/minute")
 def get_connect_url(
     org_id: Optional[int] = Query(None),
     user: User = Depends(require_staff_or_admin),
@@ -101,17 +103,18 @@ def oauth_callback(
     expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=int(tokens.get("expires_in", 3600)))
 
     conn = db.query(Ga4Connection).filter(Ga4Connection.org_id == org_id).first()
+    from app.core.token_crypto import encrypt_secret
     if conn:
-        conn.refresh_token = tokens["refresh_token"]
-        conn.access_token = tokens.get("access_token")
+        conn.refresh_token = encrypt_secret(tokens["refresh_token"])
+        conn.access_token = encrypt_secret(tokens.get("access_token"))
         conn.token_expiry = expiry
         conn.connected_by = user_id
         conn.status = "connected"
     else:
         conn = Ga4Connection(
             org_id=org_id,
-            refresh_token=tokens["refresh_token"],
-            access_token=tokens.get("access_token"),
+            refresh_token=encrypt_secret(tokens["refresh_token"]),
+            access_token=encrypt_secret(tokens.get("access_token")),
             token_expiry=expiry,
             connected_by=user_id,
         )

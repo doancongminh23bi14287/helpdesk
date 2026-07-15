@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.core.deps import get_current_user, require_staff_or_admin
+from app.core.limiter import limiter
 from app.core.redis_client import redis_client
 from app.core.scoping import assert_org_access
 from app.database import get_db
@@ -61,6 +62,7 @@ def _resolve_org(user: User, db: Session, org_id: Optional[int]) -> int:
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/connect")
+@limiter.limit("5/minute")
 def get_connect_url(
     org_id: Optional[int] = Query(None),
     user: User = Depends(require_staff_or_admin),
@@ -125,17 +127,18 @@ def oauth_callback(
     expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=expires_in)
 
     conn = db.query(GscConnection).filter(GscConnection.org_id == org_id).first()
+    from app.core.token_crypto import encrypt_secret
     if conn:
-        conn.refresh_token = refresh_token
-        conn.access_token = access_token
+        conn.refresh_token = encrypt_secret(refresh_token)
+        conn.access_token = encrypt_secret(access_token)
         conn.token_expiry = expiry
         conn.connected_by = user_id
         conn.status = "connected"
     else:
         conn = GscConnection(
             org_id=org_id,
-            refresh_token=refresh_token,
-            access_token=access_token,
+            refresh_token=encrypt_secret(refresh_token),
+            access_token=encrypt_secret(access_token),
             token_expiry=expiry,
             connected_by=user_id,
             status="connected",

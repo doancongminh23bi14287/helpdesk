@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app import config
+from app.core.token_crypto import decrypt_secret, encrypt_secret
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -41,17 +42,17 @@ def exchange_code(code: str) -> dict:
 
 def refresh_access_token(conn) -> str:
     resp = httpx.post(_GOOGLE_TOKEN_URL, data={
-        "refresh_token": conn.refresh_token,
+        "refresh_token": decrypt_secret(conn.refresh_token) or "",
         "client_id": config.GSC_CLIENT_ID,
         "client_secret": config.GSC_CLIENT_SECRET,
         "grant_type": "refresh_token",
     }, timeout=15)
     resp.raise_for_status()
     data = resp.json()
-    conn.access_token = data["access_token"]
+    conn.access_token = encrypt_secret(data["access_token"])
     expires_in = int(data.get("expires_in", 3600))
     conn.token_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=expires_in)
-    return conn.access_token
+    return decrypt_secret(conn.access_token) or conn.access_token
 
 
 def get_valid_token(conn, db) -> str:
@@ -61,7 +62,7 @@ def get_valid_token(conn, db) -> str:
         and conn.token_expiry
         and conn.token_expiry > now + timedelta(minutes=2)
     ):
-        return conn.access_token
+        return decrypt_secret(conn.access_token) or conn.access_token
     token = refresh_access_token(conn)
     db.add(conn)
     db.commit()

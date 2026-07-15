@@ -12,6 +12,7 @@ from app.models.ai_summary import AiTicketSummary
 from app.models.ticket import Ticket, TicketReply
 from app.models.user import User
 from app.core.deps import get_current_user, require_staff_or_admin
+from app.core.limiter import limiter
 from app.core.scoping import get_accessible_org_ids
 from app.core.redis_client import redis_client
 from app.schemas.ai import AiPredictionOut, AiReplyOut, AiSummaryOut
@@ -72,6 +73,7 @@ def get_prediction(
 # ── 3. POST /api/ai/tickets/{ticket_id}/classify ──────────────────────────────
 
 @router.post("/tickets/{ticket_id}/classify", response_model=AiPredictionOut)
+@limiter.limit("10/minute")
 async def classify_ticket_now(
     ticket_id: int,
     db: Session = Depends(get_db),
@@ -97,6 +99,7 @@ async def classify_ticket_now(
 # ── 4. POST /api/ai/tickets/{ticket_id}/suggest-reply ────────────────────────
 
 @router.post("/tickets/{ticket_id}/suggest-reply", response_model=AiReplyOut)
+@limiter.limit("10/minute")
 async def suggest_reply(
     ticket_id: int,
     db: Session = Depends(get_db),
@@ -192,6 +195,7 @@ def get_summary(
 # ── 7. POST /api/ai/tickets/{ticket_id}/summarize ────────────────────────────
 
 @router.post("/tickets/{ticket_id}/summarize", response_model=AiSummaryOut)
+@limiter.limit("6/minute")
 async def summarize_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),

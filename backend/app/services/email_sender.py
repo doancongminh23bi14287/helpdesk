@@ -14,6 +14,13 @@ _GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
 _GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN", "")
 
 
+def _sanitize_header_value(value: str | None, field: str) -> str:
+    text = (value or "").strip()
+    if "\r" in text or "\n" in text:
+        raise ValueError(f"Invalid characters in email {field}")
+    return text
+
+
 def send_email(
     to: str,
     subject: str,
@@ -27,21 +34,25 @@ def send_email(
     Returns a unique Message-ID on success, None on failure.
     Logs result to email_log table if db is provided.
     """
-    # Message-ID domain must match the sending address for DMARC alignment
-    sender_domain = config.SMTP_FROM_EMAIL.rsplit("@", 1)[-1] or "localhost"
-    outbound_message_id = f"<{uuid.uuid4()}@{sender_domain}>"
+    log_subject = (subject or "").replace("\r", " ").replace("\n", " ")
+    log_to = (to or "").replace("\r", " ").replace("\n", " ")
     try:
+        subject = _sanitize_header_value(subject, "subject")
+        to = _sanitize_header_value(to, "recipient")
+        # Message-ID domain must match the sending address for DMARC alignment
+        sender_domain = config.SMTP_FROM_EMAIL.rsplit("@", 1)[-1] or "localhost"
+        outbound_message_id = f"<{uuid.uuid4()}@{sender_domain}>"
         if _GMAIL_CLIENT_ID and _GMAIL_REFRESH_TOKEN:
             _send_via_gmail(to, subject, body_html, body_text, outbound_message_id)
         else:
             _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 
-        _log(db, to, subject, ticket_id, "outbound", "sent")
+        _log(db, log_to, log_subject, ticket_id, "outbound", "sent")
         return outbound_message_id
 
     except Exception as exc:
-        logger.warning("Email send failed to %s: %s", to, exc)
-        _log(db, to, subject, ticket_id, "outbound", f"failed: {exc}"[:255])
+        logger.warning("Email send failed to %r: %s", log_to, exc)
+        _log(db, log_to, log_subject, ticket_id, "outbound", f"failed: {exc}"[:255])
         return None
 
 
@@ -68,9 +79,9 @@ def _send_via_gmail(to, subject, body_html, body_text, message_id):
 
     # Build email
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = formataddr((config.SMTP_FROM_NAME, config.SMTP_FROM_EMAIL))
-    msg["To"] = to
+    msg["Subject"] = _sanitize_header_value(subject, "subject")
+    msg["From"] = formataddr((_sanitize_header_value(config.SMTP_FROM_NAME, "from name"), _sanitize_header_value(config.SMTP_FROM_EMAIL, "from address")))
+    msg["To"] = _sanitize_header_value(to, "recipient")
     msg["Message-ID"] = message_id
     if body_text:
         msg.attach(MIMEText(body_text, "plain", "utf-8"))
@@ -95,9 +106,9 @@ def _send_via_smtp(to, subject, body_html, body_text, message_id):
     from email.utils import formataddr
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = formataddr((config.SMTP_FROM_NAME, config.SMTP_FROM_EMAIL))
-    msg["To"] = to
+    msg["Subject"] = _sanitize_header_value(subject, "subject")
+    msg["From"] = formataddr((_sanitize_header_value(config.SMTP_FROM_NAME, "from name"), _sanitize_header_value(config.SMTP_FROM_EMAIL, "from address")))
+    msg["To"] = _sanitize_header_value(to, "recipient")
     msg["Message-ID"] = message_id
 
     if body_text:
