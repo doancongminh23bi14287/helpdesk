@@ -23,9 +23,7 @@ import client from '@/api/client'
 
 import { ConfirmDialog, ErrorState, LoadingState } from '@/components/ui'
 import { TicketDetailHeader } from '@/components/tickets/TicketDetailHeader'
-import { TicketOriginalRequest } from '@/components/tickets/TicketContent'
 import { TicketConversation } from '@/components/tickets/TicketConversation'
-import { TicketComposer } from '@/components/tickets/TicketComposer'
 import { TicketSidebar } from '@/components/tickets/TicketSidebar'
 import { LinkProjectDialog, TransferTicketDialog } from '@/components/tickets/TicketDialogs'
 
@@ -329,10 +327,9 @@ export default function TicketDetailPage() {
   const visibleReplies = user?.role === 'customer'
     ? replies.filter((item) => !item.is_internal)
     : replies
-  const originalAttachments = attachments.filter((attachment) => !attachment.reply_id)
 
   return (
-    <div className="min-h-full bg-background">
+    <div className="bg-background">
       <TicketDetailHeader
         ticket={ticket}
         isStaffOrAdmin={isStaffOrAdmin}
@@ -342,38 +339,29 @@ export default function TicketDetailPage() {
         aiPrediction={aiPrediction}
       />
 
-      <main className="mx-auto grid w-full max-w-content grid-cols-1 gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[minmax(0,7fr)_minmax(300px,3fr)] lg:gap-5 lg:py-5">
-        <div className="min-w-0 space-y-4">
-          <TicketOriginalRequest ticket={ticket} attachments={originalAttachments} />
+      <main className="mx-auto grid w-full max-w-content grid-cols-1 items-start gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[minmax(0,7fr)_minmax(300px,3fr)] lg:gap-5 lg:py-5">
+        <div className="min-w-0">
           <TicketConversation
+            ticket={ticket}
             replies={visibleReplies}
             attachments={attachments}
             currentUserId={user?.id}
+            message={message}
+            onMessageChange={setMessage}
+            isInternal={isInternal}
+            onInternalChange={setIsInternal}
+            files={replyFiles}
+            onAddFiles={(newFiles) => {
+              const names = new Set(replyFiles.map((file) => file.name))
+              setReplyFiles((current) => [...current, ...newFiles.filter((file) => !names.has(file.name))])
+            }}
+            onRemoveFile={(name) => setReplyFiles((current) => current.filter((file) => file.name !== name))}
+            onSubmit={handleSend}
+            sending={sending}
+            error={sendError || uploadError}
+            isStaffOrAdmin={isStaffOrAdmin}
+            isClosed={isClosed}
           />
-
-          {isClosed ? (
-            <div className="rounded-lg border border-border bg-surface-muted px-4 py-3 text-center text-sm text-muted-foreground">
-              This ticket is closed and no longer accepts replies.
-            </div>
-          ) : (
-            <TicketComposer
-              ticketId={ticket.id}
-              message={message}
-              onMessageChange={setMessage}
-              isInternal={isInternal}
-              onInternalChange={setIsInternal}
-              files={replyFiles}
-              onAddFiles={(newFiles) => {
-                const names = new Set(replyFiles.map((file) => file.name))
-                setReplyFiles((current) => [...current, ...newFiles.filter((file) => !names.has(file.name))])
-              }}
-              onRemoveFile={(name) => setReplyFiles((current) => current.filter((file) => file.name !== name))}
-              onSubmit={handleSend}
-              sending={sending}
-              error={sendError || uploadError}
-              isStaffOrAdmin={isStaffOrAdmin}
-            />
-          )}
         </div>
 
         <TicketSidebar

@@ -29,14 +29,18 @@ export function TicketComposer({
   sending,
   error,
   isStaffOrAdmin,
+  embedded = false,
 }) {
   const inputRef = useRef(null)
   const formRef = useRef(null)
   const canSend = Boolean(message.trim() || files.length)
 
   return (
-    <section aria-labelledby="reply-composer-title" className="rounded-lg border border-border bg-surface">
-      <div className="space-y-3 border-b border-border px-4 py-3 sm:flex sm:items-center sm:justify-between sm:space-y-0 sm:px-5">
+    <section
+      aria-labelledby="reply-composer-title"
+      className={embedded ? 'space-y-0' : 'rounded-lg border border-border bg-surface'}
+    >
+      <div className={embedded ? 'space-y-3 sm:flex sm:items-center sm:justify-between sm:space-y-0' : 'space-y-3 border-b border-border px-4 py-3 sm:flex sm:items-center sm:justify-between sm:space-y-0 sm:px-5'}>
         <div>
           <h2 id="reply-composer-title" className="text-sm font-semibold text-foreground">
             {isInternal ? 'Add internal note' : 'Reply to customer'}
@@ -76,7 +80,7 @@ export function TicketComposer({
         )}
       </div>
 
-      <form ref={formRef} onSubmit={onSubmit} className="space-y-3 px-4 py-4 sm:px-5">
+      <form ref={formRef} onSubmit={onSubmit} className={embedded ? 'space-y-3 pt-3' : 'space-y-3 px-4 py-4 sm:px-5'}>
         {isStaffOrAdmin && <AiReplyDraft ticketId={ticketId} onUseDraft={onMessageChange} />}
 
         <Textarea
