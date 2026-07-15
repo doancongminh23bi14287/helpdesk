@@ -8,6 +8,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 revision: str = '5f7a2b4c1d9e'
 down_revision: Union[str, None] = 'c8d9e0f1a2b3'
@@ -16,20 +17,38 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('services', sa.Column('is_archived', sa.Boolean(), nullable=False, server_default='0'))
-    op.add_column('services', sa.Column('archived_at', sa.DateTime(), nullable=True))
-    op.add_column('services', sa.Column('archived_by_id', sa.BigInteger(), nullable=True))
-    op.create_foreign_key(
-        'fk_services_archived_by_id_users',
-        'services',
-        'users',
-        ['archived_by_id'],
-        ['id'],
-    )
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    columns = {col["name"] for col in inspector.get_columns("services")}
+    fks = {fk.get("name") for fk in inspector.get_foreign_keys("services") if fk.get("name")}
+
+    if "is_archived" not in columns:
+        op.add_column('services', sa.Column('is_archived', sa.Boolean(), nullable=False, server_default='0'))
+    if "archived_at" not in columns:
+        op.add_column('services', sa.Column('archived_at', sa.DateTime(), nullable=True))
+    if "archived_by_id" not in columns:
+        op.add_column('services', sa.Column('archived_by_id', sa.BigInteger(), nullable=True))
+    if 'fk_services_archived_by_id_users' not in fks:
+        op.create_foreign_key(
+            'fk_services_archived_by_id_users',
+            'services',
+            'users',
+            ['archived_by_id'],
+            ['id'],
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint('fk_services_archived_by_id_users', 'services', type_='foreignkey')
-    op.drop_column('services', 'archived_by_id')
-    op.drop_column('services', 'archived_at')
-    op.drop_column('services', 'is_archived')
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    columns = {col["name"] for col in inspector.get_columns("services")}
+    fks = {fk.get("name") for fk in inspector.get_foreign_keys("services") if fk.get("name")}
+
+    if 'fk_services_archived_by_id_users' in fks:
+        op.drop_constraint('fk_services_archived_by_id_users', 'services', type_='foreignkey')
+    if 'archived_by_id' in columns:
+        op.drop_column('services', 'archived_by_id')
+    if 'archived_at' in columns:
+        op.drop_column('services', 'archived_at')
+    if 'is_archived' in columns:
+        op.drop_column('services', 'is_archived')
