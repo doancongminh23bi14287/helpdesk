@@ -339,7 +339,7 @@ export default function TicketDetailPage() {
         aiPrediction={aiPrediction}
       />
 
-      <main className="mx-auto grid w-full max-w-content grid-cols-1 items-start gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[minmax(0,7fr)_minmax(300px,3fr)] lg:gap-5 lg:py-5">
+      <main className="mx-auto grid w-full max-w-content grid-cols-1 items-start gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[minmax(0,6.8fr)_minmax(280px,3.2fr)] lg:gap-5 lg:py-5">
         <div className="min-w-0">
           <TicketConversation
             ticket={ticket}
@@ -364,7 +364,8 @@ export default function TicketDetailPage() {
           />
         </div>
 
-        <TicketSidebar
+        <div className="lg:sticky lg:top-4">
+          <TicketSidebar
           ticket={ticket}
           sla={sla}
           activities={activities}
@@ -389,7 +390,8 @@ export default function TicketDetailPage() {
           summaryLoading={summaryLoading}
           cooldown={cooldown}
           onSummarize={handleSummarize}
-        />
+          />
+        </div>
       </main>
 
       <LinkProjectDialog
