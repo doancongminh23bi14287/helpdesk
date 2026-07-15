@@ -4,14 +4,16 @@ import { formatDistanceToNow } from 'date-fns'
 
 import AttachmentList from '@/components/ui/AttachmentList'
 import { Card } from '@/components/ui'
-import { cn } from '@/lib/utils'
+import { cn, parseUTC } from '@/lib/utils'
 
 import { TicketBody } from './TicketContent'
 import { TicketComposer } from './TicketComposer'
 
 function formatRelative(time) {
+  const date = parseUTC(time)
+  if (!date || Number.isNaN(date.getTime())) return ''
   try {
-    return formatDistanceToNow(new Date(time), { addSuffix: true })
+    return formatDistanceToNow(date, { addSuffix: true })
   } catch {
     return ''
   }

@@ -6,7 +6,7 @@ export function cn(...inputs) {
 }
 
 // Backend returns UTC timestamps without 'Z'. Safe with string | Date | number | null.
-function parseUTCStr(value) {
+export function parseUTC(value) {
   if (value == null) return null
   if (value instanceof Date) return value
   if (typeof value === 'number') return new Date(value)
@@ -22,7 +22,7 @@ function parseUTCStr(value) {
 
 export function formatDate(dateStr) {
   if (!dateStr && dateStr !== 0) return '—'
-  const d = parseUTCStr(dateStr)
+  const d = parseUTC(dateStr)
   if (!d) return '—'
   return d.toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
@@ -32,7 +32,7 @@ export function formatDate(dateStr) {
 
 export function formatDateTime(dateStr) {
   if (!dateStr && dateStr !== 0) return '—'
-  const d = parseUTCStr(dateStr)
+  const d = parseUTC(dateStr)
   if (!d) return '—'
   return d.toLocaleString('en-US', {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -42,7 +42,7 @@ export function formatDateTime(dateStr) {
 
 export function daysUntil(dateStr) {
   if (!dateStr && dateStr !== 0) return null
-  const d = parseUTCStr(dateStr)
+  const d = parseUTC(dateStr)
   if (!d) return null
   return Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24))
 }
