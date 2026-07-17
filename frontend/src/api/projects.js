@@ -15,6 +15,9 @@ export const updateProject = (id, payload) =>
 export const cancelProject = (id) =>
   client.delete(`/projects/${id}`).then(r => r.data)
 
+export const deleteProjectPermanently = (id) =>
+  client.delete(`/projects/${id}/permanent`).then(r => r.data)
+
 export const listProjectTasks = (projectId, params = {}) =>
   client.get(`/projects/${projectId}/tasks`, { params }).then(r => r.data)
 

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { createPortal } from 'react-dom'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowPathIcon,
   ArchiveBoxIcon,
@@ -27,7 +27,6 @@ import {
   ConfirmDialog,
   EmptyState,
   FormField,
-  IconButton,
   Input,
   LoadingState,
   Modal,
@@ -84,7 +83,7 @@ function ExpiryChip({ dateStr }) {
   return <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">Expires {formatDate(dateStr)}</span>
 }
 
-function ServiceCard({ service, isAdmin, onOpenMenu, onRenewal }) {
+function ServiceCard({ service, isAdmin, onEdit, onArchive, onRestore, onDelete, onRenewal }) {
   const cfg = TYPE_CONFIG[service.type] ?? TYPE_CONFIG.other
   const Icon = cfg.icon
   const displayStatus = resolveServiceStatus(service)
@@ -96,13 +95,13 @@ function ServiceCard({ service, isAdmin, onOpenMenu, onRenewal }) {
       <CardContent className="p-5">
         <div className="absolute right-3 top-3">
           {isAdmin ? (
-            <IconButton
-              label={`Actions for ${service.name}`}
-              onClick={(event) => onOpenMenu(service, event.currentTarget)}
-              className="-mr-1 -mt-1 text-secondary-foreground hover:text-foreground"
-            >
-              <EllipsisVerticalIcon className="h-4 w-4" aria-hidden="true" />
-            </IconButton>
+            <ServiceActionMenu
+              service={service}
+              onEdit={onEdit}
+              onArchive={onArchive}
+              onRestore={onRestore}
+              onDelete={onDelete}
+            />
           ) : null}
         </div>
 
@@ -194,96 +193,73 @@ function DiskBar({ usage }) {
   )
 }
 
-function ServiceActionMenu({ menu, onClose, onEdit, onArchive, onRestore, onDelete }) {
-  const menuRef = useRef(null)
-
-  useEffect(() => {
-    if (!menu) return undefined
-    const handlePointerDown = (event) => {
-      if (menuRef.current?.contains(event.target)) return
-      onClose()
-    }
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose()
-    }
-    const handleScroll = () => onClose()
-    const handleResize = () => onClose()
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('scroll', handleScroll, true)
-    window.addEventListener('resize', handleResize)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('scroll', handleScroll, true)
-      window.removeEventListener('resize', handleResize)
-    }
-  }, [menu, onClose])
-
-  if (!menu) return null
-
-  const { service, x, y } = menu
+function ServiceActionMenu({ service, onEdit, onArchive, onRestore, onDelete }) {
   const canRestore = Boolean(service.is_archived)
   const canDelete = Boolean(service.can_hard_delete)
+  const actionClassName = 'flex min-h-11 w-full cursor-pointer select-none items-center gap-2.5 rounded-lg px-3.5 py-2.5 text-left text-sm font-medium text-foreground outline-none transition-colors data-[highlighted]:bg-surface-muted data-[highlighted]:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
 
-  return createPortal(
-    <div
-      ref={menuRef}
-      className="fixed z-[9999] rounded-xl border border-border bg-popover py-1 text-sm shadow-xl"
-      style={{ top: y, left: x, width: menu.width }}
-    >
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-foreground transition-colors hover:bg-muted"
-        onClick={() => { onClose(); onEdit(service) }}
-      >
-        <PencilSquareIcon className="h-4 w-4" aria-hidden="true" />
-        Edit service
-      </button>
-      {canRestore ? (
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
         <button
-          type="button"
-          className="flex w-full items-center gap-2 px-3 py-2 text-left text-foreground transition-colors hover:bg-muted"
-          onClick={() => { onClose(); onRestore(service) }}
+          type='button'
+          aria-label={'Actions for ' + service.name}
+          className='-mr-1 -mt-1 inline-flex h-11 w-11 items-center justify-center rounded-md text-secondary-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-surface-muted data-[state=open]:text-foreground sm:h-9 sm:w-9'
         >
-          <ArrowUturnLeftIcon className="h-4 w-4" aria-hidden="true" />
-          Restore service
+          <EllipsisVerticalIcon className='h-4 w-4' aria-hidden='true' />
         </button>
-      ) : (
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 px-3 py-2 text-left text-foreground transition-colors hover:bg-muted"
-          onClick={() => { onClose(); onArchive(service) }}
+      </DropdownMenu.Trigger>
+
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align='end'
+          side='bottom'
+          sideOffset={8}
+          collisionPadding={8}
+          className='z-[100] max-h-[calc(100dvh-1rem)] w-[min(17rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-border p-1.5 text-foreground shadow-md backdrop-blur-md'
+          style={{ backgroundColor: 'hsl(var(--surface) / 0.94)' }}
         >
-          <ArchiveBoxIcon className="h-4 w-4" aria-hidden="true" />
-          Archive service
-        </button>
-      )}
-      <div className="border-t border-border pt-1">
-        {canDelete ? (
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-danger transition-colors hover:bg-danger/10"
-            onClick={() => { onClose(); onDelete(service) }}
-          >
-            <TrashIcon className="h-4 w-4" aria-hidden="true" />
-            Delete permanently
-          </button>
-        ) : (
-          <div className="px-3 py-2">
-            <p className="text-xs leading-relaxed text-secondary-foreground">
-              {service.dependency_reason || 'Service này đã có dữ liệu liên quan và chỉ có thể lưu trữ.'}
-            </p>
-            {Array.isArray(service.dependency_details) && service.dependency_details.length > 0 && (
-              <p className="mt-1 text-[11px] leading-relaxed text-secondary-foreground">
-                {service.dependency_details.join(' • ')}
+          <DropdownMenu.Item className={actionClassName} onSelect={() => onEdit(service)}>
+            <PencilSquareIcon className='h-4 w-4 shrink-0 text-secondary-foreground' aria-hidden='true' />
+            <span>Edit service</span>
+          </DropdownMenu.Item>
+
+          {canRestore ? (
+            <DropdownMenu.Item className={actionClassName} onSelect={() => onRestore(service)}>
+              <ArrowUturnLeftIcon className='h-4 w-4 shrink-0 text-secondary-foreground' aria-hidden='true' />
+              <span>Restore service</span>
+            </DropdownMenu.Item>
+          ) : (
+            <DropdownMenu.Item className={actionClassName} onSelect={() => onArchive(service)}>
+              <ArchiveBoxIcon className='h-4 w-4 shrink-0 text-secondary-foreground' aria-hidden='true' />
+              <span>Archive service</span>
+            </DropdownMenu.Item>
+          )}
+
+          <DropdownMenu.Separator className='my-1.5 h-px bg-border' />
+
+          {canDelete ? (
+            <DropdownMenu.Item
+              className={cn(actionClassName, 'text-danger data-[highlighted]:bg-danger/10 data-[highlighted]:text-danger')}
+              onSelect={() => onDelete(service)}
+            >
+              <TrashIcon className='h-4 w-4 shrink-0' aria-hidden='true' />
+              <span>Delete permanently</span>
+            </DropdownMenu.Item>
+          ) : (
+            <div
+              className='flex gap-2.5 rounded-lg border border-warning/20 bg-warning-muted/70 px-3 py-2.5 text-secondary-foreground'
+              role='note'
+            >
+              <ExclamationTriangleIcon className='mt-0.5 h-4 w-4 shrink-0 text-warning' aria-hidden='true' />
+              <p className='text-xs leading-5'>
+                Service này đã có dữ liệu liên quan nên không thể xóa vĩnh viễn. Bạn vẫn có thể lưu trữ.
               </p>
-            )}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+            </div>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   )
 }
 
@@ -430,7 +406,6 @@ export default function ServicesPage() {
   const [services, setServices] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('active')
-  const [actionMenu, setActionMenu] = useState(null)
   const [editTarget, setEditTarget] = useState(null)
   const [archiveTarget, setArchiveTarget] = useState(null)
   const [restoreTarget, setRestoreTarget] = useState(null)
@@ -598,30 +573,18 @@ export default function ServicesPage() {
               key={service.id}
               service={service}
               isAdmin={isAdmin}
-              onOpenMenu={(svc, button) => {
-                const rect = button.getBoundingClientRect()
-                const width = Math.min(256, window.innerWidth - 16)
-                const left = Math.min(Math.max(8, rect.right - width), window.innerWidth - width - 8)
-                const top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 220))
-                setActionMenu({ service: svc, x: left, y: top, width })
+              onEdit={setEditTarget}
+              onArchive={setArchiveTarget}
+              onRestore={setRestoreTarget}
+              onDelete={(target) => {
+                setDeleteTarget(target)
+                setDeleteConfirmText('')
               }}
               onRenewal={handleRenewal}
             />
           ))}
         </div>
       )}
-
-      <ServiceActionMenu
-        menu={actionMenu}
-        onClose={() => setActionMenu(null)}
-        onEdit={setEditTarget}
-        onArchive={setArchiveTarget}
-        onRestore={setRestoreTarget}
-        onDelete={(service) => {
-          setDeleteTarget(service)
-          setDeleteConfirmText('')
-        }}
-      />
 
       <ConfirmDialog
         open={Boolean(archiveTarget)}

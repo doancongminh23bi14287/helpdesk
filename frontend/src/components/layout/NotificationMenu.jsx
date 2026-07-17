@@ -21,7 +21,7 @@ export function NotificationMenu() {
   useEffect(() => {
     getNotifications()
       .then((data) => {
-        const list = Array.isArray(data) ? data : []
+        const list = Array.isArray(data) ? data : (data?.items ?? [])
         setNotifications(list)
         setUnreadCount(list.filter((item) => !item.is_read).length)
       })
@@ -47,7 +47,7 @@ export function NotificationMenu() {
     setLoading(true)
     try {
       const data = await getNotifications()
-      const list = Array.isArray(data) ? data : []
+      const list = Array.isArray(data) ? data : (data?.items ?? [])
       setNotifications(list)
       setUnreadCount(list.filter((item) => !item.is_read).length)
     } finally {

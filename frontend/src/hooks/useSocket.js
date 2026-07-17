@@ -48,7 +48,7 @@ export function useSocket() {
     socketRef.current = socket
     _socket = socket
 
-    socket.on('notification', (data) => {
+    socket.on('new_notification', (data) => {
       incrementUnread()
       addToast({
         title: data.title ?? 'New notification',

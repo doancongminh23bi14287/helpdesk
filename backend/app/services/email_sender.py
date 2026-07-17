@@ -2,6 +2,7 @@
 import html
 import logging
 import os
+import time
 import uuid
 from sqlalchemy.orm import Session
 from app import config
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 _GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
 _GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
 _GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN", "")
+_GMAIL_ACCESS_TOKEN = ""
+_GMAIL_ACCESS_TOKEN_EXPIRES_AT = 0.0
 
 
 def _sanitize_header_value(value: str | None, field: str) -> str:
@@ -58,26 +61,12 @@ def send_email(
 
 def _send_via_gmail(to, subject, body_html, body_text, message_id):
     import base64
-    import urllib.request
-    import urllib.parse
-    import json
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.utils import formataddr
 
-    # Get access token via refresh token
-    token_data = urllib.parse.urlencode({
-        "client_id": _GMAIL_CLIENT_ID,
-        "client_secret": _GMAIL_CLIENT_SECRET,
-        "refresh_token": _GMAIL_REFRESH_TOKEN,
-        "grant_type": "refresh_token",
-    }).encode()
-    req = urllib.request.Request("https://oauth2.googleapis.com/token", data=token_data)
-    with urllib.request.urlopen(req) as resp:
-        token = json.loads(resp.read())
-    access_token = token["access_token"]
+    access_token = _get_gmail_access_token()
 
-    # Build email
     msg = MIMEMultipart("alternative")
     msg["Subject"] = _sanitize_header_value(subject, "subject")
     msg["From"] = formataddr((_sanitize_header_value(config.SMTP_FROM_NAME, "from name"), _sanitize_header_value(config.SMTP_FROM_EMAIL, "from address")))
@@ -88,15 +77,48 @@ def _send_via_gmail(to, subject, body_html, body_text, message_id):
     msg.attach(MIMEText(body_html, "html", "utf-8"))
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    body = json.dumps({"raw": raw}).encode()
-    api_req = urllib.request.Request(
+    result = _post_google_json(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-        data=body,
-        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+        json={"raw": raw},
+        headers={"Authorization": f"Bearer {access_token}"},
     )
-    with urllib.request.urlopen(api_req) as resp:
-        result = json.loads(resp.read())
     logger.info("Email sent via Gmail API to %s (id=%s)", to, result.get("id"))
+
+
+def _get_gmail_access_token() -> str:
+    """Return a cached Gmail access token, refreshing it only when needed."""
+    global _GMAIL_ACCESS_TOKEN, _GMAIL_ACCESS_TOKEN_EXPIRES_AT
+    if _GMAIL_ACCESS_TOKEN and time.monotonic() < _GMAIL_ACCESS_TOKEN_EXPIRES_AT:
+        return _GMAIL_ACCESS_TOKEN
+
+    token = _post_google_json("https://oauth2.googleapis.com/token", data={
+        "client_id": _GMAIL_CLIENT_ID,
+        "client_secret": _GMAIL_CLIENT_SECRET,
+        "refresh_token": _GMAIL_REFRESH_TOKEN,
+        "grant_type": "refresh_token",
+    })
+    _GMAIL_ACCESS_TOKEN = token["access_token"]
+    expires_in = max(60, int(token.get("expires_in", 3600)) - 60)
+    _GMAIL_ACCESS_TOKEN_EXPIRES_AT = time.monotonic() + expires_in
+    return _GMAIL_ACCESS_TOKEN
+
+
+def _post_google_json(url: str, **kwargs) -> dict:
+    """POST to Google with short retries for transient connection resets."""
+    import httpx
+
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = httpx.post(url, timeout=20, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except httpx.TransportError as exc:
+            last_error = exc
+            if attempt == 2:
+                raise
+            time.sleep(0.5 * (attempt + 1))
+    raise last_error
 
 
 def _send_via_smtp(to, subject, body_html, body_text, message_id):

@@ -51,6 +51,8 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      # Docker bridge TLS workaround for the current Gmail API DNS route.
+      - "gmail.googleapis.com:64.233.187.95"
     networks:
       - helpdesk-net
 
@@ -71,6 +73,8 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      # Docker bridge TLS workaround for the current Gmail API DNS route.
+      - "gmail.googleapis.com:64.233.187.95"
     networks:
       - helpdesk-net
 
@@ -89,6 +93,8 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      # Docker bridge TLS workaround for the current Gmail API DNS route.
+      - "gmail.googleapis.com:64.233.187.95"
     networks:
       - helpdesk-net
 

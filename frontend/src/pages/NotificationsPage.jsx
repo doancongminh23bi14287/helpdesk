@@ -16,7 +16,7 @@ export default function NotificationsPage() {
   useEffect(() => {
     getNotifications()
       .then((data) => {
-        const list = Array.isArray(data) ? data : []
+        const list = Array.isArray(data) ? data : (data?.items ?? [])
         setNotifications(list)
         setUnreadCount(list.filter((n) => !n.is_read).length)
       })

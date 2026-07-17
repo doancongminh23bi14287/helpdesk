@@ -34,6 +34,7 @@ import {
 import { StatusBadge } from '@/components/StatusBadge'
 import { useRole } from '@/hooks/useRole'
 import { useAuthStore } from '@/hooks/useAuth'
+import { useNotificationStore } from '@/hooks/useNotificationStore'
 import { subscribeSocketEvent } from '@/hooks/useSocket'
 import { useRelativeTime, parseUTC } from '@/hooks/useRelativeTime'
 import {
@@ -53,6 +54,7 @@ import {
   submitTaskApproval,
   updateProjectTask,
   updateProjectTaskStatus,
+  updateProject,
   uploadProjectDocument,
   addProjectMember,
   listProjectMembers,
@@ -78,6 +80,13 @@ const TASK_TYPES = [
 ]
 
 const TASK_STATUSES = ['open', 'working', 'review', 'completed', 'cancelled']
+
+const PROJECT_STATUS_OPTIONS = [
+  { value: 'open', label: 'Open' },
+  { value: 'working', label: 'Working' },
+  { value: 'on_hold', label: 'On hold' },
+  { value: 'completed', label: 'Finished' },
+]
 
 // Ordered columns for the Kanban board view — all 6 real task statuses
 const KANBAN_COLUMNS = [
@@ -1245,6 +1254,7 @@ const PROGRESS_BAR_COLOR = {
 export default function ProjectDetailPage() {
   const { id } = useParams()
   const { isCustomer, isAdmin, isStaff } = useRole()
+  const addToast = useNotificationStore((state) => state.addToast)
   const taskFormRef = useRef(null)
   const [project, setProject] = useState(null)
   const [tasks, setTasks] = useState([])
@@ -1264,6 +1274,9 @@ export default function ProjectDetailPage() {
   const [taskView, setTaskView] = useState('list')
   const [showMembersPanel, setShowMembersPanel] = useState(false)
   const [members, setMembers] = useState([])
+  const [projectStatusSaving, setProjectStatusSaving] = useState(false)
+  const [archiveUndoStatus, setArchiveUndoStatus] = useState(null)
+  const [projectActionError, setProjectActionError] = useState('')
   const membersPanelRef = useRef(null)
 
   const loadDocuments = useCallback(async () => {
@@ -1380,7 +1393,48 @@ export default function ProjectDetailPage() {
     try { await cancelProjectTask(taskId); await load() }
     finally { setTaskActionId(null) }
   }
-  const cancel = async () => { await cancelProject(id); await load() }
+  const changeProjectStatus = async (nextStatus) => {
+    if (!project || nextStatus === project.status || nextStatus === 'cancelled') return
+    const previousStatus = project.status
+    setProjectStatusSaving(true)
+    setProjectActionError('')
+    setProject((current) => current ? { ...current, status: nextStatus } : current)
+    try {
+      const updated = await updateProject(id, { status: nextStatus })
+      setProject(updated)
+      setArchiveUndoStatus(null)
+      addToast({ type: 'success', title: `Project status changed to ${PROJECT_STATUS_OPTIONS.find((option) => option.value === nextStatus)?.label ?? nextStatus}` })
+    } catch (err) {
+      setProject((current) => current ? { ...current, status: previousStatus } : current)
+      const detail = err?.response?.data?.detail ?? 'Could not update project status.'
+      setProjectActionError(detail)
+      addToast({ type: 'error', title: detail })
+    } finally {
+      setProjectStatusSaving(false)
+    }
+  }
+
+  const cancel = async () => {
+    if (!project) return
+    const previousStatus = project.status
+    setProjectActionError('')
+    try {
+      const archived = await cancelProject(id)
+      setProject(archived)
+      setArchiveUndoStatus(previousStatus)
+      addToast({ type: 'success', title: 'Project archived', message: 'Use Undo archive to restore the previous status.' })
+    } catch (err) {
+      const detail = err?.response?.data?.detail ?? 'Could not archive project.'
+      setProjectActionError(detail)
+      addToast({ type: 'error', title: detail })
+    }
+  }
+
+  const undoArchive = async () => {
+    if (!archiveUndoStatus) return
+    await changeProjectStatus(archiveUndoStatus)
+  }
+
   const uploadDocument = async (file, isClientVisible) => {
     await uploadProjectDocument(id, file, isClientVisible)
     await loadDocuments()
@@ -1501,15 +1555,42 @@ export default function ProjectDetailPage() {
                     )}
                   </div>
 
-                  {/* Actions */}
-                  {!isCustomer && project.status !== 'cancelled' && (
-                    <button onClick={cancel} className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors">
-                      <ArchiveBoxIcon className="h-3.5 w-3.5" />
-                      Archive
-                    </button>
+                  {/* Status + actions */}
+                  {!isCustomer && (
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <label className="sr-only" htmlFor="project-status">Project status</label>
+                      <select
+                        id="project-status"
+                        aria-label="Project status"
+                        value={project.status}
+                        disabled={projectStatusSaving || project.status === 'cancelled'}
+                        onChange={(event) => changeProjectStatus(event.target.value)}
+                        className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {PROJECT_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                        {project.status === 'cancelled' && <option value="cancelled">Archived</option>}
+                      </select>
+
+                      {isAdmin && project.status !== 'cancelled' && (
+                        <button onClick={cancel} className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors">
+                          <ArchiveBoxIcon className="h-3.5 w-3.5" />
+                          Archive
+                        </button>
+                      )}
+                      {isAdmin && project.status === 'cancelled' && archiveUndoStatus && (
+                        <button onClick={undoArchive} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors">
+                          Undo archive
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
+              {projectActionError && (
+                <p role="alert" className="mt-2 text-xs font-medium text-red-600">{projectActionError}</p>
+              )}
             </div>
           </div>
 

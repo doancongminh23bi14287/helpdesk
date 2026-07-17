@@ -45,7 +45,7 @@ function ToastItem({ toast }) {
       onClick={handleClick}
     >
       <ToastIcon type={toast.type} />
-      <p className="text-sm font-medium flex-1 leading-snug">{toast.title}</p>
+      <p className="text-sm font-medium flex-1 leading-snug">{toast.title ?? toast.message ?? 'Notification'}</p>
       <button
         onClick={(e) => { e.stopPropagation(); removeToast(toast.id) }}
         className="p-0.5 rounded opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"

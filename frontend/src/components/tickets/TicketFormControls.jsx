@@ -168,7 +168,7 @@ export function TicketAttachmentPicker({ files, onAdd, onRemove, error }) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                aria-label={`Remove ${file.name}`}
+                label={`Remove ${file.name}`}
                 onClick={() => onRemove(file.name)}
               >
                 <XMarkIcon className="h-4 w-4" />

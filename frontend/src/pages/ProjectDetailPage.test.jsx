@@ -9,6 +9,8 @@ const getProjectMock = vi.fn()
 const listProjectTasksMock = vi.fn()
 const createProjectTaskMock = vi.fn()
 const updateProjectTaskStatusMock = vi.fn()
+const updateProjectMock = vi.fn()
+const cancelProjectMock = vi.fn()
 const listProjectDocumentsMock = vi.fn()
 const uploadProjectDocumentMock = vi.fn()
 const downloadProjectDocumentMock = vi.fn()
@@ -30,7 +32,8 @@ vi.mock('@/api/projects', () => ({
   downloadProjectDocument: (...args) => downloadProjectDocumentMock(...args),
   getProjectTickets: (...args) => getProjectTicketsMock(...args),
   listProjectMembers: (...args) => listProjectMembersMock(...args),
-  cancelProject: vi.fn(),
+  cancelProject: (...args) => cancelProjectMock(...args),
+  updateProject: (...args) => updateProjectMock(...args),
   updateProjectTask: vi.fn(),
   cancelProjectTask: vi.fn(),
 }))
@@ -71,6 +74,16 @@ describe('ProjectDetailPage', () => {
     ])
     createProjectTaskMock.mockResolvedValue({})
     updateProjectTaskStatusMock.mockResolvedValue({})
+    updateProjectMock.mockResolvedValue({
+      id: 1, name: 'SEO Growth', description: 'Public progress', project_type: 'seo',
+      status: 'working', visibility: 'customer_visible', progress_percent: 50,
+      start_date: '2026-06-01', due_date: '2026-06-30',
+    })
+    cancelProjectMock.mockResolvedValue({
+      id: 1, name: 'SEO Growth', description: 'Public progress', project_type: 'seo',
+      status: 'cancelled', visibility: 'customer_visible', progress_percent: 50,
+      start_date: '2026-06-01', due_date: '2026-06-30',
+    })
     listProjectDocumentsMock.mockResolvedValue([
       { id: 99, project_id: 1, file_name: 'seo-brief.pdf', file_size: 2048, mime_type: 'application/pdf', is_client_visible: true, created_at: '2026-06-01T00:00:00' },
     ])
@@ -130,6 +143,29 @@ describe('ProjectDetailPage', () => {
     // Switch to Files tab — admin sees the upload button
     fireEvent.click(screen.getByRole('button', { name: /^files/i }))
     expect(await screen.findByText(/upload file/i)).toBeInTheDocument()
+  })
+
+  it('staff can update the project status', async () => {
+    mockRole = { isCustomer: false, isStaff: true, isAdmin: false, role: 'staff' }
+    renderDetail()
+
+    fireEvent.change(await screen.findByLabelText('Project status'), { target: { value: 'working' } })
+
+    await waitFor(() => {
+      expect(updateProjectMock).toHaveBeenCalledWith('1', { status: 'working' })
+    })
+  })
+
+  it('admin can undo an archive back to the prior status', async () => {
+    mockRole = { isCustomer: false, isStaff: false, isAdmin: true, role: 'admin' }
+    renderDetail()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo archive' }))
+
+    await waitFor(() => {
+      expect(updateProjectMock).toHaveBeenCalledWith('1', { status: 'working' })
+    })
   })
 
   it('staff status update calls API and refreshes tasks', async () => {

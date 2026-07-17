@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRightIcon, CalendarDaysIcon, CheckCircleIcon, FolderIcon, MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline'
+import { ArrowRightIcon, CalendarDaysIcon, CheckCircleIcon, FolderIcon, MagnifyingGlassIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { EmptyState, MobileCardList, MobileDataCard, MobileDataRow, PageShell, PageHeader, ResponsiveTableViewport } from '@/components/ui'
-import { listProjects, createProject, listProjectTasks } from '@/api/projects'
+import { listProjects, createProject, deleteProjectPermanently, listProjectTasks } from '@/api/projects'
 import { listOrganizations } from '@/api/organizations'
 import { useRole } from '@/hooks/useRole'
 import { formatDate } from '@/lib/utils'
@@ -153,12 +153,13 @@ function CreateProjectPanel({ onCreated }) {
 export { StatusBadge, ProgressBar }
 
 export default function ProjectsPage() {
-  const { isCustomer } = useRole()
+  const { isCustomer, isAdmin } = useRole()
   const navigate = useNavigate()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState({ q: '', status: '', project_type: '', due: '' })
+  const [projectActionMenu, setProjectActionMenu] = useState(null)
 
   const params = useMemo(() => {
     const next = {}
@@ -200,6 +201,32 @@ export default function ProjectsPage() {
     if (filters.due !== 'soon') return projects
     return projects.filter(project => isDueSoon(project.due_date))
   }, [filters.due, projects])
+
+  const openProjectActionMenu = (event, project) => {
+    if (!isAdmin) return
+    event.preventDefault()
+    setProjectActionMenu({
+      project,
+      x: Math.min(event.clientX, window.innerWidth - 236),
+      y: Math.min(event.clientY, window.innerHeight - 144),
+    })
+  }
+
+  const permanentlyDeleteProject = async (project) => {
+    setProjectActionMenu(null)
+    if (project.status !== 'cancelled') {
+      window.alert('Archive the project before permanently deleting it.')
+      return
+    }
+    if (!window.confirm(`Permanently delete project #${project.id} "${project.name}" and its project tasks/documents? Linked tickets will be kept.`)) return
+    if (!window.confirm(`Confirm permanent deletion of project #${project.id}. This cannot be undone.`)) return
+    try {
+      await deleteProjectPermanently(project.id)
+      await load()
+    } catch (err) {
+      window.alert(err?.response?.data?.detail ?? err?.message ?? 'Could not permanently delete project.')
+    }
+  }
 
   const headerActions = (
     <>
@@ -327,7 +354,8 @@ export default function ProjectsPage() {
                 <tr
                   key={project.id}
                   className="hover:bg-slate-50/70 cursor-pointer"
-                  onClick={e => { if (e.target.closest('a')) return; navigate(`/projects/${project.id}`) }}
+                  onClick={e => { if (e.target.closest('a, button')) return; navigate(`/projects/${project.id}`) }}
+                  onContextMenu={(event) => openProjectActionMenu(event, project)}
                 >
                   <td className="px-4 py-3">
                     <Link to={`/projects/${project.id}`} className="font-semibold text-slate-900 hover:text-amber-700">{project.name}</Link>
@@ -365,6 +393,39 @@ export default function ProjectsPage() {
             </tbody>
           </table>
           </ResponsiveTableViewport>
+        </div>
+      )}
+      {projectActionMenu && isAdmin && (
+        <div
+          role="menu"
+          aria-label={`Actions for ${projectActionMenu.project.name}`}
+          className="fixed z-[100] w-56 rounded-lg border border-border bg-surface p-1 shadow-lg"
+          style={{ left: projectActionMenu.x, top: projectActionMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <p className="truncate px-3 py-2 text-xs font-medium text-secondary-foreground" title={projectActionMenu.project.name}>
+            {projectActionMenu.project.name}
+          </p>
+          {projectActionMenu.project.status === 'cancelled' ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => permanentlyDeleteProject(projectActionMenu.project)}
+              className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <TrashIcon className="h-4 w-4" aria-hidden="true" />
+              Delete permanently
+            </button>
+          ) : (
+            <p className="px-3 py-2 text-xs leading-5 text-secondary-foreground">Archive this project first to enable permanent deletion.</p>
+          )}
+          <button
+            type="button"
+            onClick={() => setProjectActionMenu(null)}
+            className="flex min-h-11 w-full items-center rounded-md px-3 text-left text-sm text-secondary-foreground hover:bg-surface-muted"
+          >
+            Cancel
+          </button>
         </div>
       )}
     </PageShell>

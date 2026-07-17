@@ -43,6 +43,11 @@ def run_migrations_online() -> None:
         # Fail fast if metadata lock blocks DDL — prevents Railway deploy hang
         connection.execute(text("SET SESSION lock_wait_timeout = 30"))
         connection.execute(text("SET SESSION innodb_lock_wait_timeout = 30"))
+        # SQLAlchemy 2.x starts an implicit transaction for the SET statements.
+        # Close it before Alembic opens its own migration transaction, otherwise
+        # the schema DDL can persist on MySQL while the alembic_version update is
+        # rolled back when the connection closes.
+        connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

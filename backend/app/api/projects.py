@@ -1,8 +1,9 @@
+import logging
 from math import ceil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -39,7 +40,7 @@ from app.schemas.project import (
     ProjectTaskDetailOut,
 )
 from app.services.assignment import set_task_assignees, load_assignees_for_tasks
-from app.services.file_storage import get_attachment_path, save_attachment
+from app.services.file_storage import delete_attachment, get_attachment_path, save_attachment
 from app.services.projects import (
     cancel_project,
     cancel_project_task,
@@ -50,6 +51,8 @@ from app.services.projects import (
     update_project_task,
     update_project_task_status,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 task_router = APIRouter(prefix="/api/project-tasks", tags=["project-tasks"])
@@ -310,6 +313,50 @@ def delete_project(
     db.commit()
     db.refresh(project)
     return _project_dict(project, db, user, detail=True)
+
+
+@router.delete("/{project_id}/permanent", status_code=204)
+def permanently_delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Permanently delete one archived project and its project-owned data."""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can permanently delete projects")
+
+    project = assert_project_access(project_id, user, db)
+    if project.status != "cancelled":
+        raise HTTPException(
+            status_code=409,
+            detail="Archive the project before permanently deleting it.",
+        )
+
+    # Keep support tickets: only remove their now-invalid Project link. Task links
+    # are cleared by the database FK when the project's tasks are deleted.
+    from app.models.ticket import Ticket
+    document_paths = [
+        row[0] for row in db.query(ProjectDocument.file_path)
+        .filter(ProjectDocument.project_id == project.id)
+        .all()
+    ]
+    db.query(Ticket).filter(Ticket.project_id == project.id).update(
+        {Ticket.project_id: None},
+        synchronize_session=False,
+    )
+    db.delete(project)
+    db.commit()
+
+    # ProjectDocument rows are cascaded by the database; clean their stored files
+    # afterwards without risking a failed filesystem cleanup rolling back the DB.
+    for file_path in document_paths:
+        try:
+            delete_attachment(file_path)
+        except Exception:
+            logger.warning("Could not remove project document after deleting project_id=%s", project_id)
+
+    logger.info("project permanently deleted project_id=%s user_id=%s", project_id, user.id)
+    return Response(status_code=204)
 
 
 @router.get("/{project_id}/tasks")
