@@ -147,6 +147,17 @@ describe('ProjectDetailPage', () => {
 
   it('staff can update the project status', async () => {
     mockRole = { isCustomer: false, isStaff: true, isAdmin: false, role: 'staff' }
+    getProjectMock.mockResolvedValueOnce({
+      id: 1,
+      name: 'SEO Growth',
+      description: 'Public progress',
+      project_type: 'seo',
+      status: 'open',
+      visibility: 'customer_visible',
+      progress_percent: 50,
+      start_date: '2026-06-01',
+      due_date: '2026-06-30',
+    })
     renderDetail()
 
     fireEvent.change(await screen.findByLabelText('Project status'), { target: { value: 'working' } })
