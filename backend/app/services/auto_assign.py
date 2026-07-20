@@ -1,205 +1,375 @@
 # backend/app/services/auto_assign.py
 import logging
 import time
-from datetime import datetime, timezone
-from sqlalchemy.orm import Session
-from sqlalchemy import func, select
-from app.models.user import User
-from app.models.ticket import Ticket, TicketAssignee
-from app.models.team import StaffOrgAssignment
-from app.core.redis_client import redis_client
+import uuid
+from datetime import datetime
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session, aliased
+
 from app.core.constants import (
-    ASSIGN_WORKLOAD_WEIGHT, ASSIGN_SKILL_WEIGHT, ASSIGN_ONLINE_WEIGHT,
     ASSIGN_LOCK_TTL_SECONDS,
-    SKILL_HISTORICAL_WEIGHT, SKILL_BASELINE_WEIGHT,
-    HISTORICAL_POINT_PER_TICKET, SKILL_COLDSTART_THRESHOLD,
+    ASSIGN_ONLINE_WEIGHT,
+    ASSIGN_SKILL_WEIGHT,
+    ASSIGN_WORKLOAD_WEIGHT,
+    HISTORICAL_POINT_PER_TICKET,
+    SKILL_BASELINE_WEIGHT,
+    SKILL_COLDSTART_THRESHOLD,
+    SKILL_HISTORICAL_WEIGHT,
 )
+from app.core.redis_client import redis_client
+from app.models.ai_prediction import TicketAiPrediction
+from app.models.project import ProjectMember, ProjectTask, TaskAssignee
+from app.models.team import StaffOrgAssignment
+from app.models.ticket import Ticket, TicketAssignee
+from app.models.user import User
+from app.services.presence import get_present_user_ids
 
 logger = logging.getLogger(__name__)
 
+ACTIVE_TICKET_STATUSES = ("Open", "In Progress", "Waiting")
+ACTIVE_TASK_STATUSES = ("open", "working", "review")
+TERMINAL_TICKET_STATUSES = ("Resolved", "Closed")
 
-def _skill_score(agent_id: int, ticket: Ticket, db: Session) -> float:
-    """Hybrid skill score: 0.7×historical + 0.3×baseline, normalised to 0–ASSIGN_SKILL_WEIGHT.
 
-    historical_score: resolved tickets with same AI-predicted category (fallback: ticket_type).
-    baseline_score:   cold-start safety net; decays linearly to 0 after SKILL_COLDSTART_THRESHOLD.
-    """
-    from app.models.ai_prediction import TicketAiPrediction
+def _candidate_users(ticket: Ticket, db: Session) -> list[User]:
+    """Return active organisation staff, narrowed by explicit project staff membership."""
+    candidates = (
+        db.query(User)
+        .join(StaffOrgAssignment, StaffOrgAssignment.user_id == User.id)
+        .filter(
+            StaffOrgAssignment.org_id == ticket.org_id,
+            User.role == "staff",
+            User.is_active.is_(True),
+        )
+        .distinct()
+        .all()
+    )
+    if not ticket.project_id:
+        return candidates
 
-    # 1. Category of the ticket being assigned (use AI prediction when available)
-    current_pred = (
+    member_ids = {
+        row.user_id
+        for row in db.query(ProjectMember.user_id).filter(
+            ProjectMember.project_id == ticket.project_id,
+            ProjectMember.role.in_(["staff", "manager"]),
+        ).all()
+    }
+    if not member_ids:
+        return candidates
+    return [candidate for candidate in candidates if candidate.id in member_ids]
+
+
+def _workload_counts(candidate_ids: list[int], db: Session) -> tuple[dict[int, int], dict[int, int]]:
+    """Batch active ticket and task assignment counts for each candidate."""
+    if not candidate_ids:
+        return {}, {}
+
+    ticket_counts = dict(
+        db.query(
+            TicketAssignee.user_id,
+            func.count(func.distinct(Ticket.id)),
+        )
+        .join(Ticket, Ticket.id == TicketAssignee.ticket_id)
+        .filter(
+            TicketAssignee.user_id.in_(candidate_ids),
+            Ticket.status.in_(ACTIVE_TICKET_STATUSES),
+            Ticket.is_deleted.is_(False),
+        )
+        .group_by(TicketAssignee.user_id)
+        .all()
+    )
+    primary_task_assignments = (
+        db.query(
+            ProjectTask.assignee_id.label("user_id"),
+            ProjectTask.id.label("task_id"),
+        )
+        .filter(
+            ProjectTask.assignee_id.in_(candidate_ids),
+            ProjectTask.status.in_(ACTIVE_TASK_STATUSES),
+        )
+    )
+    multi_task_assignments = (
+        db.query(
+            TaskAssignee.user_id.label("user_id"),
+            TaskAssignee.task_id.label("task_id"),
+        )
+        .join(ProjectTask, ProjectTask.id == TaskAssignee.task_id)
+        .filter(
+            TaskAssignee.user_id.in_(candidate_ids),
+            ProjectTask.status.in_(ACTIVE_TASK_STATUSES),
+        )
+    )
+    active_task_assignments = primary_task_assignments.union(
+        multi_task_assignments
+    ).subquery()
+    task_counts = dict(
+        db.query(
+            active_task_assignments.c.user_id,
+            func.count(func.distinct(active_task_assignments.c.task_id)),
+        )
+        .group_by(active_task_assignments.c.user_id)
+        .all()
+    )
+    return ticket_counts, task_counts
+
+
+def _target_category(ticket: Ticket, db: Session) -> tuple[str | None, bool]:
+    """Return latest valid AI category, otherwise the human ticket type."""
+    prediction = (
         db.query(TicketAiPrediction)
-        .filter(TicketAiPrediction.ticket_id == ticket.id)
+        .filter(
+            TicketAiPrediction.ticket_id == ticket.id,
+            TicketAiPrediction.predicted_category != "unclassified",
+        )
+        .order_by(TicketAiPrediction.id.desc())
         .first()
     )
-    target_category = current_pred.predicted_category if current_pred else None
+    if prediction:
+        return prediction.predicted_category, True
+    return ticket.ticket_type, False
 
-    # 2. Base queryset: tickets this agent has resolved
-    resolved_q = (
-        db.query(Ticket)
-        .join(TicketAssignee, TicketAssignee.ticket_id == Ticket.id)
+
+def _skill_scores(
+    candidate_ids: list[int],
+    ticket: Ticket,
+    db: Session,
+) -> dict[int, float]:
+    """Compute tenant-scoped hybrid skill scores using aggregate queries."""
+    if not candidate_ids:
+        return {}
+
+    resolved_base = (
+        db.query(
+            TicketAssignee.user_id.label("user_id"),
+            func.count(func.distinct(Ticket.id)).label("ticket_count"),
+        )
+        .join(Ticket, Ticket.id == TicketAssignee.ticket_id)
         .filter(
-            TicketAssignee.user_id == agent_id,
-            Ticket.status.in_(["Resolved", "Closed"]),
-            Ticket.is_deleted == False,  # noqa: E712
+            TicketAssignee.user_id.in_(candidate_ids),
+            Ticket.org_id == ticket.org_id,
+            Ticket.status.in_(TERMINAL_TICKET_STATUSES),
+            Ticket.is_deleted.is_(False),
         )
     )
+    total_resolved = dict(
+        resolved_base.group_by(TicketAssignee.user_id).all()
+    )
 
-    # 3. historical_score — resolved tickets of same category
-    if target_category:
-        resolved_same = (
-            resolved_q
-            .join(TicketAiPrediction, TicketAiPrediction.ticket_id == Ticket.id)
-            .filter(TicketAiPrediction.predicted_category == target_category)
-            .count()
+    target, uses_ai_category = _target_category(ticket, db)
+    same_counts: dict[int, int] = {}
+    if target:
+        same_query = (
+            db.query(
+                TicketAssignee.user_id,
+                func.count(func.distinct(Ticket.id)),
+            )
+            .join(Ticket, Ticket.id == TicketAssignee.ticket_id)
+            .filter(
+                TicketAssignee.user_id.in_(candidate_ids),
+                Ticket.org_id == ticket.org_id,
+                Ticket.status.in_(TERMINAL_TICKET_STATUSES),
+                Ticket.is_deleted.is_(False),
+            )
         )
-    else:
-        # No AI prediction yet — match by raw ticket_type
-        resolved_same = resolved_q.filter(Ticket.ticket_type == ticket.ticket_type).count()
+        if uses_ai_category:
+            latest_ids = (
+                db.query(
+                    TicketAiPrediction.ticket_id.label("ticket_id"),
+                    func.max(TicketAiPrediction.id).label("prediction_id"),
+                )
+                .group_by(TicketAiPrediction.ticket_id)
+                .subquery()
+            )
+            latest_prediction = aliased(TicketAiPrediction)
+            same_query = (
+                same_query
+                .join(latest_ids, latest_ids.c.ticket_id == Ticket.id)
+                .join(latest_prediction, latest_prediction.id == latest_ids.c.prediction_id)
+                .filter(latest_prediction.predicted_category == target)
+            )
+        else:
+            same_query = same_query.filter(Ticket.ticket_type == target)
+        same_counts = dict(
+            same_query.group_by(TicketAssignee.user_id).all()
+        )
 
-    historical_score = min(
-        ASSIGN_SKILL_WEIGHT,
-        resolved_same * HISTORICAL_POINT_PER_TICKET,
-    )
-
-    # 4. baseline_score — cold-start protection
-    total_resolved = resolved_q.count()
-    baseline_score = max(
-        0.0,
-        ASSIGN_SKILL_WEIGHT * (1.0 - total_resolved / SKILL_COLDSTART_THRESHOLD),
-    )
-
-    # 5. Hybrid
-    return round(
-        SKILL_HISTORICAL_WEIGHT * historical_score
-        + SKILL_BASELINE_WEIGHT * baseline_score,
-        2,
-    )
+    scores: dict[int, float] = {}
+    for user_id in candidate_ids:
+        historical_score = min(
+            ASSIGN_SKILL_WEIGHT,
+            same_counts.get(user_id, 0) * HISTORICAL_POINT_PER_TICKET,
+        )
+        baseline_score = max(
+            0.0,
+            ASSIGN_SKILL_WEIGHT
+            * (1.0 - total_resolved.get(user_id, 0) / SKILL_COLDSTART_THRESHOLD),
+        )
+        scores[user_id] = round(
+            SKILL_HISTORICAL_WEIGHT * historical_score
+            + SKILL_BASELINE_WEIGHT * baseline_score,
+            2,
+        )
+    return scores
 
 
 def _compute_scores(ticket: Ticket, db: Session) -> list[dict]:
-    """Compute raw + normalised scores for all staff candidates assigned to ticket's org."""
-    from app.models.project import ProjectMember, ProjectTask
+    """Compute explainable 40/40/20 scores for all eligible staff."""
+    started = time.monotonic()
+    candidates = _candidate_users(ticket, db)
+    candidate_ids = [candidate.id for candidate in candidates]
+    if not candidate_ids:
+        return []
 
-    assigned_user_ids = db.query(StaffOrgAssignment.user_id).filter(
-        StaffOrgAssignment.org_id == ticket.org_id
-    ).subquery()
-    project_member_ids = None
-    if ticket.project_id:
-        member_ids = [
-            row.user_id
-            for row in db.query(ProjectMember.user_id).filter(
-                ProjectMember.project_id == ticket.project_id,
-                ProjectMember.role == "staff",
-            ).all()
-        ]
-        if member_ids:
-            project_member_ids = set(member_ids)
-
-    candidates = db.query(User).filter(
-        User.id.in_(select(assigned_user_ids)),
-        User.role == "staff",
-        User.is_active == True,
-    ).all()
+    ticket_counts, task_counts = _workload_counts(candidate_ids, db)
+    skill_scores = _skill_scores(candidate_ids, ticket, db)
+    present_user_ids = get_present_user_ids(candidate_ids)
 
     rows = []
-    for agent in candidates:
-        if project_member_ids is not None and agent.id not in project_member_ids:
-            continue
-        # Workload = active project tasks; fallback to active tickets via ticket_assignees
-        task_count = db.query(func.count(ProjectTask.id)).filter(
-            ProjectTask.assignee_id == agent.id,
-            ProjectTask.status.in_(["open", "working", "review"]),
-        ).scalar() or 0
-
-        if task_count > 0:
-            open_count = task_count
-        else:
-            open_count = db.query(func.count(TicketAssignee.id)).join(
-                Ticket, TicketAssignee.ticket_id == Ticket.id
-            ).filter(
-                TicketAssignee.user_id == agent.id,
-                Ticket.status.in_(["Open", "In Progress", "Waiting"]),
-                Ticket.is_deleted == False,  # noqa: E712
-            ).scalar() or 0
-
-        # Login time is not presence. Keep the score field stable but neutral
-        # until heartbeat-backed presence and privacy policy are implemented.
-        online = 0
-
+    for candidate in candidates:
+        active_ticket_count = ticket_counts.get(candidate.id, 0)
+        active_task_count = task_counts.get(candidate.id, 0)
+        load_units = active_ticket_count + active_task_count
         rows.append({
-            "user_id": agent.id,
-            "full_name": agent.full_name,
-            "open_count": open_count,
+            "user_id": candidate.id,
+            "full_name": candidate.full_name,
+            "active_ticket_count": active_ticket_count,
+            "active_task_count": active_task_count,
+            "load_units": load_units,
+            # Backward-compatible field retained for current clients.
+            "open_count": load_units,
             "resolved_match": 0,
-            "online": online,
-            "last_assigned_at": agent.last_assigned_at,
+            "online": int(candidate.id in present_user_ids),
+            "last_assigned_at": candidate.last_assigned_at,
         })
 
-    if not rows:
-        return rows
-
-    max_open = max(r["open_count"] for r in rows) or 1
-
-    for r in rows:
-        r["workload_score"] = round(ASSIGN_WORKLOAD_WEIGHT * (1.0 - r["open_count"] / max_open), 2)
-        r["skill_score"]    = _skill_score(r["user_id"], ticket, db)
-        r["online_score"]   = round(ASSIGN_ONLINE_WEIGHT * r["online"], 2)
-        r["total_score"]    = round(r["workload_score"] + r["skill_score"] + r["online_score"], 2)
-
-    return rows
-
-
-def _do_find_best_assignee(ticket: Ticket, db: Session) -> int | None:
-    """Score all candidates and return the winning user_id with deterministic tie-breaking."""
-    scores = _compute_scores(ticket, db)
-    if not scores:
-        return None
-
-    max_score = max(s["total_score"] for s in scores)
-    top_candidates = [s for s in scores if s["total_score"] == max_score]
-
-    if len(top_candidates) == 1:
-        winner = top_candidates[0]
-    else:
-        # Tie-breaker: prefer the agent least recently assigned.
-        # last_assigned_at = None means never assigned — highest priority.
-        winner = min(
-            top_candidates,
-            key=lambda s: s["last_assigned_at"] or datetime.min,
+    maximum_load = max(row["load_units"] for row in rows)
+    normalizer = max(1, maximum_load)
+    for row in rows:
+        row["workload_score"] = round(
+            ASSIGN_WORKLOAD_WEIGHT * (1.0 - row["load_units"] / normalizer),
+            2,
+        )
+        row["skill_score"] = skill_scores[row["user_id"]]
+        row["online_score"] = round(ASSIGN_ONLINE_WEIGHT * row["online"], 2)
+        row["total_score"] = round(
+            row["workload_score"] + row["skill_score"] + row["online_score"],
+            2,
         )
 
     logger.info(
+        "Assignment scores computed ticket_id=%s candidate_count=%s duration_ms=%.2f",
+        ticket.id,
+        len(rows),
+        (time.monotonic() - started) * 1000,
+    )
+    return rows
+
+
+def _winner_sort_key(score: dict) -> tuple:
+    last_assigned = score["last_assigned_at"]
+    return (
+        -score["total_score"],
+        last_assigned is not None,
+        last_assigned or datetime.min,
+        score["user_id"],
+    )
+
+
+def _do_find_best_assignee(ticket: Ticket, db: Session) -> int | None:
+    scores = _compute_scores(ticket, db)
+    if not scores:
+        return None
+    winner = min(scores, key=_winner_sort_key)
+    logger.info(
         "Ticket %s assigned to user %s (score=%s)",
-        ticket.id, winner["user_id"], winner["total_score"],
-        extra={"ticket_id": ticket.id, "assignee_id": winner["user_id"]},
+        ticket.id,
+        winner["user_id"],
+        winner["total_score"],
+        extra={
+            "ticket_id": ticket.id,
+            "assignee_id": winner["user_id"],
+            "candidate_count": len(scores),
+            "chosen_score": winner["total_score"],
+        },
     )
     return winner["user_id"]
 
 
+def _release_assignment_lock(lock_key: str, token: str) -> None:
+    """Compare-and-delete so this process never releases another owner's lock."""
+    try:
+        redis_client.eval(
+            """
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+                return redis.call('del', KEYS[1])
+            end
+            return 0
+            """,
+            1,
+            lock_key,
+            token,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Assignment lock release failed org_lock=%s error=%s",
+            lock_key,
+            type(exc).__name__,
+        )
+
+
+def acquire_assignment_lock(org_id: int) -> tuple[str, str, bool | None]:
+    """Return (key, token, status): True acquired, False held, None Redis unavailable."""
+    lock_key = f"assignment:org:{org_id}"
+    token = uuid.uuid4().hex
+    try:
+        acquired = bool(
+            redis_client.set(
+                lock_key,
+                token,
+                nx=True,
+                ex=ASSIGN_LOCK_TTL_SECONDS,
+            )
+        )
+        if not acquired:
+            time.sleep(0.2)
+            acquired = bool(
+                redis_client.set(
+                    lock_key,
+                    token,
+                    nx=True,
+                    ex=ASSIGN_LOCK_TTL_SECONDS,
+                )
+            )
+        return lock_key, token, acquired
+    except Exception as exc:
+        logger.warning(
+            "Assignment lock unavailable org_id=%s error=%s",
+            org_id,
+            type(exc).__name__,
+        )
+        return lock_key, token, None
+
+
 def find_best_assignee(ticket: Ticket, db: Session) -> int | None:
-    """Return user_id of highest-scoring staff candidate, or None.
-
-    Uses a short-TTL Redis lock per org to prevent two simultaneous ticket
-    creations from assigning the same agent twice.
-    """
-    lock_key = f"assignment:org:{ticket.org_id}"
-    lock_ttl = ASSIGN_LOCK_TTL_SECONDS
-
-    acquired = redis_client.set(lock_key, "1", nx=True, ex=lock_ttl)
-    if not acquired:
-        # Another ticket is being assigned for this org right now.
-        # Wait briefly and retry once before proceeding without the lock.
-        time.sleep(0.2)
-        acquired = redis_client.set(lock_key, "1", nx=True, ex=lock_ttl)
+    """Select under an organisation lock; Redis failure degrades without blocking."""
+    lock_key, token, lock_status = acquire_assignment_lock(ticket.org_id)
+    if lock_status is False:
+        logger.info("Assignment deferred because org lock is held org_id=%s", ticket.org_id)
+        return None
+    if lock_status is None:
+        logger.warning(
+            "Initial assignment continuing without Redis lock org_id=%s",
+            ticket.org_id,
+        )
 
     try:
         return _do_find_best_assignee(ticket, db)
     finally:
-        if acquired:
-            redis_client.delete(lock_key)
+        if lock_status is True:
+            _release_assignment_lock(lock_key, token)
 
 
 def score_breakdown(ticket: Ticket, db: Session) -> list[dict]:
-    """Return full score breakdown sorted by total_score desc."""
-    return sorted(_compute_scores(ticket, db), key=lambda x: x["total_score"], reverse=True)
+    """Return score components in the same deterministic order used for selection."""
+    return sorted(_compute_scores(ticket, db), key=_winner_sort_key)

@@ -164,31 +164,22 @@ def test_staff_not_assigned_to_org_cannot_see_its_tickets(
     assert r2.status_code == 404
 
 
-def test_staff_sees_directly_assigned_ticket_regardless_of_org(
+def test_cross_org_direct_assignment_is_rejected(
     client, db, admin_token, org_a, org_b, svc_a, provider_org_for_scoping
 ):
-    """Staff not assigned to org A but directly set as assignee can see the ticket."""
+    """Even an administrator cannot grant tenant access through assignment."""
     staff = _make_staff(db, provider_org_for_scoping, "s3")
     _assign_staff_to_org(db, staff, org_b)  # only org B
-    tok = _token(client, staff.email)
 
-    # Admin creates ticket in org A and assigns it to staff
-    r = client.post("/api/tickets", json={
+    response = client.post("/api/tickets", json={
         "org_id": org_a.id,
         "service_id": svc_a.id,
-        "subject": "Directly assigned ticket",
+        "subject": "Cross-organisation assignment attempt",
         "assignee_id": staff.id,
     }, headers=auth(admin_token))
-    assert r.status_code == 201, r.text
-    tid = r.json()["id"]
 
-    # Staff should see it even though org A is not in their assignments
-    r2 = client.get(f"/api/tickets/{tid}", headers=auth(tok))
-    assert r2.status_code == 200
-
-    r3 = client.get("/api/tickets", headers=auth(tok))
-    ids = [t["id"] for t in r3.json()["items"]]
-    assert tid in ids
+    assert response.status_code == 422
+    assert "not eligible for this organisation" in response.json()["detail"]
 
 
 # ── Customer scoping (raised_by) ──────────────────────────────────────────────

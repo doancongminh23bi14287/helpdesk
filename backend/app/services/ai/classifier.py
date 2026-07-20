@@ -91,8 +91,18 @@ async def classify_ticket(
             temperature=0.2,
             max_tokens=256,
         )
-    except Exception:
-        logger.exception("Groq API call failed for ticket_id=%s", ticket_id)
+    except groq_client.AIProviderTransientError:
+        # Celery owns delayed retry; do not convert a retryable failure to None.
+        raise
+    except (
+        groq_client.AIDisabledException,
+        groq_client.AIProviderPermanentError,
+    ) as exc:
+        logger.warning(
+            "AI classification unavailable ticket_id=%s category=%s",
+            ticket_id,
+            type(exc).__name__,
+        )
         return None
 
     try:
@@ -118,7 +128,7 @@ async def classify_ticket(
         confidence=confidence,
         model_name=config.AI_MODEL,
         model_version="1.0",
-        raw_response=raw[:4000] if raw else None,
+        raw_response=None,
     )
     db.add(prediction)
     db.commit()

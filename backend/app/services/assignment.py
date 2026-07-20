@@ -6,7 +6,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.ticket import Ticket, TicketAssignee
-from app.models.project import Project, TaskAssignee
+from app.models.project import Project, ProjectMember, TaskAssignee
+from app.models.team import StaffOrgAssignment
 from app.models.user import User
 
 
@@ -14,6 +15,7 @@ def validate_assignee_ids(
     db: Session,
     user_ids: list[int],
     org_id: int,
+    project_id: int | None = None,
 ) -> dict[int, User]:
     """Return eligible staff users or raise without changing assignment state."""
     if not user_ids:
@@ -36,10 +38,37 @@ def validate_assignee_ids(
             detail=f"Assignee(s) must be active staff: {invalid}",
         )
 
-    # Ticket/manual assignment only requires an active staff account.
-    # Org membership is handled by ticket scoping and project membership policies,
-    # and direct assignee visibility is expected to work across org boundaries.
-    _ = org_id
+    org_member_ids = {
+        row.user_id
+        for row in db.query(StaffOrgAssignment.user_id).filter(
+            StaffOrgAssignment.org_id == org_id,
+            StaffOrgAssignment.user_id.in_(unique_ids),
+        ).all()
+    }
+    outside_org = sorted(set(unique_ids) - org_member_ids)
+    if outside_org:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Assignee(s) are not eligible for this organisation: {outside_org}",
+        )
+
+    if project_id:
+        explicit_member_ids = {
+            row.user_id
+            for row in db.query(ProjectMember.user_id).filter(
+                ProjectMember.project_id == project_id,
+                ProjectMember.role.in_(["staff", "manager"]),
+            ).all()
+        }
+        outside_project = sorted(
+            user_id for user_id in unique_ids
+            if explicit_member_ids and user_id not in explicit_member_ids
+        )
+        if outside_project:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Assignee(s) are not eligible for this project: {outside_project}",
+            )
     return users
 
 
@@ -64,7 +93,7 @@ def set_ticket_assignees(
     elif primary_id is None or primary_id not in user_ids:
         primary_id = user_ids[0]
 
-    users = validate_assignee_ids(db, user_ids, ticket.org_id)
+    users = validate_assignee_ids(db, user_ids, ticket.org_id, ticket.project_id)
 
     # Capture old assignees before clearing (for member-sync cleanup)
     old_rows = db.query(TicketAssignee).filter(TicketAssignee.ticket_id == ticket.id).all()
@@ -131,7 +160,7 @@ def set_task_assignees(
         raise HTTPException(status_code=404, detail="Project not found")
     from app.services.projects import ensure_project_allows_workflow
     ensure_project_allows_workflow(project, "receive new assignments")
-    users = validate_assignee_ids(db, user_ids, project.org_id)
+    users = validate_assignee_ids(db, user_ids, project.org_id, project.id)
 
     old_rows = db.query(TaskAssignee).filter(TaskAssignee.task_id == task.id).all()
     for row in old_rows:

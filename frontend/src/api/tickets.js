@@ -123,6 +123,11 @@ export async function assignTicket(id, assigneeId) {
   return res.data
 }
 
+export async function getAssignmentScore(id, { signal } = {}) {
+  const res = await client.get(`/tickets/${id}/assignment-score`, { signal })
+  return res.data
+}
+
 // ---------------------------------------------------------------------------
 // Backward-compat shims — hooks/pages use old function names; cannot be
 // modified until Phase 4B. These map old signatures to new ones.

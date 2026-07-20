@@ -69,6 +69,8 @@ function AssignmentCard({
   transferReq,
   updating,
   error,
+  activities,
+  assignmentScores,
   onAssign,
   onOpenTransfer,
   onAcceptTransfer,
@@ -80,6 +82,18 @@ function AssignmentCard({
     : ticket.assignee_id
       ? [{ user_id: ticket.assignee_id, full_name: ticket.assignee_name, email: ticket.assignee_email, is_primary: true }]
       : []
+  const assignmentActivity = [...(activities ?? [])].reverse().find((activity) =>
+    ['ai_guarded_reassigned', 'ai_assignment_recommended', 'assigned', 'auto_assigned'].includes(activity.action),
+  )
+  const assignmentSource = {
+    auto_assigned: 'Initial automatic',
+    assigned: 'Manual',
+    ai_assignment_recommended: 'AI recommendation',
+    ai_guarded_reassigned: 'AI guarded reassignment',
+  }[assignmentActivity?.action] ?? (ticket.assignment_mode === 'manual' ? 'Manual' : 'Automatic')
+  const currentScore = assignmentScores?.find(
+    (score) => Number(score.user_id) === Number(ticket.assignee_id),
+  )
 
   return (
     <SectionCard title="Assignment">
@@ -120,6 +134,26 @@ function AssignmentCard({
             {updating && <Spinner className="h-4 w-4 flex-none" />}
           </div>
         )}
+
+        <div className="rounded-md border border-border px-3 py-2">
+          <p className="text-[11px] text-muted-foreground">Assignment source</p>
+          <p className="mt-0.5 text-xs font-medium text-foreground">{assignmentSource}</p>
+          {isAdmin && currentScore && (
+            <dl className="mt-2 grid grid-cols-4 gap-1 border-t border-border pt-2 text-center">
+              {[
+                ['Workload', currentScore.workload_score],
+                ['Skill', currentScore.skill_score],
+                ['Presence', currentScore.online_score],
+                ['Total', currentScore.total_score],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="truncate text-[10px] text-muted-foreground">{label}</dt>
+                  <dd className="text-xs font-semibold text-foreground">{Number(value).toFixed(1)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
 
         {error && <p className="text-xs text-danger" role="alert">{error}</p>}
 
@@ -197,6 +231,9 @@ function ActivityCard({ activities }) {
     if (activity.action === 'priority_change') return `Priority: ${activity.from_value} to ${activity.to_value}`
     if (activity.action === 'auto_assigned') return 'Auto-assigned'
     if (activity.action === 'assigned') return 'Assignment updated'
+    if (activity.action === 'ai_assignment_recommended') return `AI recommended staff #${activity.to_value}`
+    if (activity.action === 'ai_guarded_reassigned') return `AI guarded reassignment: #${activity.from_value} to #${activity.to_value}`
+    if (activity.action === 'ai_assignment_evaluated') return 'AI routing safety check completed'
     if (activity.action === 'replied') return 'Reply added'
     if (activity.action === 'created') return 'Ticket created'
     return activity.action?.replaceAll('_', ' ') || 'Activity'
@@ -234,6 +271,7 @@ function SidebarSections({
   transferReq,
   assignUpdating,
   assignmentError,
+  assignmentScores,
   projectActionLoading,
   onAssign,
   onOpenTransfer,
@@ -260,6 +298,8 @@ function SidebarSections({
         transferReq={transferReq}
         updating={assignUpdating}
         error={assignmentError}
+        activities={activities}
+        assignmentScores={assignmentScores}
         onAssign={onAssign}
         onOpenTransfer={onOpenTransfer}
         onAcceptTransfer={onAcceptTransfer}

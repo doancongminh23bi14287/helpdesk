@@ -8,7 +8,6 @@ instead of writing its own inline logic.
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 
 from app.models.user import User
 from app.models.ticket import Ticket
@@ -72,14 +71,9 @@ def scope_tickets(query, user: User, db: Session):
             Ticket.raised_by == user.id,
             Ticket.org_id == user.org_id,
         )
-    # staff
+    # staff: direct assignment never expands tenant access.
     org_ids = get_accessible_org_ids(user, db)
-    return query.filter(
-        or_(
-            Ticket.org_id.in_(org_ids),
-            Ticket.assignee_id == user.id,
-        )
-    )
+    return query.filter(Ticket.org_id.in_(org_ids or []))
 
 
 def scope_invoices(query, user: User, db: Session):
@@ -114,23 +108,9 @@ def scope_projects(query, user: User, db: Session, include_internal: bool = Fals
             Project.org_id == user.org_id,
             Project.visibility == "customer_visible",
         )
-    # staff: assigned-org projects OR projects linked via an assigned ticket
+    # staff: ticket assignment never expands organisation access.
     org_ids = get_accessible_org_ids(user, db)
-    linked_via_ticket = (
-        db.query(Ticket.project_id)
-        .filter(
-            Ticket.assignee_id == user.id,
-            Ticket.project_id.isnot(None),
-            Ticket.is_deleted == False,  # noqa: E712
-        )
-        .scalar_subquery()
-    )
-    return query.filter(
-        or_(
-            Project.org_id.in_(org_ids or []),
-            Project.id.in_(linked_via_ticket),
-        )
-    )
+    return query.filter(Project.org_id.in_(org_ids or []))
 
 
 def scope_project_tasks(query, user: User, db: Session, include_internal: bool = False):

@@ -13,7 +13,7 @@ from app.models.ticket import Ticket, TicketReply
 from app.models.user import User
 from app.core.deps import get_current_user, require_staff_or_admin
 from app.core.limiter import limiter
-from app.core.scoping import get_accessible_org_ids
+from app.core.scoping import get_ticket_in_scope
 from app.core.redis_client import redis_client
 from app.schemas.ai import AiPredictionOut, AiReplyOut, AiSummaryOut
 
@@ -23,19 +23,8 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 
 def _assert_ticket_accessible(ticket_id: int, user: User, db: Session) -> Ticket:
-    """Return ticket if user may access it, else 404."""
-    ticket = db.query(Ticket).filter(
-        Ticket.id == ticket_id,
-        Ticket.is_deleted == False,
-    ).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    org_ids = get_accessible_org_ids(user, db)
-    if org_ids is not None and ticket.org_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    return ticket
+    """Use the same non-disclosing tenant scope as the ticket REST API."""
+    return get_ticket_in_scope(ticket_id, user, db)
 
 
 # ── 1. GET /api/ai/health ─────────────────────────────────────────────────────
@@ -186,7 +175,15 @@ def get_summary(
         return None
 
     cooldown_key = f"ai:summary:{ticket_id}"
-    ttl = redis_client.ttl(cooldown_key)
+    try:
+        ttl = redis_client.ttl(cooldown_key)
+    except Exception as exc:
+        logger.warning(
+            "AI summary cooldown read failed ticket_id=%s error=%s",
+            ticket_id,
+            type(exc).__name__,
+        )
+        ttl = 0
     remaining = max(0, ttl) if ttl and ttl > 0 else 0
 
     out = AiSummaryOut.model_validate(row)
@@ -207,8 +204,18 @@ async def summarize_ticket(
     ticket = _assert_ticket_accessible(ticket_id, user, db)
 
     cooldown_key = f"ai:summary:{ticket_id}"
-    if redis_client.exists(cooldown_key):
-        ttl = redis_client.ttl(cooldown_key)
+    try:
+        cooldown_exists = bool(redis_client.exists(cooldown_key))
+        ttl = redis_client.ttl(cooldown_key) if cooldown_exists else 0
+    except Exception as exc:
+        logger.warning(
+            "AI summary cooldown unavailable ticket_id=%s error=%s",
+            ticket_id,
+            type(exc).__name__,
+        )
+        cooldown_exists = False
+        ttl = 0
+    if cooldown_exists:
         remaining = max(0, ttl) if ttl and ttl > 0 else 0
         raise HTTPException(
             status_code=429,
@@ -279,7 +286,14 @@ async def summarize_ticket(
     db.commit()
     db.refresh(row)
 
-    redis_client.setex(cooldown_key, _SUMMARY_COOLDOWN, "1")
+    try:
+        redis_client.setex(cooldown_key, _SUMMARY_COOLDOWN, "1")
+    except Exception as exc:
+        logger.warning(
+            "AI summary cooldown write failed ticket_id=%s error=%s",
+            ticket_id,
+            type(exc).__name__,
+        )
 
     out = AiSummaryOut.model_validate(row)
     out.cooldown_remaining = _SUMMARY_COOLDOWN

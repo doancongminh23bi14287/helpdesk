@@ -5,6 +5,9 @@ import { useNotificationStore } from '@/hooks/useNotificationStore'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8001/api'
 const SOCKET_URL = API_URL.replace(/\/api$/, '')
+const PRESENCE_HEARTBEAT_SECONDS = Number(
+  import.meta.env.VITE_PRESENCE_HEARTBEAT_SECONDS ?? 30,
+)
 
 // Module-level singleton so any component can subscribe without re-connecting
 let _socket = null
@@ -48,6 +51,26 @@ export function useSocket() {
     socketRef.current = socket
     _socket = socket
 
+    let heartbeatTimer = null
+    const stopHeartbeat = () => {
+      if (heartbeatTimer !== null) {
+        window.clearInterval(heartbeatTimer)
+        heartbeatTimer = null
+      }
+    }
+    const sendHeartbeat = () => socket.emit('presence_heartbeat')
+    const startHeartbeat = () => {
+      stopHeartbeat()
+      sendHeartbeat()
+      heartbeatTimer = window.setInterval(
+        sendHeartbeat,
+        PRESENCE_HEARTBEAT_SECONDS * 1000,
+      )
+    }
+
+    socket.on('connect', startHeartbeat)
+    socket.on('disconnect', stopHeartbeat)
+
     socket.on('new_notification', (data) => {
       incrementUnread()
       addToast({
@@ -65,6 +88,7 @@ export function useSocket() {
     }
 
     return () => {
+      stopHeartbeat()
       // Remove all handlers first so a zombie socket (e.g. from React StrictMode
       // double-invoke in dev) cannot fire events after we've cleared the refs.
       socket.removeAllListeners()

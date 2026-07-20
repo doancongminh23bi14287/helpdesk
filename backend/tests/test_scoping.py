@@ -204,7 +204,7 @@ def test_scope_tickets_customer_sees_only_own(
     assert other.id not in ids  # different org
 
 
-def test_scope_tickets_staff_sees_assigned_org_and_own_assigned(
+def test_scope_tickets_staff_never_gains_cross_org_access_from_assignment(
     db, assigned_staff, client_org, second_client_org2, customer_user
 ):
     from app.core.scoping import scope_tickets
@@ -217,7 +217,7 @@ def test_scope_tickets_staff_sees_assigned_org_and_own_assigned(
     q = scope_tickets(db.query(Ticket), assigned_staff, db)
     ids = {t.id for t in q.all()}
     assert in_org.id in ids
-    assert directly_assigned.id in ids
+    assert directly_assigned.id not in ids
     assert invisible.id not in ids
 
 

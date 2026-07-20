@@ -117,13 +117,13 @@ def test_auto_assign_no_staff_leaves_unassigned(
     assert data["assignee_id"] is None
 
 
-# ── test_assign_endpoint_admin_can_assign_anyone ──────────────────────────────
+# ── test_assign_endpoint_admin_can_assign_eligible_staff ──────────────────────
 
-def test_assign_endpoint_admin_can_assign_anyone(
+def test_assign_endpoint_admin_can_assign_eligible_staff(
     client, db, admin_token, staff_user, staff_assignment,
     client_org, service, customer_user,
 ):
-    """Admin can assign a ticket to any staff user via POST /assign."""
+    """Admin can assign an active staff member eligible for the ticket org."""
     # Create a ticket (no auto-assign since staff is in org but that's OK)
     r = _create_ticket_via_api(client, admin_token, client_org.id, service.id, "Admin assign test")
     assert r.status_code == 201, r.text
@@ -307,3 +307,180 @@ def test_project_member_restricts_auto_assignment(
     data = response.json()
     assert data["project_id"] == project.id
     assert data["assignee_id"] == staff2.id
+
+
+def test_workload_sums_active_tickets_and_tasks_and_excludes_terminal(
+    db, admin_user, staff_user, staff_assignment, client_org
+):
+    from app.models.project import Project, ProjectTask, TaskAssignee
+    from app.models.ticket import Ticket, TicketAssignee
+    from app.services.auto_assign import score_breakdown
+
+    project = Project(
+        org_id=client_org.id,
+        name="Combined workload",
+        project_type="seo",
+        status="open",
+        visibility="customer_visible",
+        created_by=admin_user.id,
+        progress_percent=0,
+    )
+    db.add(project)
+    db.flush()
+
+    active_ticket = Ticket(
+        org_id=client_org.id,
+        subject="Active assigned work",
+        status="Open",
+        priority="Medium",
+        ticket_type="Question",
+        source="portal",
+        raised_by=admin_user.id,
+    )
+    closed_ticket = Ticket(
+        org_id=client_org.id,
+        subject="Closed assigned work",
+        status="Closed",
+        priority="Medium",
+        ticket_type="Question",
+        source="portal",
+        raised_by=admin_user.id,
+    )
+    target = Ticket(
+        org_id=client_org.id,
+        subject="Target",
+        status="Open",
+        priority="Medium",
+        ticket_type="Question",
+        source="portal",
+        raised_by=admin_user.id,
+    )
+    db.add_all([active_ticket, closed_ticket, target])
+    db.flush()
+    db.add_all([
+        TicketAssignee(ticket_id=active_ticket.id, user_id=staff_user.id, is_primary=True),
+        TicketAssignee(ticket_id=closed_ticket.id, user_id=staff_user.id, is_primary=True),
+    ])
+
+    active_task = ProjectTask(
+        project_id=project.id,
+        title="Active task",
+        status="working",
+        priority="medium",
+        task_type="other",
+        created_by=admin_user.id,
+    )
+    completed_task = ProjectTask(
+        project_id=project.id,
+        title="Completed task",
+        status="completed",
+        priority="medium",
+        task_type="other",
+        created_by=admin_user.id,
+    )
+    db.add_all([active_task, completed_task])
+    db.flush()
+    db.add_all([
+        TaskAssignee(task_id=active_task.id, user_id=staff_user.id, is_primary=True),
+        TaskAssignee(task_id=completed_task.id, user_id=staff_user.id, is_primary=True),
+    ])
+    db.commit()
+
+    score = next(
+        row for row in score_breakdown(target, db)
+        if row["user_id"] == staff_user.id
+    )
+    assert score["active_ticket_count"] == 1
+    assert score["active_task_count"] == 1
+    assert score["load_units"] == 2
+
+
+def test_heartbeat_presence_awards_twenty_points(
+    db, admin_user, staff_user, staff_assignment, client_org
+):
+    from app.core.redis_client import redis_client
+    from app.models.ticket import Ticket
+    from app.services.auto_assign import score_breakdown
+
+    target = Ticket(
+        org_id=client_org.id,
+        subject="Online target",
+        status="Open",
+        priority="Medium",
+        ticket_type="Question",
+        source="portal",
+        raised_by=admin_user.id,
+    )
+    db.add(target)
+    db.commit()
+    redis_client.setex(f"presence:user:{staff_user.id}", 90, "test")
+
+    score = next(
+        row for row in score_breakdown(target, db)
+        if row["user_id"] == staff_user.id
+    )
+    assert score["online"] == 1
+    assert score["online_score"] == 20
+
+
+def test_tie_break_prefers_never_assigned_then_stable_user_id():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from app.services.auto_assign import _do_find_best_assignee
+
+    tied = [
+        {"user_id": 9, "total_score": 50, "last_assigned_at": None},
+        {"user_id": 4, "total_score": 50, "last_assigned_at": None},
+        {
+            "user_id": 1,
+            "total_score": 50,
+            "last_assigned_at": datetime.now(timezone.utc).replace(tzinfo=None),
+        },
+    ]
+    with patch("app.services.auto_assign._compute_scores", return_value=tied):
+        winner = _do_find_best_assignee(SimpleNamespace(id=99), None)
+
+    assert winner == 4
+
+
+def test_held_assignment_lock_defers_selection():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from app.services.auto_assign import find_best_assignee
+
+    with patch("app.services.auto_assign.redis_client") as redis_mock, patch(
+        "app.services.auto_assign.time.sleep"
+    ), patch("app.services.auto_assign._do_find_best_assignee") as select:
+        redis_mock.set.return_value = False
+        result = find_best_assignee(SimpleNamespace(org_id=8), None)
+
+    assert result is None
+    assert redis_mock.set.call_count == 2
+    select.assert_not_called()
+
+
+def test_assignment_lock_release_is_token_owned():
+    from unittest.mock import patch
+    from app.services.auto_assign import _release_assignment_lock
+
+    with patch("app.services.auto_assign.redis_client") as redis_mock:
+        _release_assignment_lock("assignment:org:3", "owner-token")
+
+    redis_mock.eval.assert_called_once()
+    args = redis_mock.eval.call_args.args
+    assert args[-2:] == ("assignment:org:3", "owner-token")
+
+
+def test_redis_lock_failure_does_not_break_assignment():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from app.services.auto_assign import find_best_assignee
+
+    with patch("app.services.auto_assign.redis_client") as redis_mock, patch(
+        "app.services.auto_assign._do_find_best_assignee", return_value=17
+    ) as select:
+        redis_mock.set.side_effect = ConnectionError("redis unavailable")
+        result = find_best_assignee(SimpleNamespace(org_id=8), object())
+
+    assert result == 17
+    select.assert_called_once()

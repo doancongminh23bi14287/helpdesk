@@ -21,6 +21,7 @@ from app.database import SessionLocal
 from app.models.user import User
 from app.models.user_session import UserSession
 from app.services.notify import NOTIFICATION_CHANNEL
+from app.services.presence import mark_user_present
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +67,29 @@ async def connect(sid, environ, auth):
         user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
         if not user:
             raise ConnectionRefusedError("User not found or inactive")
+        role = user.role
     finally:
         db.close()
 
     await sio.enter_room(sid, f"user_{user_id}")
-    await sio.save_session(sid, {"user_id": user_id})
+    await sio.save_session(sid, {"user_id": user_id, "role": role})
+    if role == "staff":
+        mark_user_present(user_id)
+
+
+@sio.event
+async def presence_heartbeat(sid, _payload=None):
+    """Refresh only the authenticated socket user's staff presence.
+
+    Any user ID sent by a client is ignored, preventing impersonation.
+    """
+    session = await sio.get_session(sid)
+    if not session or not session.get("user_id"):
+        return {"ok": False, "error": "unauthenticated"}
+    if session.get("role") != "staff":
+        return {"ok": True, "eligible": False}
+    refreshed = mark_user_present(session["user_id"])
+    return {"ok": refreshed, "eligible": True}
 
 
 @sio.event

@@ -11,6 +11,7 @@ import {
   createProjectFromTicket,
   createTransferRequest,
   declineTransfer,
+  getAssignmentScore,
   getTransferRequest,
   linkProject,
   unlinkProject,
@@ -68,6 +69,7 @@ export default function TicketDetailPage() {
   const [transferReq, setTransferReq] = useState(null)
   const [assignUpdating, setAssignUpdating] = useState(false)
   const [assignmentError, setAssignmentError] = useState('')
+  const [assignmentScores, setAssignmentScores] = useState([])
   const [showTransferDialog, setShowTransferDialog] = useState(false)
 
   const [projectActionLoading, setProjectActionLoading] = useState(false)
@@ -113,6 +115,18 @@ export default function TicketDetailPage() {
       .then((data) => setStaffList(Array.isArray(data) ? data : (data?.items ?? [])))
       .catch(() => {})
   }, [isAdmin])
+
+  useEffect(() => {
+    if (!isAdmin || !id) {
+      setAssignmentScores([])
+      return undefined
+    }
+    const controller = new AbortController()
+    getAssignmentScore(id, { signal: controller.signal })
+      .then((data) => setAssignmentScores(Array.isArray(data) ? data : []))
+      .catch(() => setAssignmentScores([]))
+    return () => controller.abort()
+  }, [id, isAdmin, ticket?.assignee_id, activities.length])
 
   const loadTransferRequest = useCallback(() => {
     if (!id || !isStaffOrAdmin) return
@@ -382,6 +396,7 @@ export default function TicketDetailPage() {
             transferReq={transferReq}
             assignUpdating={assignUpdating}
             assignmentError={assignmentError}
+            assignmentScores={assignmentScores}
             projectActionLoading={projectActionLoading}
             onAssign={handleAssign}
             onOpenTransfer={() => setShowTransferDialog(true)}
