@@ -63,21 +63,21 @@ export function navSectionsForRole(role) {
 
   if (role === 'staff') {
     return [
-      { titleKey: 'sidebar.section.main', items: [NAV_ITEMS.dashboard] },
+      { titleKey: 'sidebar.section.main', items: [NAV_ITEMS.dashboard, NAV_ITEMS.seoDashboard] },
       { titleKey: 'sidebar.section.delivery', items: [NAV_ITEMS.seoProjects, NAV_ITEMS.services] },
       { titleKey: 'sidebar.section.support', items: [NAV_ITEMS.allTickets, NAV_ITEMS.notifications] },
-      { titleKey: 'sidebar.section.reporting', items: [NAV_ITEMS.analytics, NAV_ITEMS.seoDashboard] },
+      { titleKey: 'sidebar.section.reporting', items: [NAV_ITEMS.analytics] },
       { titleKey: 'sidebar.section.account', items: [NAV_ITEMS.accountSecurity] },
     ]
   }
 
   return [
-    { titleKey: 'sidebar.section.main', items: [NAV_ITEMS.dashboard] },
+    { titleKey: 'sidebar.section.main', items: [NAV_ITEMS.dashboard, NAV_ITEMS.seoDashboard] },
     { titleKey: 'sidebar.section.clientManagement', items: [NAV_ITEMS.organizations, NAV_ITEMS.users, NAV_ITEMS.staffAssignments, NAV_ITEMS.services] },
     { titleKey: 'sidebar.section.delivery', items: [NAV_ITEMS.seoProjects] },
     { titleKey: 'sidebar.section.support', items: [NAV_ITEMS.allTickets, NAV_ITEMS.notifications, NAV_ITEMS.slaPolicies] },
     { titleKey: 'sidebar.section.billing', items: [NAV_ITEMS.items, NAV_ITEMS.subscriptions, NAV_ITEMS.invoicesAdmin, NAV_ITEMS.emailOutbox] },
-    { titleKey: 'sidebar.section.reporting', items: [NAV_ITEMS.analytics, NAV_ITEMS.seoDashboard, NAV_ITEMS.systemStatus] },
+    { titleKey: 'sidebar.section.reporting', items: [NAV_ITEMS.analytics, NAV_ITEMS.systemStatus] },
     { titleKey: 'sidebar.section.account', items: [NAV_ITEMS.accountSecurity] },
   ]
 }

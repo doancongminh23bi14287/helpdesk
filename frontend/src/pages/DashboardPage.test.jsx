@@ -81,4 +81,19 @@ describe('DashboardPage', () => {
     })
     expect(document.body.textContent).not.toMatch(/NaN/)
   })
+
+  it('uses the scoped active SEO total returned by the projects API', async () => {
+    listProjects.mockResolvedValue({
+      active_total: 7,
+      items: [{ id: 1, name: 'One visible row', status: 'working' }],
+    })
+
+    render(wrap(<DashboardPage />))
+
+    await waitFor(() => {
+      expect(listProjects).toHaveBeenCalledWith({ project_type: 'seo', per_page: 50 })
+    })
+    const label = await screen.findByText('Active SEO Projects')
+    expect(label.closest('.bg-white')).toHaveTextContent('7')
+  })
 })

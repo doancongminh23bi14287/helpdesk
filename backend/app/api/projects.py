@@ -247,6 +247,7 @@ def list_projects(
         term = f"%{q}%"
         query = query.filter(or_(Project.name.ilike(term), Project.description.ilike(term)))
 
+    active_total = query.filter(Project.status.notin_(("completed", "cancelled"))).count()
     query = query.order_by(Project.updated_at.desc(), Project.id.desc())
     total = query.count()
     items = query.offset((page - 1) * per_page).limit(per_page).all()
@@ -256,6 +257,7 @@ def list_projects(
         "page": page,
         "per_page": per_page,
         "pages": ceil(total / per_page) if total else 1,
+        "active_total": active_total,
     }
 
 

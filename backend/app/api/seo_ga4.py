@@ -198,6 +198,8 @@ def select_property(
     user: User = Depends(require_staff_or_admin),
     db: Session = Depends(get_db),
 ):
+    from app.services import ga4 as ga4_svc
+
     target_org = _resolve_org(user, db, org_id)
     conn = _conn_or_404(target_org, db)
     token = ga4_svc.get_valid_token(conn, db)

@@ -168,7 +168,13 @@ function KeywordsTable({ keywords }) {
 
 function RankChartCanvas({ rankHistory, rankKeywords, isClicksChart, height, showBrush = false }) {
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <ResponsiveContainer
+      width="100%"
+      height={height}
+      minWidth={0}
+      minHeight={340}
+      initialDimension={{ width: 800, height: 340 }}
+    >
       <LineChart data={rankHistory} margin={{ top: 16, right: 16, left: -8, bottom: showBrush ? 8 : 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
         <XAxis
@@ -303,7 +309,7 @@ function WhiteLabelReport({ ga4Summary, gscSummary, keywords }) {
       <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-sm font-semibold text-foreground">White-Label Report</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Preview how a branded client report would look.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Branded performance report for client delivery.</p>
         </div>
         <button
           onClick={handlePrint}

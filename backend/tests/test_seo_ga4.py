@@ -137,6 +137,32 @@ def test_staff_cannot_select_unassigned_org(
     assert response.status_code == 404
 
 
+def test_select_property_validates_provider_property(client, admin_token, client_org, db):
+    connection = Ga4Connection(
+        org_id=client_org.id,
+        refresh_token="refresh-token",
+        access_token="access-token",
+    )
+    db.add(connection)
+    db.commit()
+
+    with patch("app.services.ga4.get_valid_token", return_value="token"), patch(
+        "app.services.ga4.list_properties",
+        return_value=[{"property": "properties/123456", "displayName": "Production GA4"}],
+    ):
+        response = client.post(
+            f"/api/seo/ga4/property?org_id={client_org.id}",
+            json={"property_id": "123456", "property_name": "Untrusted name"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "property_id": "123456",
+        "property_name": "Production GA4",
+    }
+
+
 def test_callback_records_connecting_user(client, admin_user, client_org, db):
     from app.core.redis_client import redis_client
     from app.services.seo_security import new_oauth_state
