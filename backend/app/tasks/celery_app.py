@@ -1,7 +1,11 @@
 # backend/app/tasks/celery_app.py
 from celery import Celery
+import os
 from celery.schedules import crontab
 from app import config
+
+EMAIL_POLL_SECONDS = int(os.getenv("EMAIL_POLL_SECONDS", "120"))
+EMAIL_OUTBOX_POLL_SECONDS = int(os.getenv("EMAIL_OUTBOX_POLL_SECONDS", "30"))
 
 celery_app = Celery(
     "helpdesk",
@@ -22,7 +26,7 @@ celery_app = Celery(
 celery_app.conf.beat_schedule = {
     "poll-email-every-2-minutes": {
         "task": "app.tasks.email_poller.poll_email",
-        "schedule": 120.0,
+        "schedule": EMAIL_POLL_SECONDS,
     },
     "check-sla-every-5-minutes": {
         "task": "app.tasks.sla_checker.check_sla",
@@ -46,7 +50,7 @@ celery_app.conf.beat_schedule = {
     },
     "process-email-outbox": {
         "task": "app.tasks.email_outbox_task.process_email_outbox",
-        "schedule": 120.0,  # every 2 minutes
+        "schedule": EMAIL_OUTBOX_POLL_SECONDS,  # default: every 30 seconds
     },
 }
 celery_app.conf.timezone = "UTC"
