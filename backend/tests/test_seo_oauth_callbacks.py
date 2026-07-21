@@ -110,3 +110,14 @@ def test_existing_connection_commit_failure_rolls_back_to_database(client_org, a
     finally:
         fresh.close()
     assert "connection_failed" in response.headers["location"]
+
+
+def test_gsc_dashboard_is_bounded_and_scoped(client, admin_token, client_org, db):
+    conn = GscConnection(org_id=client_org.id, refresh_token="R", access_token="A", property_url="https://example.com", status="connected")
+    db.add(conn); db.commit()
+    rows = [{"clicks": 10, "impressions": 100, "ctr": .1, "position": 5}]
+    with patch("app.services.gsc.get_valid_token", return_value="TOKEN"), patch("app.services.gsc.list_sites", return_value=[{"siteUrl": "https://example.com"}]), patch("app.services.gsc.query_search_analytics", return_value={"rows": rows}) as query:
+        response = client.get(f"/api/seo/gsc/dashboard?org_id={client_org.id}&period=7", headers={"Authorization": f"Bearer {admin_token}"})
+    assert response.status_code == 200
+    assert response.json()["current"]["clicks"] == 10
+    assert all(call.args[2]["rowLimit"] <= 100 for call in query.call_args_list)
