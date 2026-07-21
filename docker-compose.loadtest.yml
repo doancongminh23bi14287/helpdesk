@@ -1,0 +1,81 @@
+services:
+  loadtest_db:
+    image: mariadb:10.11
+    container_name: helpdesk_loadtest_db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LOADTEST_MYSQL_ROOT_PASSWORD:?set in .env.loadtest.local}
+      MYSQL_DATABASE: ${LOADTEST_MYSQL_DATABASE:-helpdesk_loadtest}
+      MYSQL_USER: ${LOADTEST_MYSQL_USER:-helpdesk_loadtest}
+      MYSQL_PASSWORD: ${LOADTEST_MYSQL_PASSWORD:?set in .env.loadtest.local}
+    ports:
+      - "3308:3306"
+    volumes:
+      - helpdesk_loadtest_db_data:/var/lib/mysql
+      - ./SCHEMA.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u${LOADTEST_MYSQL_USER:-helpdesk_loadtest}", "-p${LOADTEST_MYSQL_PASSWORD:?set in .env.loadtest.local}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  loadtest_redis:
+    image: redis:7-alpine
+    container_name: helpdesk_loadtest_redis
+    ports:
+      - "6381:6379"
+    volumes:
+      - helpdesk_loadtest_redis_data:/data
+
+  loadtest_backend:
+    build: ./backend
+    container_name: helpdesk_loadtest_backend
+    env_file:
+      - ./.env.loadtest.local
+    environment:
+      DB_URL: mysql+pymysql://${LOADTEST_MYSQL_USER:-helpdesk_loadtest}:${LOADTEST_MYSQL_PASSWORD}@loadtest_db:3306/${LOADTEST_MYSQL_DATABASE:-helpdesk_loadtest}
+      REDIS_URL: redis://loadtest_redis:6379
+      REDIS_HOST: loadtest_redis
+      REDIS_PORT: 6379
+      LOAD_TEST_MODE: "true"
+      ALLOW_LOAD_TEST: "true"
+      AI_FEATURES_ENABLED: "false"
+      EMAIL_FEATURES_ENABLED: "false"
+      EMAIL_POLLING_ENABLED: "false"
+      GOOGLE_INTEGRATIONS_ENABLED: "false"
+      PAYMENT_INTEGRATIONS_ENABLED: "false"
+    command: ["bash", "./start.sh"]
+    ports:
+      - "8011:8001"
+    depends_on:
+      loadtest_db:
+        condition: service_healthy
+      loadtest_redis:
+        condition: service_started
+
+  loadtest_worker:
+    build: ./backend
+    container_name: helpdesk_loadtest_worker
+    env_file:
+      - ./.env.loadtest.local
+    environment:
+      DB_URL: mysql+pymysql://${LOADTEST_MYSQL_USER:-helpdesk_loadtest}:${LOADTEST_MYSQL_PASSWORD}@loadtest_db:3306/${LOADTEST_MYSQL_DATABASE:-helpdesk_loadtest}
+      REDIS_URL: redis://loadtest_redis:6379
+      REDIS_HOST: loadtest_redis
+      REDIS_PORT: 6379
+      LOAD_TEST_MODE: "true"
+      ALLOW_LOAD_TEST: "true"
+      AI_FEATURES_ENABLED: "false"
+      EMAIL_FEATURES_ENABLED: "false"
+      EMAIL_POLLING_ENABLED: "false"
+      GOOGLE_INTEGRATIONS_ENABLED: "false"
+      PAYMENT_INTEGRATIONS_ENABLED: "false"
+    command: ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "--concurrency=1", "--pool=solo"]
+    depends_on:
+      loadtest_db:
+        condition: service_healthy
+      loadtest_redis:
+        condition: service_started
+
+volumes:
+  helpdesk_loadtest_db_data:
+  helpdesk_loadtest_redis_data:

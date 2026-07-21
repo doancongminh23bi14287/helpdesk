@@ -2,7 +2,7 @@
 
 ## Status
 
-`NOT READY`. The current local stack is the normal development stack, not an
+`READY for isolation; rerun failed the rate-limit acceptance gate`. The current local stack is the normal development stack, not an
 isolated load-test runtime. Locust must not run against it.
 
 | Capability | Actual configuration | Required load-test value | API enforced | Worker enforced | Verified |
