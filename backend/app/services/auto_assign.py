@@ -352,22 +352,42 @@ def acquire_assignment_lock(org_id: int) -> tuple[str, str, bool | None]:
 
 
 def find_best_assignee(ticket: Ticket, db: Session) -> int | None:
-    """Select under an organisation lock; Redis failure degrades without blocking."""
+    """Select under an organisation lock; retained for non-transaction callers."""
+    return _find_best_assignee(ticket, db, hold_lock=False)
+
+
+def _find_best_assignee(ticket: Ticket, db: Session, *, hold_lock: bool) -> int | None:
     lock_key, token, lock_status = acquire_assignment_lock(ticket.org_id)
     if lock_status is False:
         logger.info("Assignment deferred because org lock is held org_id=%s", ticket.org_id)
         return None
     if lock_status is None:
-        logger.warning(
-            "Initial assignment continuing without Redis lock org_id=%s",
-            ticket.org_id,
-        )
-
+        logger.warning("Initial assignment left unassigned because Redis lock is unavailable org_id=%s", ticket.org_id)
+        return None
+    if hold_lock:
+        db.info["assignment_lock"] = (lock_key, token)
+        try:
+            return _do_find_best_assignee(ticket, db)
+        except Exception:
+            db.info.pop("assignment_lock", None)
+            _release_assignment_lock(lock_key, token)
+            raise
     try:
         return _do_find_best_assignee(ticket, db)
     finally:
-        if lock_status is True:
-            _release_assignment_lock(lock_key, token)
+        _release_assignment_lock(lock_key, token)
+
+
+def find_best_assignee_for_transaction(ticket: Ticket, db: Session) -> int | None:
+    """Select a winner and retain the org lock until the caller commits."""
+    return _find_best_assignee(ticket, db, hold_lock=True)
+
+
+def release_transaction_assignment_lock(db: Session) -> None:
+    """Release a transaction-held lock after commit or rollback."""
+    lock = db.info.pop("assignment_lock", None)
+    if lock:
+        _release_assignment_lock(*lock)
 
 
 def score_breakdown(ticket: Ticket, db: Session) -> list[dict]:

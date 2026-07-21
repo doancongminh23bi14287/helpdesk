@@ -22,7 +22,7 @@ from app.core.scoping import assert_org_access, get_ticket_in_scope, scope_ticke
 from app.core.limiter import limiter
 from app import config
 from app.schemas.ticket import TicketCreate, TicketUpdate, TicketOut, TicketDetailOut, TicketReplyCreate, TicketReplyOut, TicketAssignPayload, AttachmentOut, LinkProjectPayload
-from app.services.auto_assign import find_best_assignee, score_breakdown
+from app.services.auto_assign import find_best_assignee_for_transaction, release_transaction_assignment_lock, score_breakdown
 from app.services.assignment import set_ticket_assignees, load_assignees_for_tickets
 from app.services.notify import create_notification
 from app.services.sla_monitor import compute_sla_timestamps, get_sla_status
@@ -258,46 +258,52 @@ def create_ticket(
     )
     db.add(activity)
 
-    if eff_mode == "none":
-        pass  # intentionally unassigned
-    elif eff_mode == "manual" and eff_ids:
-        set_ticket_assignees(db, ticket, eff_ids, assigned_by=user.id)
-        if ticket.assignee_id:
-            create_notification(
-                db,
-                user_id=ticket.assignee_id,
-                title=f"Ticket #{ticket.id} assigned to you",
-                content=ticket.subject,
-                type="assignment",
-                ref_ticket_id=ticket.id,
-            )
-    else:
-        # Auto-assign
-        best_id = find_best_assignee(ticket, db)
-        if best_id:
-            set_ticket_assignees(db, ticket, [best_id], assigned_by=None)
-            assign_activity = TicketActivity(
-                ticket_id=ticket.id,
-                actor_id=None,  # system
-                action="auto_assigned",
-                to_value=str(best_id),
-            )
-            db.add(assign_activity)
-            create_notification(
-                db,
-                user_id=best_id,
-                title=f"Ticket #{ticket.id} auto-assigned to you",
-                content=ticket.subject,
-                type="assignment",
-                ref_ticket_id=ticket.id,
-            )
-            # Stamp the winner so the tie-breaker stays accurate next time.
-            assigned_user = db.query(User).filter(User.id == best_id).first()
-            if assigned_user:
-                assigned_user.last_assigned_at = datetime.now(timezone.utc)
+    try:
+        if eff_mode == "none":
+            pass  # intentionally unassigned
+        elif eff_mode == "manual" and eff_ids:
+            set_ticket_assignees(db, ticket, eff_ids, assigned_by=user.id)
+            if ticket.assignee_id:
+                create_notification(
+                    db,
+                    user_id=ticket.assignee_id,
+                    title=f"Ticket #{ticket.id} assigned to you",
+                    content=ticket.subject,
+                    type="assignment",
+                    ref_ticket_id=ticket.id,
+                )
+        else:
+            # Auto-assign
+            best_id = find_best_assignee_for_transaction(ticket, db)
+            if best_id:
+                set_ticket_assignees(db, ticket, [best_id], assigned_by=None)
+                assign_activity = TicketActivity(
+                    ticket_id=ticket.id,
+                    actor_id=None,  # system
+                    action="auto_assigned",
+                    to_value=str(best_id),
+                )
+                db.add(assign_activity)
+                create_notification(
+                    db,
+                    user_id=best_id,
+                    title=f"Ticket #{ticket.id} auto-assigned to you",
+                    content=ticket.subject,
+                    type="assignment",
+                    ref_ticket_id=ticket.id,
+                )
+                # Stamp the winner so the tie-breaker stays accurate next time.
+                assigned_user = db.query(User).filter(User.id == best_id).with_for_update().first()
+                if assigned_user:
+                    assigned_user.last_assigned_at = datetime.now(timezone.utc)
 
-    db.commit()
-    db.refresh(ticket)
+        db.commit()
+        db.refresh(ticket)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        release_transaction_assignment_lock(db)
 
     # Send email notifications in background (fire and forget — don't block API)
     try:

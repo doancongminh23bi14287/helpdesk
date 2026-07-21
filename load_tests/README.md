@@ -7,6 +7,13 @@ Loopback is allowed by default. Staging requires LOAD_TEST_ALLOW_STAGING=true pl
 Environment setup example (replace every value locally):
 
     export ALLOW_LOAD_TEST=true
+    export LOAD_TEST_MODE=true
+    export LOAD_TEST_KEY=replace_with_test_only_key
+    export AI_ENABLED=false
+    export EMAIL_SENDING_ENABLED=false
+    export EMAIL_POLLING_ENABLED=false
+    export GOOGLE_INTEGRATIONS_ENABLED=false
+    export PAYMENT_INTEGRATIONS_ENABLED=false
     export LOAD_TEST_CONFIRM=true
     export LOAD_TEST_PREFIX=LOADTEST-
     export LOAD_TEST_CUSTOMER_EMAIL=load-customer@example.com
@@ -19,6 +26,7 @@ Environment setup example (replace every value locally):
     export LOAD_TEST_SERVICE_ID=456
     export LOAD_TEST_CREATE_TICKETS=true
     export LOAD_TEST_BACKEND_SIDE_EFFECTS_DISABLED=true
+    export LOAD_TEST_PREFIX=LOADTEST-
 
 `LOAD_TEST_BACKEND_SIDE_EFFECTS_DISABLED=true` is an operator attestation, not a client-side switch. Before setting it, inspect the environment of the running backend and worker, disable `AI_FEATURES_ENABLED` and `EMAIL_FEATURES_ENABLED`, remove provider credentials from the isolated load-test deployment, and restart those processes. A shell `.env` value does not prove that an already-running container received it. If this cannot be demonstrated, leave ticket creation disabled and run a read-only profile.
 

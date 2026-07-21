@@ -8,6 +8,8 @@ from locust.exception import StopUser
 
 PREFIX = os.getenv("LOAD_TEST_PREFIX", "LOADTEST-")
 ALLOWED = os.getenv("ALLOW_LOAD_TEST", "").lower() == "true"
+LOAD_TEST_MODE = os.getenv("LOAD_TEST_MODE", "").lower() == "true"
+LOAD_TEST_KEY = os.getenv("LOAD_TEST_KEY", "")
 CONFIRMED = os.getenv("LOAD_TEST_CONFIRM", "").lower() == "true"
 ALLOW_STAGING = os.getenv("LOAD_TEST_ALLOW_STAGING", "").lower() == "true"
 ALLOWED_HOSTS = {host.strip().lower() for host in os.getenv("LOAD_TEST_ALLOWED_HOSTS", "").split(",") if host.strip()}
@@ -25,9 +27,9 @@ PERSONA_LOCKS = {name: Semaphore(1) for name in SYNTHETIC_EMAIL_VARS}
 def require_explicit_confirmation(environment, **_kwargs):
     raw_host = (environment.host or "").strip()
     hostname = (urlparse(raw_host).hostname or "").lower()
-    if not ALLOWED or not CONFIRMED:
+    if not ALLOWED or not CONFIRMED or not LOAD_TEST_MODE or not LOAD_TEST_KEY:
         raise RuntimeError(
-            "Set both ALLOW_LOAD_TEST=true and LOAD_TEST_CONFIRM=true after reviewing the target."
+            "Set ALLOW_LOAD_TEST, LOAD_TEST_CONFIRM, LOAD_TEST_MODE and LOAD_TEST_KEY after backend preflight."
         )
     if not hostname:
         raise RuntimeError("A valid --host is required.")
@@ -83,7 +85,7 @@ class AuthenticatedUser(HttpUser):
                         response.failure("login response has no access_token")
                         raise StopUser()
                     PERSONA_TOKENS[email_key] = token
-        self.client.headers.update({"Authorization": f"Bearer {token}"})
+        self.client.headers.update({"Authorization": f"Bearer {token}", "X-Load-Test-Key": LOAD_TEST_KEY})
 
     def ticket_items(self):
         response = self.client.get("/api/tickets", name="/api/tickets")

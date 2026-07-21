@@ -471,7 +471,7 @@ def test_assignment_lock_release_is_token_owned():
     assert args[-2:] == ("assignment:org:3", "owner-token")
 
 
-def test_redis_lock_failure_does_not_break_assignment():
+def test_redis_lock_failure_leaves_ticket_unassigned():
     from types import SimpleNamespace
     from unittest.mock import patch
     from app.services.auto_assign import find_best_assignee
@@ -482,5 +482,25 @@ def test_redis_lock_failure_does_not_break_assignment():
         redis_mock.set.side_effect = ConnectionError("redis unavailable")
         result = find_best_assignee(SimpleNamespace(org_id=8), object())
 
-    assert result == 17
-    select.assert_called_once()
+    assert result is None
+    select.assert_not_called()
+
+def test_transaction_assignment_lock_is_held_until_explicit_release():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from app.services.auto_assign import (
+        find_best_assignee_for_transaction,
+        release_transaction_assignment_lock,
+    )
+
+    db = SimpleNamespace(info={})
+    ticket = SimpleNamespace(org_id=8)
+    with patch("app.services.auto_assign.redis_client") as redis_mock, patch(
+        "app.services.auto_assign._do_find_best_assignee", return_value=17
+    ):
+        redis_mock.set.return_value = True
+        assert find_best_assignee_for_transaction(ticket, db) == 17
+        assert "assignment_lock" in db.info
+        release_transaction_assignment_lock(db)
+
+    redis_mock.eval.assert_called_once()

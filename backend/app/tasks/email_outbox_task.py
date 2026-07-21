@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(name="app.tasks.email_outbox_task.process_email_outbox")
 def process_email_outbox():
+    if not __import__("app.config", fromlist=["settings"]).settings.EMAIL_SENDING_ENABLED:
+        return {"sent": 0, "failed": 0, "processed": 0, "skipped": "email_sending_disabled"}
     """Drain pending EmailOutbox records via SMTP with exponential-backoff retry."""
     db = SessionLocal()
     try:
