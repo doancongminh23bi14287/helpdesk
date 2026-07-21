@@ -122,7 +122,7 @@ def oauth_callback(
 
     refresh_token = tokens.get("refresh_token")
     access_token = tokens.get("access_token")
-    if not access_token or not refresh_token:
+    if not access_token:
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_token_response")
     try:
         provider_sites = gsc_svc.list_sites(access_token)

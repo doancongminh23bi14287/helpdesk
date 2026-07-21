@@ -103,7 +103,7 @@ def oauth_callback(
 
     from datetime import datetime, timedelta, timezone
     access_token = tokens.get("access_token")
-    if not access_token or not tokens.get("refresh_token"):
+    if not access_token:
         return RedirectResponse(f"{frontend_base}/seo?ga4_error=invalid_token_response")
     try:
         provider_properties = ga4_svc.list_properties(access_token)
