@@ -38,6 +38,7 @@ def drain_outbox(db: Session) -> dict:
                 subject=outbox.subject,
                 body_html=outbox.body_html or "",
                 body_text=outbox.body_text,
+                db=db,
             )
             if result is not None:
                 outbox.status = "sent"

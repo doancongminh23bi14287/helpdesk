@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { listEmailOutbox, retryEmailOutbox } from '@/api/emailOutbox'
+import {
+  getEmailOAuthConnectUrl,
+  getEmailOAuthStatus,
+  listEmailOutbox,
+  retryEmailOutbox,
+} from '@/api/emailOutbox'
 import {
   Button,
   EmptyState,
@@ -31,6 +36,9 @@ export default function EmailOutboxPage() {
   const [rows, setRows] = useState([])
   const [status, setStatus] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [oauth, setOauth] = useState(null)
+  const [connecting, setConnecting] = useState(false)
+  const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [retrying, setRetrying] = useState(null)
 
@@ -48,6 +56,30 @@ export default function EmailOutboxPage() {
   }, [status])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('gmail_connected') === '1') {
+      setNotice('Gmail connected. Pending emails can now be sent.')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (params.get('gmail_error')) {
+      setError(`Gmail connection failed: ${params.get('gmail_error')}`)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    getEmailOAuthStatus().then(setOauth).catch(() => setOauth(null))
+  }, [])
+
+  const connectGmail = async () => {
+    setConnecting(true)
+    setError('')
+    try {
+      const data = await getEmailOAuthConnectUrl()
+      window.location.assign(data.url)
+    } catch (err) {
+      setError(err?.response?.data?.detail ?? 'Could not start Gmail connection')
+      setConnecting(false)
+    }
+  }
 
   const retry = async (row) => {
     setRetrying(row.id)
@@ -69,10 +101,17 @@ export default function EmailOutboxPage() {
           <h1 className="text-xl font-bold text-foreground">Email Outbox</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Queued invoice and ticket email delivery attempts.</p>
         </div>
-        <button onClick={load} className="px-3 py-2 rounded-lg border border-input text-sm font-medium hover:bg-muted">Refresh</button>
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-medium ${oauth?.connected ? 'text-emerald-600' : 'text-amber-600'}`}>{oauth?.connected ? 'Gmail connected' : 'Gmail needs reconnecting'}</span>
+          <button onClick={connectGmail} disabled={connecting} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+            {connecting ? 'Connecting…' : 'Reconnect Gmail'}
+          </button>
+          <button onClick={load} className="px-3 py-2 rounded-lg border border-input text-sm font-medium hover:bg-muted">Refresh</button>
+        </div>
       </div>
 
       {error && <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{error}</div>}
+      {notice && <div className="mb-4 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">{notice}</div>}
 
       <div className="flex gap-3 mb-4">
         <select

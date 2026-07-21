@@ -13,6 +13,7 @@ from app.models.sla import SlaPolicy
 from app.models.ticket import Ticket, TicketActivity
 from app.models.invoice import Invoice
 from app.models.email_outbox import EmailOutbox
+from app.models.email_oauth_credential import EmailOAuthCredential
 from app.core.deps import require_admin
 from app.core.limiter import limiter
 from app.services.email_piping import process_inbox
@@ -21,6 +22,36 @@ from app import config
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+@router.get("/email-oauth/status")
+def email_oauth_status(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    credential = db.query(EmailOAuthCredential).order_by(EmailOAuthCredential.id.desc()).first()
+    return {
+        "connected": bool(credential and credential.status == "connected"),
+        "configured": bool(config.GSC_CLIENT_ID and config.GSC_CLIENT_SECRET),
+        "connected_at": credential.updated_at.isoformat() if credential and credential.updated_at else None,
+    }
+
+
+@router.get("/email-oauth/connect")
+@limiter.limit("5/minute")
+def email_oauth_connect(
+    request: Request,
+    user: User = Depends(require_admin),
+):
+    if not config.GSC_CLIENT_ID or not config.GSC_CLIENT_SECRET:
+        raise HTTPException(status_code=503, detail="Google OAuth client is not configured")
+    from app.core.redis_client import redis_client
+    from app.services.email_oauth import build_auth_url
+    from app.services.seo_security import new_oauth_state
+
+    state, payload = new_oauth_state("gmail_email", user.id, user.org_id)
+    redis_client.setex(f"gsc_state:{state}", 600, payload)
+    return {"url": build_auth_url(state)}
 
 
 @router.post("/email/poll")

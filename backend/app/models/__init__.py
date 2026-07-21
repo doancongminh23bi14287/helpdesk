@@ -15,6 +15,7 @@ from app.models.attachment import TicketAttachment
 from app.models.transfer_request import TicketTransferRequest
 from app.models.email_thread import EmailThread
 from app.models.email_outbox import EmailOutbox
+from app.models.email_oauth_credential import EmailOAuthCredential
 from app.models.invoice_payment import InvoicePayment
 from app.models.user_session import UserSession
 from app.models.project import Project, ProjectTask, ProjectDocument, ProjectMember, TaskComment, TaskActivity, TaskAssignee, TaskApproval
@@ -40,6 +41,7 @@ __all__ = [
     "TicketTransferRequest",
     "EmailThread",
     "EmailOutbox",
+    "EmailOAuthCredential",
     "InvoicePayment",
     "UserSession",
     "Project", "ProjectTask", "ProjectDocument", "ProjectMember",

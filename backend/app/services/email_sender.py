@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app import config
 from app.models.notification import EmailLog
@@ -48,8 +49,9 @@ def send_email(
         # Message-ID domain must match the sending address for DMARC alignment
         sender_domain = config.SMTP_FROM_EMAIL.rsplit("@", 1)[-1] or "localhost"
         outbound_message_id = f"<{uuid.uuid4()}@{sender_domain}>"
-        if _GMAIL_CLIENT_ID and _GMAIL_REFRESH_TOKEN:
-            _send_via_gmail(to, subject, body_html, body_text, outbound_message_id)
+        db_credential = _get_db_gmail_credential(db)
+        if _GMAIL_CLIENT_ID and (db_credential or _GMAIL_REFRESH_TOKEN):
+            _send_via_gmail(to, subject, body_html, body_text, outbound_message_id, db)
         else:
             _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 
@@ -62,13 +64,13 @@ def send_email(
         return None
 
 
-def _send_via_gmail(to, subject, body_html, body_text, message_id):
+def _send_via_gmail(to, subject, body_html, body_text, message_id, db=None):
     import base64
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.utils import formataddr
 
-    access_token = _get_gmail_access_token()
+    access_token = _get_gmail_access_token(db)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = _sanitize_header_value(subject, "subject")
@@ -88,9 +90,20 @@ def _send_via_gmail(to, subject, body_html, body_text, message_id):
     logger.info("Email sent via Gmail API to %s (id=%s)", to, result.get("id"))
 
 
-def _get_gmail_access_token() -> str:
+def _get_db_gmail_credential(db):
+    from app.services.email_token_provider import latest_credential
+    return latest_credential(db)
+
+
+def _get_gmail_access_token(db=None) -> str:
     """Return a cached Gmail access token, refreshing it only when needed."""
     global _GMAIL_ACCESS_TOKEN, _GMAIL_ACCESS_TOKEN_EXPIRES_AT
+    credential = _get_db_gmail_credential(db)
+    if credential:
+        from app.services.email_token_provider import get_valid_access_token
+        return get_valid_access_token(
+            db, credential, _GMAIL_CLIENT_ID, _GMAIL_CLIENT_SECRET, _post_google_json
+        )
     if _GMAIL_ACCESS_TOKEN and time.monotonic() < _GMAIL_ACCESS_TOKEN_EXPIRES_AT:
         return _GMAIL_ACCESS_TOKEN
 

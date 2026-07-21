@@ -104,8 +104,9 @@ def oauth_callback(
         return RedirectResponse(url=f"{frontend_seo}?gsc_error={error or 'cancelled'}")
 
     stored = consume_oauth_state(redis_client, f"gsc_state:{state}")
-    if not stored or stored.get("provider") != "gsc":
+    if not stored or stored.get("provider") not in {"gsc", "gmail_email"}:
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
+    provider = stored["provider"]
     org_id, user_id = int(stored["org_id"]), int(stored["user_id"])
     callback_user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if not callback_user:
@@ -114,6 +115,10 @@ def oauth_callback(
         assert_org_access(org_id, callback_user, db)
     except HTTPException:
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
+
+    if provider == "gmail_email":
+        from app.services.email_oauth_callback import complete_email_oauth
+        return complete_email_oauth(code, callback_user, db)
 
     try:
         tokens = gsc_svc.exchange_code(code)
