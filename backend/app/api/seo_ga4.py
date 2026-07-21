@@ -102,12 +102,23 @@ def oauth_callback(
         return RedirectResponse(f"{frontend_base}/seo?ga4_error=token_exchange_failed")
 
     from datetime import datetime, timedelta, timezone
+    access_token = tokens.get("access_token")
+    if not access_token or not tokens.get("refresh_token"):
+        return RedirectResponse(f"{frontend_base}/seo?ga4_error=invalid_token_response")
+    try:
+        provider_properties = ga4_svc.list_properties(access_token)
+        if not provider_properties:
+            return RedirectResponse(f"{frontend_base}/seo?ga4_error=no_property")
+    except Exception:
+        return RedirectResponse(f"{frontend_base}/seo?ga4_error=property_validation_failed")
+
     expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=int(tokens.get("expires_in", 3600)))
 
     conn = db.query(Ga4Connection).filter(Ga4Connection.org_id == org_id).first()
     from app.core.token_crypto import encrypt_secret
     if conn:
-        conn.refresh_token = encrypt_secret(tokens["refresh_token"])
+        if tokens.get("refresh_token"):
+            conn.refresh_token = encrypt_secret(tokens["refresh_token"])
         conn.access_token = encrypt_secret(tokens.get("access_token"))
         conn.token_expiry = expiry
         conn.connected_by = user_id
@@ -115,13 +126,17 @@ def oauth_callback(
     else:
         conn = Ga4Connection(
             org_id=org_id,
-            refresh_token=encrypt_secret(tokens["refresh_token"]),
+            refresh_token=encrypt_secret(tokens.get("refresh_token")),
             access_token=encrypt_secret(tokens.get("access_token")),
             token_expiry=expiry,
             connected_by=user_id,
         )
         db.add(conn)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return RedirectResponse(f"{frontend_base}/seo?ga4_error=connection_failed")
 
     return RedirectResponse(f"{frontend_base}/seo?ga4_connected=1")
 

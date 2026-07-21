@@ -121,17 +121,23 @@ def oauth_callback(
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=token_exchange_failed")
 
     refresh_token = tokens.get("refresh_token")
-    if not refresh_token:
-        return RedirectResponse(url=f"{frontend_seo}?gsc_error=no_refresh_token")
-
     access_token = tokens.get("access_token")
+    if not access_token or not refresh_token:
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_token_response")
+    try:
+        provider_sites = gsc_svc.list_sites(access_token)
+        if not provider_sites:
+            return RedirectResponse(url=f"{frontend_seo}?gsc_error=no_verified_property")
+    except Exception:
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=property_validation_failed")
     expires_in = int(tokens.get("expires_in", 3600))
     expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=expires_in)
 
     conn = db.query(GscConnection).filter(GscConnection.org_id == org_id).first()
     from app.core.token_crypto import encrypt_secret
     if conn:
-        conn.refresh_token = encrypt_secret(refresh_token)
+        if refresh_token:
+            conn.refresh_token = encrypt_secret(refresh_token)
         conn.access_token = encrypt_secret(access_token)
         conn.token_expiry = expiry
         conn.connected_by = user_id
@@ -146,7 +152,11 @@ def oauth_callback(
             status="connected",
         )
         db.add(conn)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=connection_failed")
 
     return RedirectResponse(url=f"{frontend_seo}?gsc_connected=1")
 
