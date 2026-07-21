@@ -19,6 +19,21 @@ def drain_outbox(db: Session) -> dict:
         retry_count 3 = max_retries → status 'failed'
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    exhausted_pending = db.query(EmailOutbox).filter(
+        EmailOutbox.status == "pending",
+        EmailOutbox.retry_count >= EmailOutbox.max_retries,
+    ).limit(50).all()
+
+    failed_count = 0
+    for outbox in exhausted_pending:
+        outbox.status = "failed"
+        outbox.failed_at = now
+        if not outbox.last_error:
+            outbox.last_error = "retry limit reached"
+        failed_count += 1
+    if exhausted_pending:
+        db.commit()
+
     pending = db.query(EmailOutbox).filter(
         EmailOutbox.status == "pending",
         EmailOutbox.retry_count < EmailOutbox.max_retries,
@@ -26,7 +41,6 @@ def drain_outbox(db: Session) -> dict:
     ).limit(50).all()
 
     sent_count = 0
-    failed_count = 0
 
     for outbox in pending:
         outbox.status = "sending"
@@ -61,4 +75,4 @@ def drain_outbox(db: Session) -> dict:
 
         db.commit()
 
-    return {"sent": sent_count, "failed": failed_count, "processed": len(pending)}
+    return {"sent": sent_count, "failed": failed_count, "processed": len(exhausted_pending) + len(pending)}

@@ -50,8 +50,17 @@ def send_email(
         sender_domain = config.SMTP_FROM_EMAIL.rsplit("@", 1)[-1] or "localhost"
         outbound_message_id = f"<{uuid.uuid4()}@{sender_domain}>"
         db_credential = _get_db_gmail_credential(db)
-        if _GMAIL_CLIENT_ID and (db_credential or _GMAIL_REFRESH_TOKEN):
-            _send_via_gmail(to, subject, body_html, body_text, outbound_message_id, db)
+        use_gmail = bool(_GMAIL_CLIENT_ID and (db_credential or _GMAIL_REFRESH_TOKEN))
+        if use_gmail:
+            try:
+                _send_via_gmail(to, subject, body_html, body_text, outbound_message_id, db)
+            except Exception as gmail_exc:
+                logger.warning(
+                    "Gmail delivery failed to %r: %s; falling back to SMTP",
+                    log_to,
+                    gmail_exc,
+                )
+                _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
         else:
             _send_via_smtp(to, subject, body_html, body_text, outbound_message_id)
 

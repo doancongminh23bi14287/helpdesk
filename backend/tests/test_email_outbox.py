@@ -13,7 +13,7 @@ avoiding MySQL REPEATABLE READ isolation issues with separate connections.
 import pytest
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 PATCH_SEND = "app.services.outbox_service.send_email"
@@ -125,6 +125,39 @@ def test_outbox_task_sends_pending_email(db):
     assert result["failed"] == 0
 
 
+def test_send_email_falls_back_to_smtp_when_gmail_fails(monkeypatch):
+    from app.services import email_sender
+
+    monkeypatch.setattr(email_sender.config, "EMAIL_FEATURES_ENABLED", True)
+    monkeypatch.setattr(email_sender.config, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(email_sender.config, "SMTP_PORT", 465)
+    monkeypatch.setattr(email_sender.config, "SMTP_USE_SSL", True)
+    monkeypatch.setattr(email_sender.config, "SMTP_USER", "support@example.com")
+    monkeypatch.setattr(email_sender.config, "SMTP_PASS", "secret")
+    monkeypatch.setattr(email_sender.config, "SMTP_FROM_EMAIL", "support@example.com")
+    monkeypatch.setattr(email_sender.config, "SMTP_FROM_NAME", "Support")
+    monkeypatch.setattr(email_sender, "_GMAIL_CLIENT_ID", "client")
+    monkeypatch.setattr(email_sender, "_GMAIL_CLIENT_SECRET", "secret")
+    monkeypatch.setattr(email_sender, "_GMAIL_REFRESH_TOKEN", "refresh")
+    monkeypatch.setattr(email_sender, "_get_db_gmail_credential", lambda db: None)
+
+    gmail_mock = Mock(side_effect=RuntimeError("oauth failed"))
+    smtp_mock = Mock(return_value=None)
+    monkeypatch.setattr(email_sender, "_send_via_gmail", gmail_mock)
+    monkeypatch.setattr(email_sender, "_send_via_smtp", smtp_mock)
+
+    message_id = email_sender.send_email(
+        "customer@test.com",
+        "Subject",
+        "<p>Hello</p>",
+        db=None,
+    )
+
+    assert message_id is not None
+    gmail_mock.assert_called_once()
+    smtp_mock.assert_called_once()
+
+
 def test_admin_can_list_email_outbox(client, admin_token, db):
     outbox = _make_outbox(db, status="failed", retry_count=3)
 
@@ -179,6 +212,27 @@ def test_outbox_task_retries_on_smtp_failure(db):
     assert outbox.scheduled_at > before
     assert result["sent"] == 0
     assert result["failed"] == 0   # not yet at max_retries
+
+
+def test_outbox_task_marks_stale_pending_failed(db):
+    """
+    A pending record that has already exhausted its retries should be marked
+    failed immediately instead of staying stuck forever.
+    """
+    from app.services.outbox_service import drain_outbox
+
+    outbox = _make_outbox(db, status="pending", retry_count=3, max_retries=3)
+
+    with patch(PATCH_SEND, return_value="<abc123@osd.vn>") as mock_send:
+        result = drain_outbox(db)
+
+    mock_send.assert_not_called()
+    db.refresh(outbox)
+    assert outbox.status == "failed"
+    assert outbox.failed_at is not None
+    assert outbox.last_error == "retry limit reached"
+    assert result["failed"] == 1
+    assert result["processed"] == 1
 
 
 def test_outbox_task_marks_failed_after_max_retries(db):
