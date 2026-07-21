@@ -88,6 +88,30 @@ def test_customer_lists_only_own_customer_visible_projects(
     assert names == {"Visible SEO"}
 
 
+def test_list_projects_reports_filtered_active_total(client, admin_token, db, client_org, admin_user):
+    db.add_all([
+        Project(
+            org_id=client_org.id, name="Active SEO", project_type="seo",
+            status="working", created_by=admin_user.id,
+        ),
+        Project(
+            org_id=client_org.id, name="Completed SEO", project_type="seo",
+            status="completed", created_by=admin_user.id,
+        ),
+        Project(
+            org_id=client_org.id, name="Active Hosting", project_type="hosting",
+            status="open", created_by=admin_user.id,
+        ),
+    ])
+    db.commit()
+
+    response = client.get("/api/projects?project_type=seo&per_page=1", headers=_auth(admin_token))
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+    assert response.json()["active_total"] == 1
+
+
 def test_out_of_scope_project_returns_404_for_customer_and_staff(
     client,
     customer_token,

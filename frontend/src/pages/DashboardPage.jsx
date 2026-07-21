@@ -370,16 +370,27 @@ export default function DashboardPage() {
 
   const [projects, setProjects] = useState([])
   const [projectsLoading, setProjectsLoading] = useState(true)
+  const [activeProjects, setActiveProjects] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setProjectsLoading(true)
-    listProjects({ per_page: 50 })
+    listProjects({ project_type: 'seo', per_page: 50 })
       .then((data) => {
         if (cancelled) return
-        setProjects(Array.isArray(data?.items) ? data.items : [])
+        const items = Array.isArray(data?.items) ? data.items : []
+        const activeTotal = Number(data?.active_total)
+        setProjects(items)
+        setActiveProjects(Number.isFinite(activeTotal)
+          ? activeTotal
+          : items.filter((project) => !['completed', 'cancelled'].includes(project.status)).length)
       })
-      .catch(() => { if (!cancelled) setProjects([]) })
+      .catch(() => {
+        if (!cancelled) {
+          setProjects([])
+          setActiveProjects(0)
+        }
+      })
       .finally(() => { if (!cancelled) setProjectsLoading(false) })
     return () => { cancelled = true }
   }, [])
@@ -396,7 +407,6 @@ export default function DashboardPage() {
     return days !== null && days >= 0 && days <= 30
   }).length
 
-  const activeProjects = projects.filter((p) => p.status !== 'completed' && p.status !== 'cancelled').length
   const projectsDueSoon = projects.filter((p) => {
     if (p.status === 'completed' || p.status === 'cancelled') return false
     const days = daysUntil(p.due_date)

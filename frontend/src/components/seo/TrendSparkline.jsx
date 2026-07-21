@@ -67,8 +67,14 @@ export default function TrendSparkline({
   }
 
   return (
-    <div className="h-[90px] min-h-[90px] w-full" aria-label="Biểu đồ xu hướng theo ngày">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="h-[90px] min-h-[90px] min-w-0 w-full" aria-label="Biểu đồ xu hướng theo ngày">
+      <ResponsiveContainer
+        width="100%"
+        height="100%"
+        minWidth={0}
+        minHeight={90}
+        initialDimension={{ width: 320, height: 90 }}
+      >
         <AreaChart data={points} margin={{ top: 6, right: 4, left: 4, bottom: 0 }}>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
