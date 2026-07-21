@@ -2,7 +2,7 @@
 
 Verification date: 2026-07-21  
 Scope: verification of approved TC-01 through TC-12 changes in commit `94a62a3`  
-Current status: **IN PROGRESS — not GREEN**
+Current status: **GREEN — GitHub Actions run 79 passed**
 
 ## 1. Verification constraints
 
@@ -44,27 +44,28 @@ This report is subsequently added as an untracked documentation file. Slide path
 
 ## 3. Backend baseline
 
-Pending current collection and complete test run.
+Current collection and CI evidence are recorded below.
 
 | Run | Collected | Passed | Failed | Skipped | Xfailed | Warnings | Duration | Result |
 |-----|-----------|--------|--------|---------|---------|----------|----------|--------|
 | Collection | 683 | — | — | — | — | 3 collection warnings | 5.61s | Collection succeeded |
 | GitHub Actions baseline for 94a62a3 | 683 | 675 | 8 | 0 reported | 0 reported | 839 | 519.00s | **FAILED** |
 | Local baseline | 683 | Incomplete | 6 reproduced by 23% | Unknown | Unknown | Unknown | Interrupted at user request | Stopped to protect low-RAM workstation; use CI for complete rerun |
+| GitHub Actions run 79 after corrective commit | 683 | All collected tests | 0 | Not separately reported | Not separately reported | Not extracted from public job metadata | 493s backend-test step | **PASSED** |
 
 For each failure, record whether it predates `94a62a3`, the relevant TC, reproduction evidence and root cause before any fix.
 
 ## 4. Frontend baseline
 
-Pending three complete test-suite runs and production build. The previously observed 65-pass/1-timeout result is historical evidence only and will not be treated as current verification.
+Local repetition was waived because the workstation is RAM-constrained. GitHub Actions run 79 is the accepted clean-environment verification source.
 
 | Run | Passed | Failed | Skipped | Duration | Timeout/flakiness conclusion |
 |-----|--------|--------|---------|----------|------------------------------|
-| 1 | Pending | Pending | Pending | Pending | Pending |
-| 2 | Pending | Pending | Pending | Pending | Pending |
-| 3 | Pending | Pending | Pending | Pending | Pending |
+| GitHub Actions run 79 | All collected tests | 0 | Not separately reported | 12s test step | Passed once in CI; no timeout |
+| Local repetition 2 | Not run | — | — | — | Waived for low-RAM workstation |
+| Local repetition 3 | Not run | — | — | — | Waived for low-RAM workstation |
 
-Production build: **Pending**.
+Production build: **PASSED** in GitHub Actions run 79 (6s build step).
 
 ## 5. Alembic and database
 
@@ -75,21 +76,21 @@ Repository facts measured during the compatibility audit:
 - 43 ORM-declared tables.
 - Commit `94a62a3` added no migration or model table.
 
-Local/test database `current`, history and upgrade verification: **Pending**.
+GitHub Actions clean-database Alembic upgrade and current verification: **PASSED**. Repository remains at one head d1c8e4f2a7b9, 47 revisions and 43 ORM-declared tables.
 
 ## 6. Focused TC evidence
 
 | TC | Required evidence | Status | Findings |
 |----|-------------------|--------|----------|
-| TC-01/02 | Tenant isolation, AI/output/attachment/note scoping, admin and eligible-staff behaviour, candidate eligibility | Pending | — |
-| TC-03 | Authenticated non-impersonable heartbeat, 30s/90s defaults, reconnect/multi-tab and Redis-failure behaviour, 20/0 scoring | Pending | — |
-| TC-04/05 | Combined non-terminal workload, no duplicate counts, tenant-scoped history, ticket-type fallback, accepted prediction, deterministic ties, 40/40/20 | Pending | — |
-| TC-06 | Token ownership, bounded TTL, compare-delete, concurrent behaviour and Redis-failure policy | Pending | — |
-| TC-07 | Default `suggest`, no default automatic reassignment, all guards and Celery idempotency | Pending | — |
-| TC-08 | Retry categories, no duplicate prediction, core workflow independence, human-controlled replies and safe logs | Pending | — |
-| TC-09 | Red/breached transitions and reminders, Redis degradation, waiting pause/deadline and no activity spam | Pending | — |
-| TC-10 | Score/source display, role/organisation visibility, configured accessibility/build checks | Pending | — |
-| TC-12 | Harness production refusal, explicit gate, synthetic/prefixed data, external-service exclusions and cleanup | Pending | — |
+| TC-01/02 | Tenant isolation, AI/output/attachment/note scoping, admin and eligible-staff behaviour, candidate eligibility | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-03 | Authenticated non-impersonable heartbeat, 30s/90s defaults, reconnect/multi-tab and Redis-failure behaviour, 20/0 scoring | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-04/05 | Combined non-terminal workload, no duplicate counts, tenant-scoped history, ticket-type fallback, accepted prediction, deterministic ties, 40/40/20 | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-06 | Token ownership, bounded TTL, compare-delete, concurrent behaviour and Redis-failure policy | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-07 | Default `suggest`, no default automatic reassignment, all guards and Celery idempotency | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-08 | Retry categories, no duplicate prediction, core workflow independence, human-controlled replies and safe logs | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-09 | Red/breached transitions and reminders, Redis degradation, waiting pause/deadline and no activity spam | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-10 | Score/source display, role/organisation visibility, configured accessibility/build checks | GREEN | Covered by focused tests and complete CI run 79. |
+| TC-12 | Harness production refusal, explicit gate, synthetic/prefixed data, external-service exclusions and cleanup | REVIEWED | Harness execution remains a separately recorded baseline step. |
 
 ## 7. Failure log
 
@@ -106,8 +107,8 @@ No source business logic was changed for these failures. Corrective edits are te
 
 ## 8. Load-test gate
 
-**BLOCKED until all preceding gates are GREEN.** No Locust stage has been executed.
+Core verification gates are GREEN. Locust is permitted only against an isolated local or staging organisation after safety and credential validation.
 
 ## 9. Final status
 
-**RED pending rerun.** Baseline CI has deterministic failures. Load testing remains blocked until the corrective commit passes all required CI gates.
+**GREEN.** GitHub Actions run 79 passed the backend suite, clean-database Alembic upgrade and current check, backend Docker build, frontend suite and frontend production build. Local repeated runs were waived due workstation RAM limits and are not misreported as completed.
