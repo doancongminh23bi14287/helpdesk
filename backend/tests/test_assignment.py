@@ -246,6 +246,16 @@ def test_member_sync_remove_assignee_no_other_tickets_removes_member(
         ProjectMember.user_id == staff_user.id,
     ).first() is not None
 
+    # TC-02: replacement candidates must already belong to an explicit
+    # project staff pool once that pool exists.
+    db.add(ProjectMember(
+        project_id=project.id,
+        user_id=staff2.id,
+        role="staff",
+        added_by=admin_user.id,
+    ))
+    db.commit()
+
     # Replace with staff2 (removes staff_user from assignees)
     r = client.put(
         f"/api/tickets/{ticket_id}",
@@ -293,6 +303,15 @@ def test_member_sync_remove_assignee_still_has_other_ticket_keeps_member(
         assignment_mode="manual",
         assignee_ids=[staff_user.id],
     )
+
+    # TC-02: make the replacement candidate explicitly project-eligible.
+    db.add(ProjectMember(
+        project_id=project.id,
+        user_id=staff2.id,
+        role="staff",
+        added_by=admin_user.id,
+    ))
+    db.commit()
 
     # Remove staff_user from ticket 1 only (still assigned to ticket 2)
     r = client.put(
@@ -562,7 +581,7 @@ def test_skill_score_coldstart_equal_for_new_agents(db, client_org, staff_user, 
     """Two brand-new agents with zero resolved tickets get identical skill_score (cold-start baseline)."""
     from app.models.user import User
     from app.models.team import StaffOrgAssignment
-    from app.services.auto_assign import _skill_score
+    from app.services.auto_assign import _skill_scores
     from app.core.constants import ASSIGN_SKILL_WEIGHT, SKILL_BASELINE_WEIGHT
 
     # Create a second staff user
@@ -587,8 +606,9 @@ def test_skill_score_coldstart_equal_for_new_agents(db, client_org, staff_user, 
     ticket = _make_ticket(db, client_org.id, admin_user.id)
     db.commit()
 
-    score1 = _skill_score(staff_user.id, ticket, db)
-    score2 = _skill_score(staff2.id, ticket, db)
+    scores = _skill_scores([staff_user.id, staff2.id], ticket, db)
+    score1 = scores[staff_user.id]
+    score2 = scores[staff2.id]
 
     expected_baseline = round(ASSIGN_SKILL_WEIGHT * SKILL_BASELINE_WEIGHT, 2)
     assert score1 == score2 == expected_baseline, (
@@ -600,7 +620,7 @@ def test_skill_score_rewards_category_history(db, client_org, staff_user, admin_
     """Agent with 5 resolved 'technical' tickets scores higher for a 'technical' ticket than a fresh agent."""
     from app.models.user import User
     from app.models.team import StaffOrgAssignment
-    from app.services.auto_assign import _skill_score
+    from app.services.auto_assign import _skill_scores
 
     staff_expert = User(
         org_id=staff_user.org_id,
@@ -637,8 +657,9 @@ def test_skill_score_rewards_category_history(db, client_org, staff_user, admin_
     _add_prediction(db, new_ticket.id, category="technical")
     db.commit()
 
-    expert_score = _skill_score(staff_expert.id, new_ticket, db)
-    fresh_score = _skill_score(staff_fresh.id, new_ticket, db)
+    scores = _skill_scores([staff_expert.id, staff_fresh.id], new_ticket, db)
+    expert_score = scores[staff_expert.id]
+    fresh_score = scores[staff_fresh.id]
 
     assert expert_score > fresh_score, (
         f"Expert should score higher than fresh agent ({expert_score} vs {fresh_score})"
@@ -647,7 +668,7 @@ def test_skill_score_rewards_category_history(db, client_org, staff_user, admin_
 
 def test_skill_score_baseline_decays(db, client_org, staff_user, admin_user):
     """Agent with 10+ resolved tickets has baseline=0; skill comes only from historical."""
-    from app.services.auto_assign import _skill_score
+    from app.services.auto_assign import _skill_scores
     from app.core.constants import SKILL_COLDSTART_THRESHOLD, SKILL_HISTORICAL_WEIGHT
 
     from app.models.team import StaffOrgAssignment
@@ -666,7 +687,7 @@ def test_skill_score_baseline_decays(db, client_org, staff_user, admin_user):
     _add_prediction(db, new_ticket.id, category="technical")
     db.commit()
 
-    score = _skill_score(staff_user.id, new_ticket, db)
+    score = _skill_scores([staff_user.id], new_ticket, db)[staff_user.id]
 
     # baseline=0 (10 resolved ≥ threshold), historical=0 (no "technical" resolved)
     # → skill = 0.7×0 + 0.3×0 = 0.0
@@ -675,7 +696,7 @@ def test_skill_score_baseline_decays(db, client_org, staff_user, admin_user):
 
 def test_skill_score_fallback_to_ticket_type_when_no_prediction(db, client_org, staff_user, admin_user):
     """When ticket has no AI prediction, skill matching falls back to ticket_type."""
-    from app.services.auto_assign import _skill_score
+    from app.services.auto_assign import _skill_scores
     from app.core.constants import ASSIGN_SKILL_WEIGHT, SKILL_BASELINE_WEIGHT, SKILL_HISTORICAL_WEIGHT
     from app.models.team import StaffOrgAssignment
 
@@ -693,7 +714,7 @@ def test_skill_score_fallback_to_ticket_type_when_no_prediction(db, client_org, 
     # Intentionally NO _add_prediction here
     db.commit()
 
-    score = _skill_score(staff_user.id, new_ticket, db)
+    score = _skill_scores([staff_user.id], new_ticket, db)[staff_user.id]
 
     # 1 resolved Bug ticket → historical_score = 1×8 = 8
     # total_resolved = 1 → baseline_score = 40×(1-1/10) = 36

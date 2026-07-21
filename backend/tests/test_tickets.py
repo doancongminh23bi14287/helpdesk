@@ -302,7 +302,9 @@ def test_update_priority_logs_activity(client, db, admin_token, admin_user, clie
     assert priority_changes[0]["to_value"] == "High"
 
 
-def test_update_assignee_logs_activity(client, db, admin_token, admin_user, staff_user, client_org, service):
+def test_update_assignee_logs_activity(
+    client, db, admin_token, admin_user, staff_user, staff_assignment, client_org, service
+):
     from app.models.ticket import Ticket
     ticket = Ticket(org_id=client_org.id, service_id=service.id, subject="Assign test", status="Open")
     db.add(ticket)

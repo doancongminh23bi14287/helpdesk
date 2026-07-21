@@ -5,7 +5,7 @@ Unit/integration tests for app.core.scoping.
 Verifies:
   - get_accessible_org_ids: correct list per role
   - assert_org_access: passes for authorised orgs, raises 404 otherwise
-  - scope_tickets: admin unrestricted; customer sees own; staff sees assigned orgs + personal
+  - scope_tickets: admin unrestricted; customer sees own; staff sees assigned orgs
   - scope_invoices: customer / staff filtered to their orgs
   - scope_notifications: always user-scoped
 """
@@ -305,11 +305,10 @@ def _make_project(db, org_id, created_by_id, name="Test Project"):
 
 # ── scope_projects ────────────────────────────────────────────────────────────
 
-def test_staff_sees_project_via_assigned_ticket(
+def test_staff_does_not_gain_project_access_via_cross_org_assigned_ticket(
     db, staff_user2, second_client_org2, customer_user
 ):
-    """Staff with no org assignment sees a project only when they have a ticket
-    linked to it and assigned to them."""
+    """TC-01: direct assignment never expands organisation/project access."""
     from app.core.scoping import scope_projects
     from app.models.project import Project
 
@@ -323,7 +322,7 @@ def test_staff_sees_project_via_assigned_ticket(
 
     q = scope_projects(db.query(Project), staff_user2, db)
     ids = {p.id for p in q.all()}
-    assert project.id in ids, "staff should see project via assigned ticket"
+    assert project.id not in ids, "assignment must not grant cross-organisation project access"
 
 
 def test_staff_does_not_see_unlinked_project(
