@@ -2,6 +2,7 @@ import os
 import random
 from urllib.parse import urlparse
 from gevent.lock import Semaphore
+from gevent.queue import Queue, Empty
 
 from locust import HttpUser, between, events, task
 from locust.exception import StopUser
@@ -19,8 +20,19 @@ BACKEND_SIDE_EFFECTS_DISABLED = (
 )
 SYNTHETIC_EMAIL_VARS = ("LOAD_TEST_CUSTOMER_EMAIL", "LOAD_TEST_STAFF_EMAIL", "LOAD_TEST_ADMIN_EMAIL")
 SYNTHETIC_EMAIL_DOMAINS = {"example.com", "example.org", "example.net"}
-PERSONA_TOKENS = {}
-PERSONA_LOCKS = {name: Semaphore(1) for name in SYNTHETIC_EMAIL_VARS}
+def _account_pool(name):
+    result = []
+    for raw in os.getenv(name, "").split(","):
+        if not raw.strip():
+            continue
+        fields = [part.strip() for part in raw.split("|")]
+        if len(fields) not in (4, 5):
+            raise RuntimeError(f"{name} entries must be EMAIL|PASSWORD|USER_ID|ORG_ID|TOKEN")
+        result.append({"email": fields[0].lower(), "password": fields[1], "user_id": int(fields[2]), "org_id": int(fields[3]), "token": fields[4] if len(fields) == 5 else ""})
+    return result
+
+ACCOUNT_POOLS = {name: _account_pool(name) for name in ("LOAD_TEST_CUSTOMER_ACCOUNTS", "LOAD_TEST_STAFF_ACCOUNTS", "LOAD_TEST_ADMIN_ACCOUNTS")}
+ACCOUNT_QUEUES = {name: Queue() for name in ACCOUNT_POOLS}
 
 
 @events.test_start.add_listener
@@ -55,36 +67,40 @@ def require_explicit_confirmation(environment, **_kwargs):
         domain = email.rsplit("@", 1)[-1] if "@" in email else ""
         if domain not in SYNTHETIC_EMAIL_DOMAINS:
             raise RuntimeError(f"{variable} must use a reserved example.com, example.org or example.net address.")
+    seen = set()
+    for pool_name, accounts in ACCOUNT_POOLS.items():
+        if not accounts:
+            raise RuntimeError(f"{pool_name} is required; shared persona credentials are not supported.")
+        for account in accounts:
+            identity = (account["email"], account["user_id"])
+            if identity in seen or account["org_id"] != int(os.environ["LOAD_TEST_ORG_ID"]):
+                raise RuntimeError("Duplicate or out-of-scope synthetic account identity detected.")
+            seen.add(identity)
+            ACCOUNT_QUEUES[pool_name].put(account)
 
 
 class AuthenticatedUser(HttpUser):
     abstract = True
     wait_time = between(1, 5)
     credential_prefix = ""
+    account_pool_name = ""
 
     def on_start(self):
-        email_key = f"{self.credential_prefix}_EMAIL"
-        email = os.getenv(email_key)
-        password = os.getenv(f"{self.credential_prefix}_PASSWORD")
-        if not email or not password:
-            raise StopUser()
-        with PERSONA_LOCKS[email_key]:
-            token = PERSONA_TOKENS.get(email_key)
-            if token is None:
-                with self.client.post(
-                    "/api/auth/login",
-                    json={"email": email, "password": password},
-                    name="/api/auth/login [setup]",
-                    catch_response=True,
-                ) as response:
-                    if response.status_code != 200:
-                        response.failure("load-test login failed")
-                        raise StopUser()
-                    token = response.json().get("access_token")
-                    if not token:
-                        response.failure("login response has no access_token")
-                        raise StopUser()
-                    PERSONA_TOKENS[email_key] = token
+        try:
+            account = ACCOUNT_QUEUES[self.account_pool_name].get_nowait()
+        except Empty:
+            raise RuntimeError(f"No unused account remains in {self.account_pool_name}; refusing token sharing.")
+        if account.get("token"):
+            self.client.headers.update({"Authorization": f"Bearer {account["token"]}", "X-Load-Test-Key": LOAD_TEST_KEY})
+            return
+        with self.client.post("/api/auth/login", json={"email": account["email"], "password": account["password"]}, name="/api/auth/login [setup]", catch_response=True) as response:
+            if response.status_code != 200:
+                response.failure("load-test login failed")
+                raise StopUser()
+            token = response.json().get("access_token")
+            if not token:
+                response.failure("load-test login response has no access_token")
+                raise StopUser()
         self.client.headers.update({"Authorization": f"Bearer {token}", "X-Load-Test-Key": LOAD_TEST_KEY})
 
     def ticket_items(self):
@@ -98,6 +114,7 @@ class AuthenticatedUser(HttpUser):
 class CustomerUser(AuthenticatedUser):
     weight = 5
     credential_prefix = "LOAD_TEST_CUSTOMER"
+    account_pool_name = "LOAD_TEST_CUSTOMER_ACCOUNTS"
 
     @task(5)
     def list_tickets(self):
@@ -136,6 +153,7 @@ class CustomerUser(AuthenticatedUser):
 class StaffUser(AuthenticatedUser):
     weight = 3
     credential_prefix = "LOAD_TEST_STAFF"
+    account_pool_name = "LOAD_TEST_STAFF_ACCOUNTS"
 
     @task(5)
     def list_scoped_tickets(self):
@@ -166,6 +184,7 @@ class StaffUser(AuthenticatedUser):
 class AdminUser(AuthenticatedUser):
     weight = 1
     credential_prefix = "LOAD_TEST_ADMIN"
+    account_pool_name = "LOAD_TEST_ADMIN_ACCOUNTS"
 
     @task(4)
     def organisations(self):

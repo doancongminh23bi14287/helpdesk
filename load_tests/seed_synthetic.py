@@ -38,13 +38,16 @@ def main():
             db.add(org)
             db.flush()
         password = os.environ.get("LOAD_TEST_PASSWORD", "loadtest-local-password")
-        admin = upsert_user(db, "load-admin@example.net", password, "LOADTEST Admin", "admin", org.id)
-        upsert_user(db, "load-customer@example.com", password, "LOADTEST Customer", "customer", org.id)
-        staff = upsert_user(db, "load-staff@example.org", password, "LOADTEST Staff", "staff", org.id)
-        if db.query(StaffOrgAssignment).filter_by(user_id=staff.id, org_id=org.id).one_or_none() is None:
-            db.add(StaffOrgAssignment(user_id=staff.id, org_id=org.id))
+        admin = upsert_user(db, "load-admin@example.net", password, "LOADTEST Admin 0", "admin", org.id)
+        admins = [admin]
+        customers = [upsert_user(db, f"load-customer-{i}@example.com", password, f"LOADTEST Customer {i}", "customer", org.id) for i in range(6)]
+        staffs = [upsert_user(db, f"load-staff-{i}@example.org", password, f"LOADTEST Staff {i}", "staff", org.id) for i in range(3)]
+        staff = staffs[0]
+        for staff in staffs:
+            if db.query(StaffOrgAssignment).filter_by(user_id=staff.id, org_id=org.id).one_or_none() is None:
+                db.add(StaffOrgAssignment(user_id=staff.id, org_id=org.id))
         db.commit()
-        print({"organisation_id": org.id, "admin_id": admin.id, "staff_id": staff.id})
+        print({"organisation_id": org.id, "admin_id": admin.id, "staff_ids": [item.id for item in staffs], "customer_ids": [item.id for item in customers]})
     finally:
         db.close()
 
