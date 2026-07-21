@@ -40,8 +40,8 @@ def main():
         password = os.environ.get("LOAD_TEST_PASSWORD", "loadtest-local-password")
         admin = upsert_user(db, "load-admin@example.net", password, "LOADTEST Admin 0", "admin", org.id)
         admins = [admin]
-        customers = [upsert_user(db, f"load-customer-{i}@example.com", password, f"LOADTEST Customer {i}", "customer", org.id) for i in range(6)]
-        staffs = [upsert_user(db, f"load-staff-{i}@example.org", password, f"LOADTEST Staff {i}", "staff", org.id) for i in range(3)]
+        customers = [upsert_user(db, f"load-customer-{i}@example.com", password, f"LOADTEST Customer {i}", "customer", org.id) for i in range(60)]
+        staffs = [upsert_user(db, f"load-staff-{i}@example.org", password, f"LOADTEST Staff {i}", "staff", org.id) for i in range(30)]
         staff = staffs[0]
         for staff in staffs:
             if db.query(StaffOrgAssignment).filter_by(user_id=staff.id, org_id=org.id).one_or_none() is None:

@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,/api/tickets,RemoteDisconnected('Remote end closed connection without response'),2,2026-07-21T04:04:26Z,2026-07-21T04:07:18Z
