@@ -72,3 +72,41 @@ def test_existing_ga4_refresh_token_is_preserved_when_provider_omits_replacement
     finally:
         fresh.close()
     assert "NEW_ACCESS" not in response.headers["location"]
+
+
+def test_callback_redirect_is_fixed_and_provider_error_is_redacted(client_org, admin_user, db, caplog):
+    state, payload = new_oauth_state("ga4", admin_user.id, client_org.id)
+    redis = RedisState(payload)
+    with patch("app.api.seo_ga4.redis_client", redis), patch("app.services.ga4.exchange_code", side_effect=RuntimeError("RAW_PROVIDER_SECRET")):
+        from app.api.seo_ga4 import oauth_callback
+        response = oauth_callback(code="AUTH_SECRET", state=state, error=None, db=db)
+    location = response.headers["location"]
+    assert location.startswith("http://localhost:5173/seo?")
+    assert "RAW_PROVIDER_SECRET" not in location
+    assert "AUTH_SECRET" not in location
+    assert "RAW_PROVIDER_SECRET" not in caplog.text
+    assert "AUTH_SECRET" not in caplog.text
+    assert "redirect" not in location.lower() or "http://localhost:5173" in location
+
+
+def test_existing_connection_commit_failure_rolls_back_to_database(client_org, admin_user, db):
+    old = GscConnection(org_id=client_org.id, refresh_token="OLD_REFRESH", access_token="OLD_ACCESS",
+                        property_url="https://old.example", connected_by=admin_user.id, status="connected")
+    db.add(old); db.commit()
+    state, payload = new_oauth_state("gsc", admin_user.id, client_org.id)
+    redis = RedisState(payload)
+    original_commit = db.commit
+    def failing_commit():
+        raise RuntimeError("commit sentinel")
+    with patch("app.api.seo_gsc.redis_client", redis), patch("app.services.gsc.exchange_code", return_value={"access_token": "NEW_ACCESS", "refresh_token": "NEW_REFRESH"}), patch("app.services.gsc.list_sites", return_value=[{"siteUrl": "https://example.com"}]), patch.object(db, "commit", side_effect=failing_commit):
+        from app.api.seo_gsc import oauth_callback
+        response = oauth_callback(code="AUTH", state=state, error=None, db=db)
+    db.rollback()
+    from tests.conftest import TestingSessionLocal
+    fresh = TestingSessionLocal()
+    try:
+        saved = fresh.query(GscConnection).filter_by(org_id=client_org.id).one()
+        assert (saved.access_token, saved.refresh_token, saved.property_url) == ("OLD_ACCESS", "OLD_REFRESH", "https://old.example")
+    finally:
+        fresh.close()
+    assert "connection_failed" in response.headers["location"]

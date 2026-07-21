@@ -98,7 +98,7 @@ def oauth_callback(
     try:
         tokens = ga4_svc.exchange_code(code)
     except Exception as exc:
-        logger.warning("GA4 token exchange failed: %s", exc)
+        logger.warning("GA4 token exchange failed: provider_error")
         return RedirectResponse(f"{frontend_base}/seo?ga4_error=token_exchange_failed")
 
     from datetime import datetime, timedelta, timezone
