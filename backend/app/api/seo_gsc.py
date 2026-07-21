@@ -23,6 +23,7 @@ from app.core.scoping import assert_org_access
 from app.database import get_db
 from app.models.gsc_connection import GscConnection
 from app.models.user import User
+from app.services.seo_security import validate_gsc_property
 
 router = APIRouter(prefix="/api/seo/gsc", tags=["seo-gsc"])
 
@@ -211,7 +212,9 @@ def select_property(
     """Set the GSC property URL to track for this org."""
     target_org = _resolve_org(user, db, org_id)
     conn = _conn_or_404(target_org, db)
-    conn.property_url = body.property_url
+    token = gsc_svc.get_valid_token(conn, db)
+    sites = gsc_svc.list_sites(token)
+    conn.property_url = validate_gsc_property(body.property_url, sites)
     db.commit()
     return {"property_url": conn.property_url}
 

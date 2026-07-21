@@ -15,6 +15,7 @@ from app.core.scoping import assert_org_access, get_accessible_org_ids
 from app.database import get_db
 from app.models.ga4_connection import Ga4Connection
 from app.models.user import User
+from app.services.seo_security import validate_ga4_property
 
 logger = logging.getLogger(__name__)
 
@@ -184,8 +185,11 @@ def select_property(
 ):
     target_org = _resolve_org(user, db, org_id)
     conn = _conn_or_404(target_org, db)
-    conn.property_id = body.property_id.replace("properties/", "")
-    conn.property_name = body.property_name
+    token = ga4_svc.get_valid_token(conn, db)
+    properties = ga4_svc.list_properties(token)
+    canonical_id, provider_name = validate_ga4_property(body.property_id, properties)
+    conn.property_id = canonical_id.replace("properties/", "")
+    conn.property_name = provider_name
     db.commit()
     return {"property_id": conn.property_id, "property_name": conn.property_name}
 
