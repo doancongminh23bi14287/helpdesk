@@ -120,4 +120,8 @@ def test_gsc_dashboard_is_bounded_and_scoped(client, admin_token, client_org, db
         response = client.get(f"/api/seo/gsc/dashboard?org_id={client_org.id}&period=7", headers={"Authorization": f"Bearer {admin_token}"})
     assert response.status_code == 200
     assert response.json()["current"]["clicks"] == 10
+    assert response.json()["daily"] == rows
+    assert len(query.call_args_list) == 5
     assert all(call.args[2]["rowLimit"] <= 100 for call in query.call_args_list)
+    assert query.call_args_list[-1].args[2]["dimensions"] == ["date"]
+    assert query.call_args_list[-1].args[2]["rowLimit"] == 7

@@ -87,11 +87,12 @@ def gsc_dashboard(period: int = Query(28, enum=[7, 28, 90]), org_id: Optional[in
         previous = query(previous_start, previous_end, [], 1)
         top_queries = query(current_start, today, ["query"], 100)
         top_pages = query(current_start, today, ["page"], 100)
+        daily = query(current_start, today, ["date"], period)
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=502, detail="GSC provider unavailable")
     return {"org_id": target_org, "property_url": conn.property_url, "period_days": period,
             "current": _gsc_summary(current), "previous": _gsc_summary(previous),
-            "top_queries": top_queries, "top_pages": top_pages,
+            "top_queries": top_queries, "top_pages": top_pages, "daily": daily,
             "generated_at": today.isoformat()}

@@ -15,27 +15,18 @@ describe('useGscData', () => {
   })
 
   it('maps and sorts daily clicks without losing zero-value days', async () => {
-    client.get.mockImplementation((url, config) => {
+    client.get.mockImplementation((url) => {
       if (url === '/seo/gsc/status') {
         return Promise.resolve({ data: { connected: true } })
       }
 
-      if (config.params.dimensions === 'query') {
-        return Promise.resolve({
-          data: {
-            rows: [{
-              keys: ['seo dashboard'],
-              clicks: '7',
-              impressions: '70',
-              position: '3.5',
-            }],
-          },
-        })
-      }
-
       return Promise.resolve({
         data: {
-          rows: [
+          current: { clicks: 9, impressions: 45, ctr: 0.2, average_position: 4 },
+          top_queries: [{
+            keys: ['seo dashboard'], clicks: '7', impressions: '70', position: '3.5',
+          }],
+          daily: [
             { keys: ['2026-07-03'], clicks: '7', impressions: '20', position: '3' },
             { keys: ['2026-07-01'], clicks: 0, impressions: '10', position: '5' },
             { keys: ['2026-07-02'], clicks: '2', impressions: '15', position: '4' },
@@ -59,10 +50,10 @@ describe('useGscData', () => {
       { date: '2026-07-03', clicks: 7 },
     ])
 
-    const dateRequest = client.get.mock.calls.find(
-      ([url, config]) => url === '/seo/gsc/search-analytics' && config.params.dimensions === 'date',
-    )
-    expect(dateRequest[1].params.row_limit).toBe(30)
+    expect(result.current.gscSummary).toMatchObject({
+      clicks: 9, impressions: 45, ctr: 20, avgPosition: 4,
+    })
+    expect(client.get).toHaveBeenCalledWith('/seo/gsc/dashboard', { params: { period: 28 } })
   })
 
   it('keeps production data empty when GSC is disconnected', async () => {

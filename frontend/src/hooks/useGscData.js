@@ -16,13 +16,6 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function toYYYYMMDD(date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 function mapQueryRows(rows) {
   if (!rows || rows.length === 0) return []
   return rows.map((row) => ({
@@ -48,18 +41,17 @@ function mapDateRows(rows) {
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
-function buildSummary(queryRows, dateRows) {
-  const rows = queryRows ?? []
-  const totalClicks      = rows.reduce((sum, row) => sum + toNumber(row.clicks), 0)
-  const totalImpressions = rows.reduce((sum, row) => sum + toNumber(row.impressions), 0)
-  const avgCtr           = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : 0
-  const avgPosition      = rows.length > 0
-    ? (rows.reduce((sum, row) => sum + toNumber(row.position), 0) / rows.length).toFixed(1)
-    : 0
+function mapSummary(current, dateRows) {
   const trend = normalizeTrendData(
     (dateRows ?? []).map(({ date, clicks }) => ({ date, value: clicks })),
   )
-  return { clicks: totalClicks, impressions: totalImpressions, ctr: Number(avgCtr), avgPosition: Number(avgPosition), trend }
+  return {
+    clicks: toNumber(current?.clicks),
+    impressions: toNumber(current?.impressions),
+    ctr: Number((toNumber(current?.ctr) * 100).toFixed(2)),
+    avgPosition: Number(toNumber(current?.average_position).toFixed(1)),
+    trend,
+  }
 }
 
 export function useGscData() {
@@ -89,34 +81,19 @@ export function useGscData() {
 
         setIsConnected(true)
 
-        const today = new Date()
-        const start = new Date(today)
-        start.setDate(today.getDate() - 29)
-        const startStr = toYYYYMMDD(start)
-        const endStr   = toYYYYMMDD(today)
-
-        const [queryRes, dateRes] = await Promise.all([
-          client.get('/seo/gsc/search-analytics', { params: { start_date: startStr, end_date: endStr, dimensions: 'query', row_limit: 10 } }),
-          client.get('/seo/gsc/search-analytics', { params: { start_date: startStr, end_date: endStr, dimensions: 'date',  row_limit: 30 } }),
-        ])
+        const dashboardRes = await client.get('/seo/gsc/dashboard', { params: { period: 28 } })
         if (cancelled) return
-
-        const queryRows = queryRes.data?.rows ?? []
-        const dateRows  = dateRes.data?.rows  ?? []
-
+        const dashboard = dashboardRes.data ?? {}
+        const current = dashboard.current || {}
+        const queryRows = dashboard.top_queries || []
+        const dateRows = mapDateRows(dashboard.daily)
         const mappedKeywords = mapQueryRows(queryRows)
-        const mappedDateRows  = mapDateRows(dateRows)
-        const summary         = buildSummary(queryRows, mappedDateRows)
-
-        // Build a simple date-based rank history for the line chart using clicks as proxy
-        const dateRankHistory = mappedDateRows.map((r) => ({ date: r.date, clicks: r.clicks }))
-
         setUsingRealData(true)
         setGscData({
-          keywords:     mappedKeywords,
-          rankHistory:  dateRankHistory,
+          keywords: mappedKeywords,
+          rankHistory: dateRows.map(({ date, clicks }) => ({ date, clicks })),
           rankKeywords: [{ key: 'clicks', color: '#F59E0B' }],
-          gscSummary:   summary,
+          gscSummary: mapSummary(current, dateRows),
         })
       } catch (err) {
         if (cancelled) return
