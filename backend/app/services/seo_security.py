@@ -1,4 +1,6 @@
 """Shared guards for Google integration callbacks and provider properties."""
+import json
+import secrets
 from fastapi import HTTPException
 
 def validate_oauth_owner(stored_org_id: int, stored_user_id: int, provider: str, expected_provider: str, user, db) -> None:
@@ -20,3 +22,24 @@ def validate_ga4_property(property_id: str, properties: list) -> tuple[str, str]
         if provider_id == candidate:
             return item.get("property", f"properties/{candidate}"), item.get("displayName", "")
     raise HTTPException(status_code=404, detail="GA4 property is not available to this connection")
+
+
+def new_oauth_state(provider: str, user_id: int, org_id: int) -> tuple[str, str]:
+    nonce = secrets.token_urlsafe(32)
+    state = secrets.token_urlsafe(32)
+    payload = json.dumps({"provider": provider, "user_id": user_id, "org_id": org_id, "nonce": nonce}, separators=(",", ":"))
+    return state, payload
+
+
+def consume_oauth_state(redis_client, key: str) -> dict | None:
+    """Atomically consume a Redis state; concurrent callbacks cannot replay it."""
+    raw = redis_client.getdel(key)
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+        if not value.get("provider") or not value.get("nonce"):
+            return None
+        return value
+    except (TypeError, ValueError):
+        return None

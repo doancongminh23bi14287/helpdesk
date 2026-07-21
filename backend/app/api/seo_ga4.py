@@ -15,7 +15,7 @@ from app.core.scoping import assert_org_access, get_accessible_org_ids
 from app.database import get_db
 from app.models.ga4_connection import Ga4Connection
 from app.models.user import User
-from app.services.seo_security import validate_ga4_property
+from app.services.seo_security import validate_ga4_property, new_oauth_state, consume_oauth_state
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ def get_connect_url(
         return {"error": "not_configured", "detail": "GA4 (Google OAuth) client credentials not configured on this server (cần cấu hình ở production)"}
 
     target_org = _resolve_org(user, db, org_id)
-    state = secrets.token_urlsafe(32)
-    redis_client.setex(f"ga4:state:{state}", _STATE_TTL, f"{target_org}:{user.id}")
+    state, state_payload = new_oauth_state("ga4", user.id, target_org)
+    redis_client.setex(f"ga4:state:{state}", _STATE_TTL, state_payload)
 
     from app.services import ga4 as ga4_svc
     url = ga4_svc.build_auth_url(state)
@@ -83,16 +83,16 @@ def oauth_callback(
     if error or not code or not state:
         return RedirectResponse(f"{frontend_base}/seo?ga4_error={error or 'missing_params'}")
 
-    stored = redis_client.get(f"ga4:state:{state}")
-    if not stored:
+    stored = consume_oauth_state(redis_client, f"ga4:state:{state}")
+    if not stored or stored.get("provider") != "ga4":
         return RedirectResponse(f"{frontend_base}/seo?ga4_error=invalid_state")
-    redis_client.delete(f"ga4:state:{state}")
-
+    org_id, user_id = int(stored["org_id"]), int(stored["user_id"])
+    callback_user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not callback_user:
+        return RedirectResponse(f"{frontend_base}/seo?ga4_error=invalid_state")
     try:
-        org_id_raw, user_id_raw = stored.split(":", 1)
-        org_id = int(org_id_raw)
-        user_id = int(user_id_raw)
-    except (AttributeError, TypeError, ValueError):
+        assert_org_access(org_id, callback_user, db)
+    except HTTPException:
         return RedirectResponse(f"{frontend_base}/seo?ga4_error=invalid_state")
     from app.services import ga4 as ga4_svc
     try:

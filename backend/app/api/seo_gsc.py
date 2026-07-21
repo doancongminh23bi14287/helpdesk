@@ -23,7 +23,7 @@ from app.core.scoping import assert_org_access
 from app.database import get_db
 from app.models.gsc_connection import GscConnection
 from app.models.user import User
-from app.services.seo_security import validate_gsc_property
+from app.services.seo_security import validate_gsc_property, new_oauth_state, consume_oauth_state
 
 router = APIRouter(prefix="/api/seo/gsc", tags=["seo-gsc"])
 
@@ -77,8 +77,8 @@ def get_connect_url(
         return {"error": "not_configured", "detail": "GSC_CLIENT_ID / GSC_CLIENT_SECRET not configured (cần cấu hình ở production)"}
 
     target_org = _resolve_org(user, db, org_id)
-    state = secrets.token_urlsafe(32)
-    redis_client.setex(f"gsc_state:{state}", _STATE_TTL, f"{target_org}:{user.id}")
+    state, state_payload = new_oauth_state("gsc", user.id, target_org)
+    redis_client.setex(f"gsc_state:{state}", _STATE_TTL, state_payload)
 
     url = gsc_svc.build_auth_url(state)
     return {"url": url, "org_id": target_org}
@@ -103,16 +103,16 @@ def oauth_callback(
     if error or not code or not state:
         return RedirectResponse(url=f"{frontend_seo}?gsc_error={error or 'cancelled'}")
 
-    stored = redis_client.get(f"gsc_state:{state}")
-    if not stored:
+    stored = consume_oauth_state(redis_client, f"gsc_state:{state}")
+    if not stored or stored.get("provider") != "gsc":
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
-    redis_client.delete(f"gsc_state:{state}")
-
+    org_id, user_id = int(stored["org_id"]), int(stored["user_id"])
+    callback_user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not callback_user:
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
     try:
-        val = stored.decode() if isinstance(stored, bytes) else stored
-        org_id_s, user_id_s = val.split(":")
-        org_id, user_id = int(org_id_s), int(user_id_s)
-    except Exception:
+        assert_org_access(org_id, callback_user, db)
+    except HTTPException:
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
 
     try:
