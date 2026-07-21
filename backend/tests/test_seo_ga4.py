@@ -139,16 +139,20 @@ def test_staff_cannot_select_unassigned_org(
 
 def test_callback_records_connecting_user(client, admin_user, client_org, db):
     from app.core.redis_client import redis_client
+    from app.services.seo_security import new_oauth_state
 
-    state = "ga4-callback-test-state"
-    redis_client.setex(f"ga4:state:{state}", 600, f"{client_org.id}:{admin_user.id}")
+    state, payload = new_oauth_state("ga4", admin_user.id, client_org.id)
+    redis_client.setex(f"ga4:state:{state}", 600, payload)
     tokens = {
         "refresh_token": "refresh-token",
         "access_token": "access-token",
         "expires_in": 3600,
     }
 
-    with patch("app.services.ga4.exchange_code", return_value=tokens):
+    with patch("app.services.ga4.exchange_code", return_value=tokens), patch(
+        "app.services.ga4.list_properties",
+        return_value=[{"property": "properties/123", "displayName": "Example"}],
+    ):
         response = client.get(
             f"/api/seo/ga4/callback?code=test-code&state={state}",
             follow_redirects=False,

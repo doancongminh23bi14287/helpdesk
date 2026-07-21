@@ -220,6 +220,8 @@ def select_property(
     db: Session = Depends(get_db),
 ):
     """Set the GSC property URL to track for this org."""
+    from app.services import gsc as gsc_svc
+
     target_org = _resolve_org(user, db, org_id)
     conn = _conn_or_404(target_org, db)
     token = gsc_svc.get_valid_token(conn, db)
