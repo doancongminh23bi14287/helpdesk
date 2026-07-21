@@ -25,10 +25,18 @@ def main():
     prefix = os.getenv("LOAD_TEST_PREFIX", "LOADTEST-")
     if not token or not org_id or not prefix.startswith("LOADTEST-"):
         raise SystemExit("LOAD_TEST_ADMIN_TOKEN, LOAD_TEST_ORG_ID and LOADTEST- prefix are required")
-    status, payload = request_json(f"{base}/api/tickets?org_id={int(org_id)}", token)
+    status, payload = request_json(f"{base}/api/tickets?org_id={int(org_id)}&per_page=100&page=1", token)
     if status != 200:
         raise SystemExit(f"ticket listing failed: HTTP {status}")
     items = payload if isinstance(payload, list) else payload.get("items", [])
+    if isinstance(payload, dict):
+        for page in range(2, int(payload.get("pages", 1)) + 1):
+            page_status, page_payload = request_json(
+                f"{base}/api/tickets?org_id={int(org_id)}&per_page=100&page={page}", token
+            )
+            if page_status != 200:
+                raise SystemExit(f"ticket page {page} failed: HTTP {page_status}")
+            items.extend(page_payload.get("items", []))
     ids = sorted(
         int(item["id"]) for item in items
         if str(item.get("subject", "")).startswith(prefix)
