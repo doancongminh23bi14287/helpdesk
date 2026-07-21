@@ -73,6 +73,26 @@ def send_email(
         return None
 
 
+def send_gmail_test_email(db: Session, to: str) -> str:
+    """Send a direct Gmail-only test message to verify OAuth delivery."""
+    if not config.EMAIL_FEATURES_ENABLED:
+        raise RuntimeError("Email delivery is disabled by runtime configuration")
+    recipient = _sanitize_header_value(to, "recipient")
+    if not (_GMAIL_CLIENT_ID and (_get_db_gmail_credential(db) or _GMAIL_REFRESH_TOKEN)):
+        raise RuntimeError("No Gmail credential is available; reconnect Gmail first")
+    sender_domain = config.SMTP_FROM_EMAIL.rsplit("@", 1)[-1] or "localhost"
+    message_id = f"<{uuid.uuid4()}@{sender_domain}>"
+    _send_via_gmail(
+        recipient,
+        "Helpdesk Gmail test",
+        "<p>This is a Gmail delivery test from Helpdesk.</p>",
+        "This is a Gmail delivery test from Helpdesk.",
+        message_id,
+        db,
+    )
+    return message_id
+
+
 def _send_via_gmail(to, subject, body_html, body_text, message_id, db=None):
     import base64
     from email.mime.multipart import MIMEMultipart

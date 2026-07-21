@@ -11,3 +11,6 @@ export const getEmailOAuthStatus = () =>
 
 export const getEmailOAuthConnectUrl = () =>
   client.get('/admin/email-oauth/connect').then(r => r.data)
+
+export const sendEmailOAuthTest = () =>
+  client.post('/admin/email-oauth/test').then(r => r.data)

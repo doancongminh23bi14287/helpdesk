@@ -4,6 +4,7 @@ import {
   getEmailOAuthStatus,
   listEmailOutbox,
   retryEmailOutbox,
+  sendEmailOAuthTest,
 } from '@/api/emailOutbox'
 import {
   Button,
@@ -38,6 +39,7 @@ export default function EmailOutboxPage() {
   const [loading, setLoading] = useState(true)
   const [oauth, setOauth] = useState(null)
   const [connecting, setConnecting] = useState(false)
+  const [testing, setTesting] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [retrying, setRetrying] = useState(null)
@@ -81,6 +83,21 @@ export default function EmailOutboxPage() {
     }
   }
 
+  const testGmail = async () => {
+    setTesting(true)
+    setError('')
+    setNotice('')
+    try {
+      const data = await sendEmailOAuthTest()
+      setNotice(`Test email sent to ${data.recipient}`)
+      await load()
+    } catch (err) {
+      setError(err?.response?.data?.detail ?? 'Could not send Gmail test email')
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const retry = async (row) => {
     setRetrying(row.id)
     setError('')
@@ -105,6 +122,9 @@ export default function EmailOutboxPage() {
           <span className={`text-xs font-medium ${oauth?.connected ? 'text-emerald-600' : 'text-amber-600'}`}>{oauth?.connected ? 'Gmail connected' : 'Gmail needs reconnecting'}</span>
           <button onClick={connectGmail} disabled={connecting} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
             {connecting ? 'Connecting…' : 'Reconnect Gmail'}
+          </button>
+          <button onClick={testGmail} disabled={testing} className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-60">
+            {testing ? 'Testing…' : 'Send Gmail test'}
           </button>
           <button onClick={load} className="px-3 py-2 rounded-lg border border-input text-sm font-medium hover:bg-muted">Refresh</button>
         </div>

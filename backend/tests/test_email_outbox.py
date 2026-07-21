@@ -192,6 +192,26 @@ def test_admin_can_retry_failed_email_outbox(client, admin_token, db):
     assert outbox.status == "pending"
 
 
+def test_admin_can_send_gmail_test_email(client, admin_token, db, monkeypatch):
+    from app.services import email_sender
+
+    def _fake_test_email(db_session, recipient):
+        assert recipient.endswith("@test.com")
+        return "<test-message@example.com>"
+
+    monkeypatch.setattr(email_sender, "send_gmail_test_email", _fake_test_email)
+
+    r = client.post(
+        "/api/admin/email-oauth/test",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["message_id"] == "<test-message@example.com>"
+
+
 def test_outbox_task_retries_on_smtp_failure(db):
     """
     When send_email() fails (returns None), the record is rescheduled

@@ -54,6 +54,28 @@ def email_oauth_connect(
     return {"url": build_auth_url(state)}
 
 
+class GmailTestResponse(BaseModel):
+    ok: bool
+    recipient: str
+    message_id: str
+
+
+@router.post("/email-oauth/test", response_model=GmailTestResponse)
+def email_oauth_test(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    from app.services.email_sender import send_gmail_test_email
+
+    if not user.email:
+        raise HTTPException(status_code=400, detail="Current admin user has no email address")
+    try:
+        message_id = send_gmail_test_email(db, user.email)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"ok": True, "recipient": user.email, "message_id": message_id}
+
+
 @router.post("/email/poll")
 @limiter.limit(config.RATE_LIMIT_ADMIN_EMAIL_POLL)
 def manual_email_poll(
