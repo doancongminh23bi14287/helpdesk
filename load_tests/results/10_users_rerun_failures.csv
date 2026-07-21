@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,/api/tickets,HTTPError('429 Client Error: Too Many Requests for url: /api/tickets'),125,2026-07-21T03:16:59Z,2026-07-21T03:21:12Z

@@ -29,6 +29,8 @@ def build_auth_url(state: str) -> str:
 
 
 def exchange_code(code: str) -> dict:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     resp = httpx.post(_GOOGLE_TOKEN_URL, data={
         "code": code,
         "client_id": config.GSC_CLIENT_ID,
@@ -41,6 +43,8 @@ def exchange_code(code: str) -> dict:
 
 
 def refresh_access_token(conn) -> str:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     resp = httpx.post(_GOOGLE_TOKEN_URL, data={
         "refresh_token": decrypt_secret(conn.refresh_token) or "",
         "client_id": config.GSC_CLIENT_ID,
@@ -70,6 +74,8 @@ def get_valid_token(conn, db) -> str:
 
 
 def list_properties(access_token: str) -> list:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     """Return list of GA4 properties from accountSummaries."""
     resp = httpx.get(
         _GA4_ADMIN_URL,
@@ -90,6 +96,8 @@ def list_properties(access_token: str) -> list:
 
 
 def run_report(access_token: str, property_id: str, payload: dict) -> dict:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     """Run a GA4 Data API report."""
     url = f"{_GA4_DATA_URL}/{property_id}:runReport"
     resp = httpx.post(
@@ -106,6 +114,8 @@ def run_report(access_token: str, property_id: str, payload: dict) -> dict:
 
 
 def revoke_token(token: str) -> None:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        return
     try:
         httpx.post(_GOOGLE_REVOKE_URL, params={"token": token}, timeout=5)
     except Exception:

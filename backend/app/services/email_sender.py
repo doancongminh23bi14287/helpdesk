@@ -37,6 +37,9 @@ def send_email(
     Returns a unique Message-ID on success, None on failure.
     Logs result to email_log table if db is provided.
     """
+    if not config.EMAIL_FEATURES_ENABLED:
+        logger.info("Email delivery suppressed by runtime configuration")
+        return None
     log_subject = (subject or "").replace("\r", " ").replace("\n", " ")
     log_to = (to or "").replace("\r", " ").replace("\n", " ")
     try:

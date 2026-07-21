@@ -27,6 +27,7 @@ from app.api.analytics import router as analytics_router
 from app.api.ai import router as ai_router
 from app.api.seo_gsc import router as seo_gsc_router
 from app.api.seo_ga4 import router as seo_ga4_router
+from app.api.seo_workflow import router as seo_workflow_router
 from app.config import settings, validate_production_config
 
 validate_production_config()
@@ -179,6 +180,7 @@ app.include_router(analytics_router)
 app.include_router(ai_router)
 app.include_router(seo_gsc_router)
 app.include_router(seo_ga4_router)
+app.include_router(seo_workflow_router)
 app.include_router(projects.router)
 app.include_router(projects.task_router)
 

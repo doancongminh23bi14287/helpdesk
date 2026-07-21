@@ -23,6 +23,7 @@ from app.core.scoping import assert_org_access
 from app.database import get_db
 from app.models.gsc_connection import GscConnection
 from app.models.user import User
+from app.services.seo_security import validate_gsc_property, new_oauth_state, consume_oauth_state
 
 router = APIRouter(prefix="/api/seo/gsc", tags=["seo-gsc"])
 
@@ -76,8 +77,8 @@ def get_connect_url(
         return {"error": "not_configured", "detail": "GSC_CLIENT_ID / GSC_CLIENT_SECRET not configured (cần cấu hình ở production)"}
 
     target_org = _resolve_org(user, db, org_id)
-    state = secrets.token_urlsafe(32)
-    redis_client.setex(f"gsc_state:{state}", _STATE_TTL, f"{target_org}:{user.id}")
+    state, state_payload = new_oauth_state("gsc", user.id, target_org)
+    redis_client.setex(f"gsc_state:{state}", _STATE_TTL, state_payload)
 
     url = gsc_svc.build_auth_url(state)
     return {"url": url, "org_id": target_org}
@@ -102,16 +103,16 @@ def oauth_callback(
     if error or not code or not state:
         return RedirectResponse(url=f"{frontend_seo}?gsc_error={error or 'cancelled'}")
 
-    stored = redis_client.get(f"gsc_state:{state}")
-    if not stored:
+    stored = consume_oauth_state(redis_client, f"gsc_state:{state}")
+    if not stored or stored.get("provider") != "gsc":
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
-    redis_client.delete(f"gsc_state:{state}")
-
+    org_id, user_id = int(stored["org_id"]), int(stored["user_id"])
+    callback_user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not callback_user:
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
     try:
-        val = stored.decode() if isinstance(stored, bytes) else stored
-        org_id_s, user_id_s = val.split(":")
-        org_id, user_id = int(org_id_s), int(user_id_s)
-    except Exception:
+        assert_org_access(org_id, callback_user, db)
+    except HTTPException:
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_state")
 
     try:
@@ -120,17 +121,23 @@ def oauth_callback(
         return RedirectResponse(url=f"{frontend_seo}?gsc_error=token_exchange_failed")
 
     refresh_token = tokens.get("refresh_token")
-    if not refresh_token:
-        return RedirectResponse(url=f"{frontend_seo}?gsc_error=no_refresh_token")
-
     access_token = tokens.get("access_token")
+    if not access_token:
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=invalid_token_response")
+    try:
+        provider_sites = gsc_svc.list_sites(access_token)
+        if not provider_sites:
+            return RedirectResponse(url=f"{frontend_seo}?gsc_error=no_verified_property")
+    except Exception:
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=property_validation_failed")
     expires_in = int(tokens.get("expires_in", 3600))
     expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=expires_in)
 
     conn = db.query(GscConnection).filter(GscConnection.org_id == org_id).first()
     from app.core.token_crypto import encrypt_secret
     if conn:
-        conn.refresh_token = encrypt_secret(refresh_token)
+        if refresh_token:
+            conn.refresh_token = encrypt_secret(refresh_token)
         conn.access_token = encrypt_secret(access_token)
         conn.token_expiry = expiry
         conn.connected_by = user_id
@@ -145,7 +152,11 @@ def oauth_callback(
             status="connected",
         )
         db.add(conn)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url=f"{frontend_seo}?gsc_error=connection_failed")
 
     return RedirectResponse(url=f"{frontend_seo}?gsc_connected=1")
 
@@ -209,9 +220,13 @@ def select_property(
     db: Session = Depends(get_db),
 ):
     """Set the GSC property URL to track for this org."""
+    from app.services import gsc as gsc_svc
+
     target_org = _resolve_org(user, db, org_id)
     conn = _conn_or_404(target_org, db)
-    conn.property_url = body.property_url
+    token = gsc_svc.get_valid_token(conn, db)
+    sites = gsc_svc.list_sites(token)
+    conn.property_url = validate_gsc_property(body.property_url, sites)
     db.commit()
     return {"property_url": conn.property_url}
 

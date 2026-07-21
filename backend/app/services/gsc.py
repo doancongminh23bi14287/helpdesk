@@ -36,6 +36,8 @@ def build_auth_url(state: str) -> str:
 
 
 def exchange_code(code: str) -> dict:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     """Exchange an authorization code for access + refresh tokens.
 
     Returns the raw token dict from Google. NEVER log this dict.
@@ -53,6 +55,8 @@ def exchange_code(code: str) -> dict:
 
 
 def refresh_access_token(conn) -> str:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     """Refresh the access token and update conn in-place (caller must commit).
 
     Returns the new access_token string. NEVER log it.
@@ -91,6 +95,8 @@ def get_valid_token(conn, db) -> str:
 
 
 def list_sites(access_token: str) -> list:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     """Return list of verified GSC site entries for the connected account."""
     resp = httpx.get(
         _GSC_SITES_URL,
@@ -102,6 +108,8 @@ def list_sites(access_token: str) -> list:
 
 
 def query_search_analytics(access_token: str, site_url: str, payload: dict) -> dict:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        raise RuntimeError("Google integrations disabled by runtime configuration")
     """Run a searchAnalytics.query request and return the raw GSC response."""
     url = f"{_GSC_SA_BASE}/{quote(site_url, safe='')}/searchAnalytics/query"
     resp = httpx.post(
@@ -118,6 +126,8 @@ def query_search_analytics(access_token: str, site_url: str, payload: dict) -> d
 
 
 def revoke_token(token: str) -> None:
+    if not config.GOOGLE_INTEGRATIONS_ENABLED:
+        return
     """Revoke a Google OAuth token (best-effort; errors are silently ignored)."""
     token = decrypt_secret(token) or token
     try:

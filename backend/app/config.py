@@ -37,6 +37,15 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+LOAD_TEST_MODE: bool = _env_bool("LOAD_TEST_MODE", False)
+ALLOW_LOAD_TEST: bool = _env_bool("ALLOW_LOAD_TEST", False)
+LOAD_TEST_KEY: str = os.getenv("LOAD_TEST_KEY", "")
+LOAD_TEST_ORG_ID: int | None = int(os.getenv("LOAD_TEST_ORG_ID")) if os.getenv("LOAD_TEST_ORG_ID") else None
+AI_ENABLED: bool = _env_bool("AI_ENABLED", _env_bool("AI_FEATURES_ENABLED", False))
+EMAIL_SENDING_ENABLED: bool = _env_bool("EMAIL_SENDING_ENABLED", _env_bool("EMAIL_FEATURES_ENABLED", False))
+EMAIL_POLLING_ENABLED: bool = _env_bool("EMAIL_POLLING_ENABLED", EMAIL_SENDING_ENABLED)
+GOOGLE_INTEGRATIONS_ENABLED: bool = _env_bool("GOOGLE_INTEGRATIONS_ENABLED", True) and not LOAD_TEST_MODE
+PAYMENT_INTEGRATIONS_ENABLED: bool = _env_bool("PAYMENT_INTEGRATIONS_ENABLED", True) and not LOAD_TEST_MODE
 
 
 # True when running under pytest (in-process detection only — not overridable via env var).
@@ -52,7 +61,7 @@ _frontend_origin = _origin_from_url(FRONTEND_URL)
 CORS_ORIGINS: list[str] = list(dict.fromkeys(
     _configured_cors_origins + ([_frontend_origin] if _frontend_origin else [])
 ))
-EMAIL_FEATURES_ENABLED: bool = _env_bool("EMAIL_FEATURES_ENABLED", False)
+EMAIL_FEATURES_ENABLED: bool = EMAIL_SENDING_ENABLED and not LOAD_TEST_MODE
 
 IMAP_HOST: str = os.getenv("IMAP_HOST", "mail.example.com")
 IMAP_PORT: int = int(os.getenv("IMAP_PORT", "993"))
@@ -86,7 +95,7 @@ STORAGE_BACKEND: str = os.getenv("STORAGE_BACKEND", "local")
 
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 TOKEN_ENCRYPTION_KEY: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")
-AI_FEATURES_ENABLED: bool = _env_bool("AI_FEATURES_ENABLED", False)
+AI_FEATURES_ENABLED: bool = AI_ENABLED and not LOAD_TEST_MODE
 AI_MODEL: str = os.getenv("AI_MODEL", "llama-3.1-8b-instant")
 AI_ASSIGNMENT_REEVALUATION_ENABLED: bool = _env_bool(
     "AI_ASSIGNMENT_REEVALUATION_ENABLED", True
@@ -103,6 +112,7 @@ AI_ASSIGNMENT_MAX_TICKET_AGE_MINUTES: int = int(
 AI_ASSIGNMENT_REEVALUATION_MODE: str = os.getenv(
     "AI_ASSIGNMENT_REEVALUATION_MODE", "suggest"
 ).strip().lower()
+
 
 # ── Google Search Console OAuth ───────────────────────────────────────────────
 GSC_CLIENT_ID: str = os.getenv("GSC_CLIENT_ID", "")
@@ -122,6 +132,15 @@ RATE_LIMIT_OTP_RESET: str = os.getenv("RATE_LIMIT_OTP_RESET", "5/minute")
 # Convenience object for callers that prefer attribute-style access.
 settings = types.SimpleNamespace(
     ENV=ENV,
+    LOAD_TEST_MODE=LOAD_TEST_MODE,
+    ALLOW_LOAD_TEST=ALLOW_LOAD_TEST,
+    LOAD_TEST_KEY=LOAD_TEST_KEY,
+    LOAD_TEST_ORG_ID=LOAD_TEST_ORG_ID,
+    AI_ENABLED=AI_ENABLED,
+    EMAIL_SENDING_ENABLED=EMAIL_SENDING_ENABLED,
+    EMAIL_POLLING_ENABLED=EMAIL_POLLING_ENABLED,
+    GOOGLE_INTEGRATIONS_ENABLED=GOOGLE_INTEGRATIONS_ENABLED,
+    PAYMENT_INTEGRATIONS_ENABLED=PAYMENT_INTEGRATIONS_ENABLED,
     CORS_ORIGINS=CORS_ORIGINS,
     FRONTEND_URL=FRONTEND_URL,
     EMAIL_FEATURES_ENABLED=EMAIL_FEATURES_ENABLED,
@@ -174,6 +193,12 @@ def validate_production_config() -> None:
     """Raise ValueError at process startup if env has insecure or missing config."""
     if TESTING:
         return
+    if ENV == "production" and LOAD_TEST_MODE:
+        raise ValueError("FATAL: LOAD_TEST_MODE cannot be enabled in production.")
+    if LOAD_TEST_MODE and not ALLOW_LOAD_TEST:
+        raise ValueError("FATAL: LOAD_TEST_MODE requires ALLOW_LOAD_TEST=true.")
+    if LOAD_TEST_MODE and (not LOAD_TEST_KEY or LOAD_TEST_ORG_ID is None):
+        raise ValueError("FATAL: load-test mode requires LOAD_TEST_KEY and LOAD_TEST_ORG_ID.")
     _insecure_defaults = {"changeme", "dev-secret-change-in-production"}
     if not JWT_SECRET or JWT_SECRET in _insecure_defaults:
         raise ValueError(

@@ -211,11 +211,15 @@ def test_list_properties_mocked(client, admin_token, client_org, gsc_conn):
 # ── /property POST ────────────────────────────────────────────────────────────
 
 def test_select_property(client, admin_token, client_org, gsc_conn):
-    r = client.post(
-        f"/api/seo/gsc/property?org_id={client_org.id}",
-        json={"property_url": "sc-domain:example.com"},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
+    with patch("app.services.gsc.get_valid_token", return_value="fake-token"), patch(
+        "app.services.gsc.list_sites",
+        return_value=[{"siteUrl": "sc-domain:example.com"}],
+    ):
+        r = client.post(
+            f"/api/seo/gsc/property?org_id={client_org.id}",
+            json={"property_url": "sc-domain:example.com"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
     assert r.status_code == 200
     assert r.json()["property_url"] == "sc-domain:example.com"
 
@@ -243,9 +247,11 @@ def test_callback_missing_code_redirects(client):
 def test_callback_valid_state_creates_connection(client, db, client_org, admin_user):
     """Valid state in Redis → token exchange → connection created in DB."""
     from app.core.redis_client import redis_client
+    from app.core.token_crypto import decrypt_secret
+    from app.services.seo_security import new_oauth_state
 
-    state = "test-valid-state-12345"
-    redis_client.setex(f"gsc_state:{state}", 600, f"{client_org.id}:{admin_user.id}")
+    state, payload = new_oauth_state("gsc", admin_user.id, client_org.id)
+    redis_client.setex(f"gsc_state:{state}", 600, payload)
 
     mock_tokens = {
         "access_token": "new-access-token",
@@ -253,7 +259,10 @@ def test_callback_valid_state_creates_connection(client, db, client_org, admin_u
         "expires_in": 3600,
     }
 
-    with patch("app.services.gsc.exchange_code", return_value=mock_tokens):
+    with patch("app.services.gsc.exchange_code", return_value=mock_tokens), patch(
+        "app.services.gsc.list_sites",
+        return_value=[{"siteUrl": "sc-domain:example.com"}],
+    ):
         r = client.get(
             f"/api/seo/gsc/callback?code=valid-code&state={state}",
             follow_redirects=False,
@@ -264,7 +273,7 @@ def test_callback_valid_state_creates_connection(client, db, client_org, admin_u
 
     conn = db.query(GscConnection).filter(GscConnection.org_id == client_org.id).first()
     assert conn is not None
-    assert conn.refresh_token == "new-refresh-token"
+    assert decrypt_secret(conn.refresh_token) == "new-refresh-token"
     assert conn.status == "connected"
 
 
